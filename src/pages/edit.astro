@@ -1,0 +1,80 @@
+---
+import Base from '../layouts/Base.astro';
+---
+<Base title="Edit your hub">
+  <main class="edit" id="edit-root">
+    <p class="loading">Loading edit form…</p>
+  </main>
+</Base>
+
+<script>
+  // v0.1 stub. Phase 3 of the spec wires up the full admin: hub fields,
+  // transformation list with add/edit/delete, photo upload, time-series
+  // paste box, link/QR panel. For now we just confirm the token is valid
+  // by reading the hub row, then surface the public URL + a placeholder.
+  import { fetchHubBySlug } from '../lib/supabase.js';
+
+  const root = document.getElementById('edit-root')!;
+  const base = import.meta.env.BASE_URL;
+  const params = new URLSearchParams(window.location.search);
+  const slug = params.get('slug');
+  const key = params.get('key');
+
+  function escapeHtml(s: unknown): string {
+    return String(s ?? '').replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
+    );
+  }
+
+  if (!slug || !key) {
+    root.innerHTML = '<p class="loading err">Missing slug or key. Use the edit URL you saved at Build time.</p>';
+  } else {
+    (async () => {
+      try {
+        const hub = await fetchHubBySlug(slug);
+        if (!hub) {
+          root.innerHTML = '<p class="loading err">Hub not found.</p>';
+          return;
+        }
+        // Real token verification happens server-side on save (Edge Function).
+        // For the stub, we just show the hub fields read-only.
+        root.innerHTML = `
+          <h1>Edit · ${escapeHtml(hub.name)}</h1>
+          <p class="hint">v0.1 stub. The admin form ships in Phase 3 of the spec.</p>
+          <ul class="meta">
+            <li><strong>Hub name:</strong> ${escapeHtml(hub.name)}</li>
+            <li><strong>Host line:</strong> ${escapeHtml(hub.host_line || '—')}</li>
+            <li><strong>Accent:</strong> <span class="swatch" style="background:${escapeHtml(hub.accent_color)}"></span> ${escapeHtml(hub.accent_color)}</li>
+          </ul>
+          <p>Public URL: <a href="${base}h?slug=${encodeURIComponent(slug)}">${base}h?slug=${escapeHtml(slug)}</a></p>
+        `;
+      } catch (err) {
+        root.innerHTML = `<p class="loading err">${escapeHtml((err as Error).message)}</p>`;
+      }
+    })();
+  }
+</script>
+
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    background: #1a252f; color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    margin: 0;
+  }
+  body { padding: 30px 18px 60px; }
+  main.edit { max-width: 540px; margin: 0 auto; }
+  h1 { font-size: 24px; margin-bottom: 6px; }
+  p.hint { color: #95a5a6; font-size: 13px; margin-bottom: 18px; }
+  .meta { list-style: none; padding: 0; margin: 14px 0; }
+  .meta li {
+    padding: 8px 12px; background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 6px;
+    margin-bottom: 8px; font-size: 14px;
+  }
+  .meta strong { color: #f39c12; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin-right: 8px; }
+  .swatch { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: middle; }
+  a { color: #f39c12; }
+  .loading { color: #95a5a6; text-align: center; padding: 40px 0; font-size: 14px; }
+  .loading.err { color: #e74c3c; }
+</style>

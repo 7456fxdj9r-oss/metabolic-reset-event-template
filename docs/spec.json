@@ -1,0 +1,324 @@
+{
+  "_meta": {
+    "purpose": "Self-contained handoff spec for the coach-hub-template project. Drop this into a fresh chat / new project and the agent can pick up scaffolding without re-deriving the architecture.",
+    "spec_version": "1.0",
+    "created": "2026-05-03",
+    "status": "Design complete, ready for Phase 0 decisions then code"
+  },
+
+  "project": {
+    "working_name": "coach-hub-template",
+    "tagline": "A plug-and-play mobile transformation hub for fitness/wellness coaches.",
+    "elevator_pitch": "Like Linktree, but for fitness coaches. End user fills a form, clicks Build, gets a shareable URL with their own branded before/after stories and a dual-axis biometric chart that auto-renders from pasted-in data. Audience scans a QR, sees the coach's hub on their phone.",
+    "stage": "v0.1 MVP scoping complete. No code written yet."
+  },
+
+  "origin_project": {
+    "name": "Spokane Metabolic Momentum",
+    "role": "Reference implementation. One-off event app, complete and live.",
+    "repo": "https://github.com/7456fxdj9r-oss/Spokane-MREvent",
+    "live": "https://7456fxdj9r-oss.github.io/Spokane-MREvent/",
+    "user_directive": "Leave it alone. Treat as reference only. Build new template as a separate project / repo.",
+    "lift_verbatim": [
+      {
+        "asset": "Dual-axis chart engine (drawMultiChart)",
+        "source_files": ["cearra.html", "kolby.html"],
+        "approx_lines": "drawMultiChart function, ~150 lines",
+        "characteristics": "Vanilla SVG. Dual y-axis (lb left, % right). End-of-line value labels in series color with collision avoidance. Auto-snap-to-nice axis values (50s/25s for lb, 5s for %)."
+      },
+      {
+        "asset": "Story page styling + layout",
+        "source_files": ["cearra.html / kolby.html <style> blocks"],
+        "characteristics": "Mobile-first (max-width 540px). Dark theme bg #1a252f, orange accent #f39c12. Photo grid -> headline stat cards -> chart card -> takeaway. Already collision-tested on real phones."
+      },
+      {
+        "asset": "Time-series data shape",
+        "shape": "Three series per transformation: weight (lb), bf (%), lean (lb). Each is array of [date_string, value] pairs."
+      }
+    ]
+  },
+
+  "architectural_decisions": {
+    "path": "C - JSON-driven static site with simple admin form",
+    "rejected": {
+      "A": "Template + git fork — too technical for non-developer coaches",
+      "B": "Full SaaS — too heavy, too much ongoing burden, not zero-cost"
+    },
+    "auth": {
+      "model": "NONE. Edit-token URLs.",
+      "pattern": "On Build, server generates a public slug AND a secret edit_token. Hub gets two URLs: a public read-only one (audience-facing) and a private edit one containing the token. Anyone with the edit URL can edit; anyone without can't. Pattern is proven by Pastebin, Imgur anonymous, etc.",
+      "rationale": "Coaches won't sign up. Plug-and-play means zero-friction. Edit-token UX is strictly better than email/password for this use case."
+    },
+    "cost_target": "$0 / month at small-to-moderate scale (tens of coaches, hundreds of audience scans per event)"
+  },
+
+  "tech_stack": {
+    "frontend_framework": "Astro",
+    "frontend_framework_rationale": "Static-first, compatible with free hosting, supports interactive 'islands' for the admin UI without going SPA-heavy",
+    "frontend_hosting": "Cloudflare Pages (preferred) or GitHub Pages",
+    "database": "Supabase Postgres (free tier 500MB)",
+    "file_storage": "Supabase Storage (free tier 1GB)",
+    "abuse_prevention": "Cloudflare Turnstile (invisible CAPTCHA) on the Build form",
+    "optional_email_service": "Resend (3000/mo free) — only used if coach opts into edit-link recovery email",
+    "client_libs": ["qrcode.js (QR generation)", "browser-image-compression (client-side photo resize before upload)"],
+    "estimated_monthly_cost": "$0 at small/moderate scale"
+  },
+
+  "mvp_scope_v0_1": {
+    "in": [
+      "Anonymous fill-form-and-Build flow",
+      "Hub: name, host_line, accent_color",
+      "N transformations per hub: name, before/after photos, before/after dates, paste-in weight/bf/lean time-series",
+      "Public hub URL: /h/{slug} — branded landing with story cards",
+      "Public transformation URL: /h/{slug}/{transformation-slug} — photos + dual-axis chart",
+      "Edit URL: /edit/{slug}?key={token} — returns coach to the admin form",
+      "QR-download buttons (client-side generated)",
+      "Optional email field for edit-link recovery"
+    ],
+    "out_for_v0_1": [
+      "Raffle (defer to v0.2 once core validated; raffle is hardest piece)",
+      "Speaker presentation deck",
+      "TV slide rendering",
+      "Lead capture / apprentice opt-in",
+      "Multiple hubs per coach",
+      "Custom domains per coach",
+      "Stripe / paid plans",
+      "Per-coach color palettes (use single brand palette in v0.1; let coach pick accent_color only)"
+    ]
+  },
+
+  "database_schema": {
+    "tables": [
+      {
+        "name": "hubs",
+        "columns": [
+          { "name": "id",           "type": "uuid",         "pk": true,    "default": "gen_random_uuid()" },
+          { "name": "slug",         "type": "text",         "unique": true, "note": "Public-facing URL piece. Lowercase, dashes." },
+          { "name": "edit_token",   "type": "text",         "note": "Long random secret. Server-generated. Required for any write." },
+          { "name": "name",         "type": "text" },
+          { "name": "host_line",    "type": "text",         "example": "Hosted by Melissa & Jon's Team" },
+          { "name": "accent_color", "type": "text",         "default": "#f39c12" },
+          { "name": "email",        "type": "text",         "nullable": true, "note": "Optional. Only for edit-link recovery." },
+          { "name": "created_at",   "type": "timestamptz",  "default": "now()" }
+        ]
+      },
+      {
+        "name": "transformations",
+        "columns": [
+          { "name": "id",                       "type": "uuid",   "pk": true,                  "default": "gen_random_uuid()" },
+          { "name": "hub_id",                   "type": "uuid",   "fk": "hubs.id",             "on_delete": "CASCADE" },
+          { "name": "slug",                     "type": "text",   "note": "Unique within hub" },
+          { "name": "name",                     "type": "text" },
+          { "name": "before_photo_url",         "type": "text",   "nullable": true },
+          { "name": "after_photo_url",          "type": "text",   "nullable": true },
+          { "name": "before_date",              "type": "date" },
+          { "name": "after_date",               "type": "date" },
+          { "name": "headline_lb_loss",         "type": "numeric", "nullable": true },
+          { "name": "headline_lean_kept_pct",   "type": "numeric", "nullable": true },
+          { "name": "headline_bf_delta_pts",    "type": "numeric", "nullable": true },
+          { "name": "takeaway_text",            "type": "text",   "nullable": true },
+          { "name": "display_order",            "type": "int",    "default": 0 }
+        ]
+      },
+      {
+        "name": "data_points",
+        "columns": [
+          { "name": "id",                "type": "uuid", "pk": true, "default": "gen_random_uuid()" },
+          { "name": "transformation_id", "type": "uuid", "fk": "transformations.id", "on_delete": "CASCADE" },
+          { "name": "metric",            "type": "text", "note": "weight | bf | lean" },
+          { "name": "date",              "type": "date" },
+          { "name": "value",             "type": "numeric" }
+        ],
+        "indexes": ["(transformation_id, metric, date)"]
+      }
+    ],
+    "rls_policies": [
+      "Public SELECT on all three tables (anyone can read any hub)",
+      "All INSERT/UPDATE/DELETE blocked at table level",
+      "All writes go through Supabase Edge Functions that verify the supplied edit_token matches the hub's stored edit_token"
+    ],
+    "edge_functions_needed": [
+      "create-hub",
+      "update-hub",
+      "delete-hub",
+      "add-transformation",
+      "update-transformation",
+      "delete-transformation",
+      "set-data-points",
+      "upload-photo"
+    ]
+  },
+
+  "user_flows": {
+    "build_first_hub": [
+      "Coach lands on tool.com",
+      "Clicks Build Yours",
+      "Fills form: hub name, host line, accent color, optional email",
+      "Adds 1+ transformations: name, dates, before/after photos (client-side compressed, uploaded to Supabase Storage), pastes time-series data (parsed client-side, previewed in a chart, saved as data_points)",
+      "Hits Build",
+      "Server runs create-hub Edge Function with Turnstile token, returns { slug, edit_token }",
+      "Coach lands on Success page showing both URLs with LOUD warning to save the edit URL: Copy / mailto: pre-filled / Download as .txt",
+      "Bookmarks edit URL"
+    ],
+    "audience_scan": [
+      "Audience member scans QR code on a poster or TV slide",
+      "Lands on /h/{slug}",
+      "Sees branded hub with story cards",
+      "Taps a story card",
+      "Lands on /h/{slug}/{transformation-slug}",
+      "Sees photos + dual-axis chart auto-rendered from data_points"
+    ],
+    "edit_existing_hub": [
+      "Coach opens edit URL from bookmark / email",
+      "Page validates token against hub.edit_token",
+      "Renders the same admin form pre-filled with current data",
+      "Coach edits, hits Save, Edge Function checks token, writes update"
+    ]
+  },
+
+  "build_phases": [
+    {
+      "phase": 0,
+      "name": "Decisions & accounts",
+      "duration": "~1 hour, no code",
+      "tasks": [
+        "Resolve open_decisions below",
+        "Create Cloudflare account",
+        "Create Supabase account",
+        "Buy/identify domain (or use *.pages.dev for v0)"
+      ]
+    },
+    {
+      "phase": 1,
+      "name": "Skeleton + Build flow",
+      "duration": "~half day",
+      "tasks": [
+        "New repo, Astro init, deploy to Cloudflare Pages on push",
+        "Supabase project: tables, RLS policies",
+        "Edge Function create-hub (validates Turnstile, generates slug + edit_token, inserts row)",
+        "Build form (no transformations yet)",
+        "Success page with both URLs and the loud-save UI"
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "Public read pages",
+      "duration": "~half day",
+      "tasks": [
+        "Lift drawMultiChart from origin project into src/lib/chart.js",
+        "Lift story-page CSS into src/styles/story.css",
+        "Astro page /h/[slug] (fetches hub + transformations, renders story cards)",
+        "Astro page /h/[slug]/[transformation-slug] (fetches one transformation + data_points, renders photos + chart)",
+        "Validate by manually inserting Cearra-equivalent test data and confirming rendering matches origin app"
+      ]
+    },
+    {
+      "phase": 3,
+      "name": "Admin UI",
+      "duration": "1-2 days",
+      "tasks": [
+        "Page /edit/[slug] reading ?key= query param",
+        "Validates token via Edge Function (or client-side fetch with token, server confirms on save)",
+        "Hub edit form (name, host_line, accent_color)",
+        "Transformation list with add/edit/delete",
+        "Photo upload widget: client-side compress (browser-image-compression), upload to Supabase Storage via signed URL or Edge Function",
+        "Time-series paste box: textarea, parse 'date,value' or tab-separated lines, show preview chart, save as data_points",
+        "Get-my-links panel: copy buttons, mailto:, download .txt, QR download (qrcode.js)"
+      ]
+    },
+    {
+      "phase": 4,
+      "name": "Polish + abuse prevention",
+      "duration": "~half day",
+      "tasks": [
+        "Cloudflare Turnstile on Build form",
+        "Per-hub photo quota (max 12) and max file size 5MB",
+        "Onboarding example data when admin form is empty",
+        "Empty states + good error messages",
+        "Mobile-responsive admin (coach should be able to edit from phone)",
+        "Privacy page (we collect minimal data; explain it)"
+      ]
+    },
+    {
+      "phase": 5,
+      "name": "Raffle (defer until v0.1 has real users)",
+      "duration": "TBD",
+      "tasks": [
+        "Per-hub raffle: schema (raffle_entries with hub_id), entry form, wheel page",
+        "Lift wheel.html from origin project, generalize for any hub_id",
+        "Decide: per-coach Google Sheet (matches origin), or multi-tenant Supabase table (cleaner)"
+      ]
+    }
+  ],
+
+  "open_decisions_for_phase_0": [
+    {
+      "id": "project_name",
+      "question": "Final project / domain name",
+      "default_if_skipped": "coach-hub-template (working name)"
+    },
+    {
+      "id": "domain",
+      "question": "Custom domain or *.pages.dev subdomain to start",
+      "default_if_skipped": "Free Cloudflare *.pages.dev for v0; bring own domain later"
+    },
+    {
+      "id": "builder",
+      "question": "Who writes the code — Claude, the user, or a hired dev",
+      "default_if_skipped": "Claude builds, user reviews"
+    },
+    {
+      "id": "photo_visibility",
+      "question": "OK that uploaded photos are publicly readable by URL (Supabase Storage default)",
+      "default_if_skipped": "Yes (matches origin project)"
+    },
+    {
+      "id": "email_collection",
+      "question": "Optional email for edit-link recovery, or 100% email-free",
+      "default_if_skipped": "Optional, never required"
+    },
+    {
+      "id": "branding_freedom",
+      "question": "v0.1 — let coach choose only accent_color, or full color palette",
+      "default_if_skipped": "Accent color only. Full theming in v0.2."
+    }
+  ],
+
+  "design_principles": [
+    "Mobile-first: audience scans on phones",
+    "Zero technical knowledge required of the coach",
+    "Zero ongoing infrastructure cost",
+    "10-minute setup test: coach should have a working hub from cold start in under 10 minutes",
+    "Loud save warning: edit URL must be saved before they leave Build success page",
+    "Dark theme with orange accent inherited from origin project; coach picks accent only",
+    "Chart is the hero artifact: auto-axis-snapping, real values, end-of-line labels, dual y-axis"
+  ],
+
+  "abuse_prevention": {
+    "spam_hubs": "Cloudflare Turnstile on Build form (invisible captcha, free, ~30 min to add)",
+    "photo_storage_abuse": "Per-hub photo limit (12), per-file size cap (5MB), client-side compression to ~500KB before upload",
+    "rate_limiting": "Edge Function checks per-IP rate limit on create-hub (e.g. max 3 hubs/hour/IP)",
+    "edit_token_brute_force": "Use cryptographically strong tokens (32+ char base62). 0% chance of guessing."
+  },
+
+  "key_uncertainties_to_monitor": [
+    "Cloudflare Pages free tier: 100k requests/day soft cap — fine for our scale, watch if it grows",
+    "Supabase free DB 500MB: thousands of transformations before hitting it",
+    "Supabase Storage 1GB: ~100-200 compressed photos depending on size",
+    "Slug collision policy: what happens if two coaches both want 'mike' (suggest auto-suffix or let them pick alternatives)",
+    "Recovery flow if coach loses both edit URL AND didn't provide email: documented as 'sorry, lost' in privacy page"
+  ],
+
+  "lessons_from_origin_project_to_carry_forward": [
+    "Dual-axis chart with real values is the most compelling artifact — keep central",
+    "'Fat went, lean stayed' / 'metabolic transformation' is the brand voice",
+    "BF ranges differ wildly per person (Cearra 40-55%, Kolby 25-45%) — auto-compute axes per transformation",
+    "Photo before/after + chart together tell the story; neither alone is sufficient",
+    "Mobile QR scan is the primary entry point — test on real phones constantly",
+    "Print-ready posters and cue sheets were valuable for the event — generated artifacts could be a v0.2+ feature",
+    "Edit-token pattern is BETTER than auth for this audience — don't second-guess this decision",
+    "Rounded numbers caused inconsistencies in the origin project (40 vs 40.6) — store raw values, format at render time"
+  ],
+
+  "first_concrete_action_after_handoff": "Resolve the six open_decisions_for_phase_0 with the user. Then scaffold the new repo with Astro, set up the Supabase project, write the create-hub Edge Function and the Build form. That's Phase 1. Stop and demo before moving to Phase 2."
+}

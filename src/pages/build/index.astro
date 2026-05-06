@@ -1,0 +1,109 @@
+---
+import Base from '../../layouts/Base.astro';
+---
+<Base title="Build your hub">
+  <main class="build">
+    <h1>Build your hub</h1>
+    <p class="hint">
+      v0.1 stub — fill in the basics, then add transformations later from the
+      edit page. Submission calls the <code>create-hub</code> Supabase Edge
+      Function. See <a href="https://github.com/7456fxdj9r-oss/coach-hub-template/blob/main/docs/SUPABASE_SETUP.md">SUPABASE_SETUP.md</a>.
+    </p>
+
+    <form id="build-form" novalidate>
+      <label>
+        Hub name
+        <input name="name" required maxlength="80" placeholder="Coach Mike's Transformation Hub" />
+      </label>
+
+      <label>
+        Host line <span class="opt">(shown under the title)</span>
+        <input name="host_line" maxlength="120" placeholder="Hosted by Coach Mike" />
+      </label>
+
+      <label>
+        Accent color
+        <input type="color" name="accent_color" value="#f39c12" />
+      </label>
+
+      <label>
+        Email <span class="opt">(optional — only used to recover your edit link)</span>
+        <input type="email" name="email" placeholder="you@example.com" />
+      </label>
+
+      <button type="submit" id="submit-btn">Build my hub</button>
+      <p id="status" role="status" aria-live="polite"></p>
+    </form>
+  </main>
+</Base>
+
+<script>
+  import { callFunction, isConfigured } from '../../lib/supabase.js';
+
+  const form = document.getElementById('build-form') as HTMLFormElement;
+  const status = document.getElementById('status')!;
+  const btn = document.getElementById('submit-btn') as HTMLButtonElement;
+  const base = import.meta.env.BASE_URL;
+
+  if (!isConfigured()) {
+    status.textContent =
+      'Supabase not configured yet. Set PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_ANON_KEY in .env.';
+    status.classList.add('warn');
+    btn.disabled = true;
+  }
+
+  form?.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    btn.disabled = true;
+    status.textContent = 'Building…';
+    const fd = new FormData(form);
+    try {
+      const { slug, edit_token } = await callFunction('create-hub', {
+        name: fd.get('name'),
+        host_line: fd.get('host_line'),
+        accent_color: fd.get('accent_color'),
+        email: fd.get('email') || null,
+      });
+      const params = new URLSearchParams({ slug, key: edit_token });
+      window.location.href = `${base}build/success?${params.toString()}`;
+    } catch (err) {
+      status.textContent = (err as Error).message;
+      status.classList.add('err');
+      btn.disabled = false;
+    }
+  });
+</script>
+
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    background: #1a252f; color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    margin: 0;
+  }
+  body { padding: 30px 18px 60px; }
+  main.build { max-width: 540px; margin: 0 auto; }
+  h1 { font-size: 26px; margin-bottom: 8px; }
+  p.hint { color: #bdc3c7; font-size: 13px; margin-bottom: 22px; line-height: 1.45; }
+  p.hint code { background: rgba(255,255,255,0.08); padding: 1px 5px; border-radius: 3px; }
+  p.hint a { color: #f39c12; }
+  form { display: grid; gap: 14px; }
+  label { display: grid; gap: 6px; font-size: 13px; color: #ecf0f1; font-weight: 600; }
+  label .opt { color: #95a5a6; font-weight: 400; font-size: 12px; }
+  input {
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px; padding: 10px 12px; color: #fff; font-size: 15px;
+    font-family: inherit;
+  }
+  input[type="color"] { padding: 4px; height: 40px; width: 64px; }
+  input:focus { outline: 2px solid #f39c12; outline-offset: 1px; }
+  button {
+    margin-top: 6px; padding: 14px; background: #f39c12; color: #1a252f;
+    border: none; border-radius: 8px; font-weight: 800; font-size: 16px;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.55; cursor: not-allowed; }
+  #status { font-size: 13px; min-height: 18px; color: #95a5a6; }
+  #status.warn { color: #f39c12; }
+  #status.err { color: #e74c3c; }
+</style>

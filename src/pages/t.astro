@@ -1,0 +1,135 @@
+---
+import Base from '../layouts/Base.astro';
+import '../styles/story.css';
+---
+<Base title="Transformation">
+  <main class="wrap" id="t-root">
+    <p class="loading">Loading…</p>
+  </main>
+</Base>
+
+<script>
+  import { drawMultiChart } from '../lib/chart.js';
+  import {
+    fetchHubBySlug,
+    fetchTransformationBySlug,
+    fetchDataPoints,
+  } from '../lib/supabase.js';
+
+  const root = document.getElementById('t-root')!;
+  const base = import.meta.env.BASE_URL;
+  const params = new URLSearchParams(window.location.search);
+  const slug = params.get('slug');
+  const tslug = params.get('t');
+
+  function escapeHtml(s: unknown): string {
+    return String(s ?? '').replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
+    );
+  }
+  function fmtDate(s: string): string {
+    const d = new Date(s);
+    return (d.getMonth() + 1) + '/' + String(d.getFullYear()).slice(2);
+  }
+
+  if (!slug || !tslug) {
+    root.innerHTML = '<p class="loading">Missing slug or transformation id.</p>';
+  } else {
+    (async () => {
+      try {
+        const hub = await fetchHubBySlug(slug);
+        if (!hub) {
+          root.innerHTML = '<p class="loading">Hub not found.</p>';
+          return;
+        }
+        const t = await fetchTransformationBySlug(hub.id, tslug);
+        if (!t) {
+          root.innerHTML = '<p class="loading">Transformation not found.</p>';
+          return;
+        }
+        document.title = `${t.name} — ${hub.name}`;
+        const accent = hub.accent_color || '#f39c12';
+        document.documentElement.style.setProperty('--accent', accent);
+
+        const points = await fetchDataPoints(t.id);
+        const byMetric: Record<string, Array<[string, number]>> = { weight: [], bf: [], lean: [] };
+        points.forEach((p: any) => {
+          if (byMetric[p.metric]) byMetric[p.metric].push([p.date, Number(p.value)]);
+        });
+
+        const stats = `
+          <div class="headline-stats">
+            ${t.headline_lb_loss != null ? `
+              <div class="h-stat">
+                <span class="num">−${escapeHtml(t.headline_lb_loss)} lb</span>
+                <span class="label">Total<br>weight loss</span>
+              </div>` : ''}
+            ${t.headline_lean_kept_pct != null ? `
+              <div class="h-stat">
+                <span class="num">${escapeHtml(t.headline_lean_kept_pct)}%</span>
+                <span class="label">Lean Mass<br>kept</span>
+              </div>` : ''}
+            ${t.headline_bf_delta_pts != null ? `
+              <div class="h-stat">
+                <span class="num">−${escapeHtml(t.headline_bf_delta_pts)}</span>
+                <span class="label">Body Fat<br>% points</span>
+              </div>` : ''}
+          </div>`;
+
+        root.innerHTML = `
+          <div class="top">
+            <div class="eyebrow">Real Person · Real Numbers</div>
+            <h1>${escapeHtml(t.name)}</h1>
+          </div>
+
+          <div class="photos">
+            ${t.before_photo_url ? `
+              <figure>
+                <img src="${escapeHtml(t.before_photo_url)}" alt="Before" />
+                <figcaption>Before · ${fmtDate(t.before_date)}</figcaption>
+              </figure>` : ''}
+            ${t.after_photo_url ? `
+              <figure>
+                <img src="${escapeHtml(t.after_photo_url)}" alt="After" />
+                <figcaption>After · ${fmtDate(t.after_date)}</figcaption>
+              </figure>` : ''}
+          </div>
+
+          ${stats}
+
+          <div class="chart-card">
+            <div class="chart-head">
+              <h3>Metabolic Transformation</h3>
+            </div>
+            <svg class="chart" id="comboChart" preserveAspectRatio="none" style="height:300px;"></svg>
+            <div class="legend">
+              <span class="legend-item"><span class="dot" style="background:#f39c12"></span>Weight</span>
+              <span class="legend-item"><span class="dot" style="background:#e74c3c"></span>Body Fat</span>
+              <span class="legend-item"><span class="dot" style="background:#2ecc71"></span>Lean Mass</span>
+            </div>
+          </div>
+
+          ${t.takeaway_text ? `<p class="takeaway">${escapeHtml(t.takeaway_text)}</p>` : ''}
+
+          <div class="footer-cta">
+            <a href="${base}h?slug=${encodeURIComponent(slug)}" class="secondary">← Back to the hub</a>
+          </div>
+        `;
+
+        const svg = document.getElementById('comboChart') as unknown as SVGSVGElement;
+        const series: Array<{ name: string; color: string; suffix: string; axis: 'left' | 'right'; data: Array<[string, number]> }> = [];
+        if (byMetric.weight.length) series.push({ name: 'Weight',   color: '#f39c12', suffix: ' lb', axis: 'left',  data: byMetric.weight });
+        if (byMetric.lean.length)   series.push({ name: 'Lean',     color: '#2ecc71', suffix: ' lb', axis: 'left',  data: byMetric.lean });
+        if (byMetric.bf.length)     series.push({ name: 'Body Fat', color: '#e74c3c', suffix: '%',   axis: 'right', data: byMetric.bf });
+        if (series.length) drawMultiChart(svg, series);
+      } catch (err) {
+        root.innerHTML = `<p class="loading err">${escapeHtml((err as Error).message)}</p>`;
+      }
+    })();
+  }
+</script>
+
+<style>
+  .loading { color: #95a5a6; text-align: center; padding: 40px 0; font-size: 14px; }
+  .loading.err { color: #e74c3c; }
+</style>
