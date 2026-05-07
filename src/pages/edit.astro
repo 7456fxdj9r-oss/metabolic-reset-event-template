@@ -5,6 +5,20 @@ import Base from '../layouts/Base.astro';
   <main class="edit" id="edit-root">
     <p class="loading">Loading edit form…</p>
   </main>
+
+  <div class="crop-modal" id="crop-modal" style="display:none;">
+    <div class="crop-modal-inner">
+      <h3 id="crop-title">Adjust the photo</h3>
+      <p class="crop-hint">Drag the corners to resize · drag inside to reposition</p>
+      <div class="cropper-wrap">
+        <img id="cropper-source" alt="" />
+      </div>
+      <div class="crop-actions">
+        <button type="button" id="crop-cancel" class="crop-cancel">Cancel</button>
+        <button type="button" id="crop-confirm" class="crop-confirm">Use this crop</button>
+      </div>
+    </div>
+  </div>
 </Base>
 
 <script>
@@ -12,6 +26,8 @@ import Base from '../layouts/Base.astro';
   import { drawMultiChart } from '../lib/chart.js';
   import { buildRaffleEntriesCsv, downloadCsv } from '../lib/csv.js';
   import QRCode from 'qrcode';
+  import Cropper from 'cropperjs';
+  import 'cropperjs/dist/cropper.css';
 
   type DataPoint = { metric: 'weight' | 'bf' | 'lean'; date: string; value: number };
 
@@ -100,6 +116,84 @@ import Base from '../layouts/Base.astro';
       lines.push([d, row.weight ?? '', row.bf ?? '', row.lean ?? ''].join(','));
     }
     return lines.join('\n') + '\n';
+  }
+
+  // Crop modal: opens cropper.js on a single shared <img>, returns the
+  // cropped JPEG blob (already at the right aspect ratio + capped at
+  // 1200x1600). User cancels → resolves null. Used for transformation
+  // photos (3:4) and speaker headshots (1:1).
+  let activeCropper: Cropper | null = null;
+  function openCropModal(file: File, aspectRatio: number, title: string): Promise<Blob | null> {
+    return new Promise((resolve) => {
+      const modal = document.getElementById('crop-modal')!;
+      const img = document.getElementById('cropper-source') as HTMLImageElement;
+      const titleEl = document.getElementById('crop-title')!;
+      const confirmBtn = document.getElementById('crop-confirm')!;
+      const cancelBtn = document.getElementById('crop-cancel')!;
+      titleEl.textContent = title;
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        img.src = reader.result as string;
+        modal.style.display = 'flex';
+        activeCropper?.destroy();
+        activeCropper = new Cropper(img, {
+          aspectRatio,
+          viewMode: 1,
+          autoCropArea: 1,
+          dragMode: 'move',
+          background: false,
+          modal: true,
+          guides: false,
+          highlight: false,
+          movable: true,
+          rotatable: false,
+          scalable: true,
+          zoomable: true,
+          responsive: true,
+          checkOrientation: true,
+        });
+      };
+      reader.onerror = () => {
+        cleanup();
+        resolve(null);
+      };
+      reader.readAsDataURL(file);
+
+      function cleanup() {
+        activeCropper?.destroy();
+        activeCropper = null;
+        modal.style.display = 'none';
+        img.src = '';
+        confirmBtn.replaceWith(confirmBtn.cloneNode(true));
+        cancelBtn.replaceWith(cancelBtn.cloneNode(true));
+      }
+
+      document.getElementById('crop-confirm')!.addEventListener('click', () => {
+        if (!activeCropper) {
+          cleanup();
+          return resolve(null);
+        }
+        const canvas = activeCropper.getCroppedCanvas({
+          maxWidth: 1200,
+          maxHeight: 1600,
+          imageSmoothingEnabled: true,
+          imageSmoothingQuality: 'high',
+        });
+        canvas.toBlob(
+          (blob) => {
+            cleanup();
+            resolve(blob);
+          },
+          'image/jpeg',
+          0.9
+        );
+      });
+      document.getElementById('crop-cancel')!.addEventListener('click', () => {
+        cleanup();
+        resolve(null);
+      });
+    });
   }
 
   // Inline canvas-based image compressor. Reads the file, scales the longest
@@ -614,9 +708,9 @@ import Base from '../layouts/Base.astro';
           }
         }
 
-        // Add-mode photo selection: stash the file + show a local preview so
-        // the user sees it picked. Actual upload happens after Create.
-        function handlePendingPhoto(changeEv: Event) {
+        // Add-mode photo selection: open crop modal, then stash the cropped
+        // blob + show a local preview. Actual upload happens after Create.
+        async function handlePendingPhoto(changeEv: Event) {
           const input = changeEv.target as HTMLInputElement;
           const file = input.files?.[0];
           if (!file) return;
@@ -625,17 +719,30 @@ import Base from '../layouts/Base.astro';
           const previewEl = slotEl.querySelector('.photo-preview') as HTMLElement;
           const labelEl = slotEl.querySelector('.upload-label') as HTMLElement;
           const statusEl = slotEl.querySelector('.upload-status') as HTMLElement;
+          input.value = '';
 
+          statusEl.textContent = 'Opening crop tool…';
+          statusEl.className = 'upload-status';
+
+          const cropped = await openCropModal(
+            file, 3 / 4, slot === 'before' ? 'Crop the before photo' : 'Crop the after photo',
+          );
+          if (!cropped) {
+            statusEl.textContent = '';
+            return;
+          }
+          // Wrap the cropped Blob as a File-like for the queue (uploadOnePhoto
+          // takes File). Filename arbitrary — server doesn't trust it.
+          const fileLike = new File([cropped], 'photo.jpg', { type: 'image/jpeg' });
+          pendingPhotos.set(slot, fileLike);
           const reader = new FileReader();
           reader.onload = () => {
-            const dataUrl = reader.result as string;
-            pendingPhotos.set(slot, file);
-            previewEl.innerHTML = `<img src="${dataUrl}" alt="" />`;
+            previewEl.innerHTML = `<img src="${reader.result}" alt="" />`;
             labelEl.textContent = 'Replace photo';
             statusEl.textContent = 'Will upload after Create';
             statusEl.className = 'upload-status';
           };
-          reader.readAsDataURL(file);
+          reader.readAsDataURL(cropped);
         }
 
         async function blobToBase64(blob: Blob): Promise<string> {
@@ -904,12 +1011,26 @@ import Base from '../layouts/Base.astro';
           const previewEl = slotEl.querySelector('.photo-preview') as HTMLElement;
           const labelEl = slotEl.querySelector('.upload-label') as HTMLElement;
 
-          statusEl.textContent = 'Compressing…';
+          statusEl.textContent = 'Opening crop tool…';
           statusEl.className = 'upload-status';
+          input.value = ''; // allow re-pick of the same file later
 
           try {
+            const cropped = await openCropModal(
+              file, 3 / 4, slot === 'before' ? 'Crop the before photo' : 'Crop the after photo',
+            );
+            if (!cropped) {
+              statusEl.textContent = '';
+              return;
+            }
             statusEl.textContent = 'Uploading…';
-            const url = await uploadOnePhoto(t.id, slot, file);
+            const data_b64 = await blobToBase64(cropped);
+            const res = await callFunction('upload-photo', {
+              slug, edit_token: key,
+              transformation_id: t.id, slot,
+              filename: 'photo.jpg', data: data_b64,
+            });
+            const url = res.url as string;
 
             transformations = transformations.map((x) =>
               x.id === t.id
@@ -923,7 +1044,6 @@ import Base from '../layouts/Base.astro';
             labelEl.textContent = 'Replace photo';
             statusEl.textContent = 'Uploaded ✓';
             statusEl.className = 'upload-status ok';
-            input.value = '';
             renderList();
           } catch (err) {
             const msg = (err as Error).message;
@@ -1280,7 +1400,7 @@ import Base from '../layouts/Base.astro';
           pendingSpeakerPhoto = null;
         }
 
-        function handlePendingSpeakerPhoto(changeEv: Event) {
+        async function handlePendingSpeakerPhoto(changeEv: Event) {
           const input = changeEv.target as HTMLInputElement;
           const file = input.files?.[0];
           if (!file) return;
@@ -1288,15 +1408,23 @@ import Base from '../layouts/Base.astro';
           const previewEl = slotEl.querySelector('.photo-preview') as HTMLElement;
           const labelEl = slotEl.querySelector('.upload-label') as HTMLElement;
           const statusEl = slotEl.querySelector('.upload-status') as HTMLElement;
+          input.value = '';
+          statusEl.textContent = 'Opening crop tool…';
+          statusEl.className = 'upload-status';
+          const cropped = await openCropModal(file, 1, 'Crop the speaker photo');
+          if (!cropped) {
+            statusEl.textContent = '';
+            return;
+          }
+          pendingSpeakerPhoto = new File([cropped], 'photo.jpg', { type: 'image/jpeg' });
           const reader = new FileReader();
           reader.onload = () => {
-            pendingSpeakerPhoto = file;
             previewEl.innerHTML = `<img src="${reader.result}" alt="" />`;
             labelEl.textContent = 'Replace photo';
             statusEl.textContent = 'Will upload after Create';
             statusEl.className = 'upload-status';
           };
-          reader.readAsDataURL(file);
+          reader.readAsDataURL(cropped);
         }
 
         async function uploadSpeakerPhoto(speakerId: string, file: File): Promise<string> {
@@ -1319,18 +1447,29 @@ import Base from '../layouts/Base.astro';
           const previewEl = slotEl.querySelector('.photo-preview') as HTMLElement;
           const labelEl = slotEl.querySelector('.upload-label') as HTMLElement;
           const statusEl = slotEl.querySelector('.upload-status') as HTMLElement;
-          statusEl.textContent = 'Compressing…';
+          input.value = '';
+          statusEl.textContent = 'Opening crop tool…';
           statusEl.className = 'upload-status';
           try {
+            const cropped = await openCropModal(file, 1, `Crop ${sp.name}'s photo`);
+            if (!cropped) {
+              statusEl.textContent = '';
+              return;
+            }
             statusEl.textContent = 'Uploading…';
-            const url = await uploadSpeakerPhoto(sp.id, file);
+            const data_b64 = await blobToBase64(cropped);
+            const res = await callFunction('upload-speaker-photo', {
+              slug, edit_token: key,
+              speaker_id: sp.id,
+              filename: 'photo.jpg', data: data_b64,
+            });
+            const url = res.url as string;
             speakers = speakers.map((x) => (x.id === sp.id ? { ...x, photo_url: url } : x));
             sp.photo_url = url;
             previewEl.innerHTML = `<img src="${escapeHtml(url)}" alt="" />`;
             labelEl.textContent = 'Replace photo';
             statusEl.textContent = 'Uploaded ✓';
             statusEl.className = 'upload-status ok';
-            input.value = '';
             renderSpeakerList();
           } catch (err) {
             const msg = (err as Error).message;
@@ -2155,4 +2294,57 @@ import Base from '../layouts/Base.astro';
 
   .loading { color: #95a5a6; text-align: center; padding: 40px 0; font-size: 14px; }
   .loading.err { color: #e74c3c; }
+
+  /* Crop modal — opens for transformation 3:4 + speaker 1:1 photos */
+  .crop-modal {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 200;
+    display: flex; align-items: center; justify-content: center;
+    padding: 16px;
+    backdrop-filter: blur(4px);
+  }
+  .crop-modal-inner {
+    background: #1a252f;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 14px;
+    padding: 18px;
+    max-width: 540px; width: 100%;
+    max-height: 95vh;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .crop-modal-inner h3 {
+    font-size: 14px; color: var(--accent, #f39c12);
+    text-transform: uppercase; letter-spacing: 1.5px;
+  }
+  .crop-modal-inner .crop-hint {
+    font-size: 12px; color: #95a5a6;
+  }
+  .cropper-wrap {
+    background: rgba(0,0,0,0.4);
+    border-radius: 10px;
+    overflow: hidden;
+    max-height: 65vh;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .cropper-wrap img {
+    display: block;
+    max-width: 100%;
+    max-height: 65vh;
+  }
+  .crop-actions {
+    display: flex; gap: 8px; justify-content: flex-end;
+  }
+  .crop-actions button {
+    padding: 12px 18px; font-size: 14px; font-weight: 700;
+    border-radius: 8px; cursor: pointer;
+  }
+  button.crop-cancel {
+    background: transparent; color: #ecf0f1;
+    border: 1px solid rgba(255,255,255,0.20);
+  }
+  button.crop-confirm {
+    background: var(--accent, #f39c12); color: #1a252f;
+    border: none;
+  }
 </style>
