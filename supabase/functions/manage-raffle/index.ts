@@ -44,8 +44,8 @@ Deno.serve(async (req) => {
   const edit_token = String(body.edit_token || '').trim();
   const action = String(body.action || '');
   if (!slug || !edit_token) return errResp(400, 'slug and edit_token required');
-  if (!['list'].includes(action)) {
-    return errResp(400, 'action must be one of: list');
+  if (!['list', 'draw'].includes(action)) {
+    return errResp(400, 'action must be one of: list, draw');
   }
 
   const supabase = createClient(
@@ -54,18 +54,55 @@ Deno.serve(async (req) => {
   );
 
   const { data: ev } = await supabase
-    .from('events').select('id, edit_token').eq('slug', slug).maybeSingle();
+    .from('events').select('id, edit_token, raffle_prize').eq('slug', slug).maybeSingle();
   if (!ev) return errResp(404, 'event not found');
   if (!timingSafeEqual(ev.edit_token, edit_token)) return errResp(403, 'invalid edit token');
 
   if (action === 'list') {
     const { data: entries, error } = await supabase
       .from('raffle_entries')
-      .select('id, name, email, phone, invited_by, risk_score, quiz_answers, goal_text, newsletter_optin, apprentice_optin, drawn, prize_won, lead_status, notes, submitted_at')
+      .select('id, name, email, phone, invited_by, risk_score, quiz_answers, goal_text, newsletter_optin, apprentice_optin, drawn, drawn_at, prize_won, lead_status, notes, submitted_at')
       .eq('event_id', ev.id)
       .order('submitted_at', { ascending: false });
     if (error) return errResp(500, error.message);
     return ok({ entries: entries || [] });
+  }
+
+  if (action === 'draw') {
+    // Pick one random entry that hasn't been drawn yet, mark it drawn,
+    // record drawn_at + prize_won. Optional prize_label override lets a
+    // host call out a specific prize when there are multiple draws for
+    // the same event ("First place: scale", "Second place: T-shirt").
+    const prize_label = body.prize_label
+      ? String(body.prize_label).trim()
+      : (ev.raffle_prize || '');
+
+    const { data: pool, error: poolErr } = await supabase
+      .from('raffle_entries')
+      .select('id, name')
+      .eq('event_id', ev.id)
+      .eq('drawn', false);
+    if (poolErr) return errResp(500, poolErr.message);
+    if (!pool || pool.length === 0) {
+      return errResp(409, 'no eligible entries to draw');
+    }
+
+    const pickIdx = Math.floor(Math.random() * pool.length);
+    const picked = pool[pickIdx];
+
+    const { data: updated, error: updErr } = await supabase
+      .from('raffle_entries')
+      .update({
+        drawn: true,
+        drawn_at: new Date().toISOString(),
+        prize_won: prize_label || null,
+      })
+      .eq('id', picked.id)
+      .select('id, name, email, phone, drawn, drawn_at, prize_won')
+      .single();
+    if (updErr) return errResp(500, updErr.message);
+
+    return ok({ winner: updated, pool_size_before: pool.length });
   }
 
   return errResp(400, 'unknown action');
