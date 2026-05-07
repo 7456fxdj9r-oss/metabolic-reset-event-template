@@ -5,13 +5,14 @@ phase plan lives in `spec.json`; this doc is for things added since.
 
 ## Public event page additions
 
-### "The Science" button — Arterburn study link
+### "The Science" button
 - Optional button/section on the public event page (and possibly the
   transformation page).
-- Links out to the Arterburn study reference (URL TBD by user — needs the
-  exact citation/PDF link).
-- If the URL field on the event is empty, **don't display anything** — no
-  empty button, no placeholder.
+- Default URL the user wants it to point to:
+  https://7456fxdj9r-oss.github.io/Spokane-MREvent/why-it-works.html
+  (the existing Spokane "why it works" page, which already cites the
+  Arterburn study).
+- Per-event override: store on the event row as `science_url`. Empty = hide.
 - Likely lives next to the takeaway block in the event/transformation view.
 
 ### Metabolic Quiz / Health Assessment link

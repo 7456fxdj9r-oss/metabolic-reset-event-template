@@ -54,6 +54,7 @@ Deno.serve(async (req) => {
   if ('host_line' in body) patch.host_line = body.host_line || null;
   if ('accent_color' in body) patch.accent_color = body.accent_color || '#f39c12';
   if ('email' in body) patch.email = body.email || null;
+  if ('science_url' in body) patch.science_url = body.science_url || null;
 
   if (Object.keys(patch).length === 0) return errResp(400, 'no fields to update');
 

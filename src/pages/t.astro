@@ -112,6 +112,7 @@ import '../styles/story.css';
           ${t.takeaway_text ? `<p class="takeaway">${escapeHtml(t.takeaway_text)}</p>` : ''}
 
           <div class="footer-cta">
+            <a href="${base}science?slug=${encodeURIComponent(slug)}">The Science →</a>
             <a href="${base}event?slug=${encodeURIComponent(slug)}" class="secondary">← Back to the event</a>
           </div>
         `;
