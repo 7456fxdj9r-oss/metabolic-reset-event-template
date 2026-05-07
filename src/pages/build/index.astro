@@ -5,9 +5,8 @@ import Base from '../../layouts/Base.astro';
   <main class="build">
     <h1>Build your event</h1>
     <p class="hint">
-      v0.1 stub — fill in the basics, then add transformations later from the
-      edit page. Submission calls the <code>create-event</code> Supabase Edge
-      Function. See <a href="https://github.com/7456fxdj9r-oss/metabolic-reset-event-template/blob/main/docs/SUPABASE_SETUP.md">SUPABASE_SETUP.md</a>.
+      Fill in the basics now — you can add transformations, speakers,
+      and raffle settings on the edit page after you click Build.
     </p>
 
     <form id="build-form" novalidate>
@@ -17,8 +16,8 @@ import Base from '../../layouts/Base.astro';
       </label>
 
       <label>
-        Host line <span class="opt">(shown under the title)</span>
-        <input name="host_line" maxlength="120" placeholder="Hosted by Coach Mike" />
+        Business location <span class="opt">(venue or address; shown under the title)</span>
+        <input name="host_line" maxlength="200" placeholder="OPTAVIA Pacific NW · Spokane, WA" />
       </label>
 
       <label>
