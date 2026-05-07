@@ -10,6 +10,7 @@ import Base from '../layouts/Base.astro';
 <script>
   import { fetchEventBySlug, fetchTransformations, fetchDataPoints, callFunction } from '../lib/supabase.js';
   import { drawMultiChart } from '../lib/chart.js';
+  import QRCode from 'qrcode';
 
   type DataPoint = { metric: 'weight' | 'bf' | 'lean'; date: string; value: number };
 
@@ -141,6 +142,12 @@ import Base from '../layouts/Base.astro';
     after_date: string | null;
     before_photo_url: string | null;
     after_photo_url: string | null;
+    before_weight: number | null;
+    after_weight: number | null;
+    before_bf: number | null;
+    after_bf: number | null;
+    before_lean: number | null;
+    after_lean: number | null;
     headline_lb_loss: number | null;
     headline_lean_kept_pct: number | null;
     headline_bf_delta_pts: number | null;
@@ -161,7 +168,18 @@ import Base from '../layouts/Base.astro';
   }
 
   function fmtDate(s: string | null): string {
-    return s || '—';
+    if (!s) return '—';
+    const parts = s.split('-');
+    if (parts.length < 2) return s;
+    const y = parts[0];
+    const m = parseInt(parts[1], 10);
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    if (!Number.isFinite(m) || m < 1 || m > 12) return s;
+    return `${months[m - 1]} ${y}`;
+  }
+
+  function dateToMonth(s: string | null): string {
+    return s ? s.slice(0, 7) : '';
   }
 
   function photoSlotHtml(slot: 'before' | 'after', label: string, url: string | null): string {
@@ -212,29 +230,50 @@ import Base from '../layouts/Base.astro';
           Client name
           <input name="name" required maxlength="80" value="${escapeHtml(v.name || '')}" placeholder="Cearra's Story" />
         </label>
-        <div class="grid-2">
-          <label>
-            Before date
-            <input type="date" name="before_date" value="${escapeHtml(v.before_date || '')}" />
-          </label>
-          <label>
-            After date
-            <input type="date" name="after_date" value="${escapeHtml(v.after_date || '')}" />
-          </label>
+        <div class="ba-grid">
+          <fieldset class="ba-block">
+            <legend>Before</legend>
+            <label>
+              Date <span class="opt">(month / year)</span>
+              <input type="month" name="before_date" value="${escapeHtml(dateToMonth(v.before_date || null))}" />
+            </label>
+            <label>
+              Weight (lb)
+              <input type="number" step="0.1" name="before_weight" value="${v.before_weight ?? ''}" placeholder="217" />
+            </label>
+            <label>
+              Body fat (%)
+              <input type="number" step="0.1" name="before_bf" value="${v.before_bf ?? ''}" placeholder="52" />
+            </label>
+            <label>
+              Lean mass (lb)
+              <input type="number" step="0.1" name="before_lean" value="${v.before_lean ?? ''}" placeholder="101.4" />
+            </label>
+          </fieldset>
+          <fieldset class="ba-block">
+            <legend>After</legend>
+            <label>
+              Date <span class="opt">(month / year)</span>
+              <input type="month" name="after_date" value="${escapeHtml(dateToMonth(v.after_date || null))}" />
+            </label>
+            <label>
+              Weight (lb)
+              <input type="number" step="0.1" name="after_weight" value="${v.after_weight ?? ''}" placeholder="172" />
+            </label>
+            <label>
+              Body fat (%)
+              <input type="number" step="0.1" name="after_bf" value="${v.after_bf ?? ''}" placeholder="40.6" />
+            </label>
+            <label>
+              Lean mass (lb)
+              <input type="number" step="0.1" name="after_lean" value="${v.after_lean ?? ''}" placeholder="103" />
+            </label>
+          </fieldset>
         </div>
-        <div class="grid-3">
-          <label>
-            Lb lost
-            <input type="number" step="0.1" name="headline_lb_loss" value="${v.headline_lb_loss ?? ''}" placeholder="45" />
-          </label>
-          <label>
-            % lean kept
-            <input type="number" step="0.1" name="headline_lean_kept_pct" value="${v.headline_lean_kept_pct ?? ''}" placeholder="100" />
-          </label>
-          <label>
-            BF Δ pts
-            <input type="number" step="0.1" name="headline_bf_delta_pts" value="${v.headline_bf_delta_pts ?? ''}" placeholder="11.4" />
-          </label>
+        <div class="computed-stats">
+          <span class="cstat"><span class="num" data-stat="lb">—</span><span class="lbl">lb lost</span></span>
+          <span class="cstat"><span class="num" data-stat="lean">—</span><span class="lbl">% lean kept</span></span>
+          <span class="cstat"><span class="num" data-stat="bf">—</span><span class="lbl">BF % drop</span></span>
         </div>
         <label>
           Takeaway <span class="opt">(short paragraph shown beneath the chart)</span>
@@ -329,6 +368,36 @@ import Base from '../layouts/Base.astro';
             <div id="t-form-host"></div>
             <ul id="t-list" class="t-list"></ul>
           </section>
+
+          <section class="card">
+            <h2>Share &amp; save your links</h2>
+            <p class="link-blurb">
+              Bookmark the edit URL — it's the only way back into this admin page.
+              Share the public URL with anyone you want to scan or visit.
+            </p>
+
+            <div class="link-block">
+              <h3>Public URL <span class="link-tag ok">share this</span></h3>
+              <div class="link-row">
+                <input type="text" id="public-url" readonly />
+                <button type="button" data-copy="#public-url">Copy</button>
+              </div>
+              <canvas id="public-qr"></canvas>
+              <button type="button" id="public-qr-dl" class="link-secondary">Download QR</button>
+            </div>
+
+            <div class="link-block private">
+              <h3>Private edit URL <span class="link-tag warn">keep secret</span></h3>
+              <div class="link-row">
+                <input type="text" id="edit-url" readonly />
+                <button type="button" data-copy="#edit-url">Copy</button>
+              </div>
+              <div class="link-row">
+                <button type="button" id="email-edit" class="link-secondary">Email me this link</button>
+                <button type="button" id="download-edit" class="link-secondary">Download as .txt</button>
+              </div>
+            </div>
+          </section>
         `;
 
         // ---------- Event details form ----------
@@ -383,6 +452,7 @@ import Base from '../layouts/Base.astro';
           const newForm = formHost.querySelector('form.t-form') as HTMLFormElement;
           newForm.addEventListener('submit', (e) => handleSubmit(e, t));
           newForm.querySelector('button.cancel')!.addEventListener('click', hideForm);
+          setupComputedStats(newForm);
           if (t) {
             newForm.querySelectorAll('input[type=file][data-slot]').forEach((input) => {
               input.addEventListener('change', (e) => handlePhotoUpload(e as Event, t));
@@ -391,6 +461,35 @@ import Base from '../layouts/Base.astro';
           } else {
             (newForm.querySelector('input[name=name]') as HTMLInputElement).focus();
           }
+        }
+
+        function setupComputedStats(formEl: HTMLFormElement) {
+          const lbEl = formEl.querySelector('[data-stat=lb]') as HTMLElement;
+          const leanEl = formEl.querySelector('[data-stat=lean]') as HTMLElement;
+          const bfEl = formEl.querySelector('[data-stat=bf]') as HTMLElement;
+          const num = (v: FormDataEntryValue | null): number | null => {
+            if (v == null || v === '') return null;
+            const n = Number(v);
+            return Number.isFinite(n) ? n : null;
+          };
+          const round1 = (n: number) => Math.round(n * 10) / 10;
+          const recompute = () => {
+            const fd = new FormData(formEl);
+            const bw = num(fd.get('before_weight'));
+            const aw = num(fd.get('after_weight'));
+            const bbf = num(fd.get('before_bf'));
+            const abf = num(fd.get('after_bf'));
+            const bln = num(fd.get('before_lean'));
+            const aln = num(fd.get('after_lean'));
+            lbEl.textContent = bw != null && aw != null ? `−${round1(bw - aw)}` : '—';
+            bfEl.textContent = bbf != null && abf != null ? `−${round1(bbf - abf)}` : '—';
+            leanEl.textContent =
+              bln != null && aln != null && bln > 0 ? `${round1((aln / bln) * 100)}%` : '—';
+          };
+          formEl.querySelectorAll<HTMLInputElement>(
+            'input[name^=before_], input[name^=after_]'
+          ).forEach((input) => input.addEventListener('input', recompute));
+          recompute();
         }
 
         async function setupBiometrics(formEl: HTMLFormElement, t: Transformation) {
@@ -501,13 +600,22 @@ import Base from '../layouts/Base.astro';
           tStatus.textContent = 'Saving…';
           tStatus.className = 't-status';
 
+          // <input type="month"> emits YYYY-MM; pad to YYYY-MM-01 for the DB
+          // date column. Display elsewhere strips the day back off.
+          const monthOrNull = (v: FormDataEntryValue | null): string | null => {
+            const s = String(v || '').trim();
+            return s ? `${s}-01` : null;
+          };
           const transformation: Record<string, unknown> = {
             name: fd.get('name'),
-            before_date: fd.get('before_date') || null,
-            after_date: fd.get('after_date') || null,
-            headline_lb_loss: fd.get('headline_lb_loss') || null,
-            headline_lean_kept_pct: fd.get('headline_lean_kept_pct') || null,
-            headline_bf_delta_pts: fd.get('headline_bf_delta_pts') || null,
+            before_date: monthOrNull(fd.get('before_date')),
+            after_date: monthOrNull(fd.get('after_date')),
+            before_weight: fd.get('before_weight') || null,
+            after_weight: fd.get('after_weight') || null,
+            before_bf: fd.get('before_bf') || null,
+            after_bf: fd.get('after_bf') || null,
+            before_lean: fd.get('before_lean') || null,
+            after_lean: fd.get('after_lean') || null,
             takeaway_text: fd.get('takeaway_text') || null,
           };
           if (editing) transformation.id = editing.id;
@@ -626,6 +734,54 @@ import Base from '../layouts/Base.astro';
           }
         }
 
+        // ---------- Share & save links section ----------
+        const origin = window.location.origin;
+        const publicUrl = `${origin}${base}event?slug=${encodeURIComponent(slug)}`;
+        const editUrl = `${origin}${base}edit?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}`;
+        (document.getElementById('public-url') as HTMLInputElement).value = publicUrl;
+        (document.getElementById('edit-url') as HTMLInputElement).value = editUrl;
+
+        const qrCanvas = document.getElementById('public-qr') as HTMLCanvasElement;
+        QRCode.toCanvas(qrCanvas, publicUrl, {
+          width: 200, margin: 1,
+          color: { dark: '#ffffff', light: '#1a252f' },
+        }).catch(() => {});
+
+        document.querySelectorAll<HTMLButtonElement>('[data-copy]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const sel = btn.getAttribute('data-copy')!;
+            const input = document.querySelector<HTMLInputElement>(sel)!;
+            await navigator.clipboard.writeText(input.value);
+            const orig = btn.textContent;
+            btn.textContent = 'Copied!';
+            setTimeout(() => (btn.textContent = orig), 1200);
+          });
+        });
+
+        document.getElementById('public-qr-dl')?.addEventListener('click', () => {
+          const a = document.createElement('a');
+          a.href = qrCanvas.toDataURL('image/png');
+          a.download = `${slug}-qr.png`;
+          a.click();
+        });
+
+        document.getElementById('email-edit')?.addEventListener('click', () => {
+          const subj = encodeURIComponent('Edit link for my event');
+          const mailBody = encodeURIComponent(
+            `Save this — it's the only way back into your event admin page.\n\nEdit URL:\n${editUrl}\n\nPublic URL:\n${publicUrl}\n`
+          );
+          window.location.href = `mailto:?subject=${subj}&body=${mailBody}`;
+        });
+
+        document.getElementById('download-edit')?.addEventListener('click', () => {
+          const txt = `Metabolic Reset Event — edit link\n\nEdit URL (KEEP SECRET):\n${editUrl}\n\nPublic URL (share):\n${publicUrl}\n`;
+          const blob = new Blob([txt], { type: 'text/plain' });
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = `event-${slug}-edit-link.txt`;
+          a.click();
+        });
+
         addBtn.addEventListener('click', () => showForm());
         list.addEventListener('click', (clickEv) => {
           const target = clickEv.target as HTMLElement;
@@ -735,6 +891,50 @@ import Base from '../layouts/Base.astro';
   .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
   @media (max-width: 460px) { .grid-3 { grid-template-columns: 1fr; } }
 
+  /* Before / After data grid */
+  .ba-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 460px) { .ba-grid { grid-template-columns: 1fr; } }
+  fieldset.ba-block {
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 8px;
+    padding: 10px 12px 12px;
+    margin: 0;
+    display: grid;
+    gap: 10px;
+    min-width: 0;
+  }
+  fieldset.ba-block legend {
+    padding: 0 6px;
+    font-size: 11px;
+    color: #f39c12;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    font-weight: 700;
+  }
+  fieldset.ba-block label { font-size: 12px; }
+  fieldset.ba-block input { padding: 8px 10px; font-size: 14px; }
+
+  /* Computed read-only stats line */
+  .computed-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    background: rgba(0,0,0,0.2);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    padding: 10px;
+    margin-top: 4px;
+  }
+  .cstat { text-align: center; display: grid; gap: 2px; }
+  .cstat .num {
+    font-size: 18px; font-weight: 800; color: #f39c12;
+    line-height: 1.1;
+  }
+  .cstat .lbl {
+    font-size: 10px; color: #95a5a6;
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+
   /* Photo slots */
   .photos-grid {
     display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
@@ -818,6 +1018,52 @@ import Base from '../layouts/Base.astro';
   .t-actions button.edit { background: rgba(255,255,255,0.08); color: #ecf0f1; }
   .t-actions button.del  { background: rgba(231,76,60,0.18); color: #e74c3c; }
   .t-empty { color: #95a5a6; font-size: 13px; font-style: italic; padding: 8px 0; }
+
+  /* Share & save links section */
+  .link-blurb {
+    font-size: 13px; color: #95a5a6; line-height: 1.45; margin-bottom: 14px;
+  }
+  .link-block {
+    background: rgba(0,0,0,0.2);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 10px;
+    padding: 14px; margin-bottom: 14px;
+  }
+  .link-block.private {
+    background: rgba(231, 76, 60, 0.06);
+    border-color: rgba(231, 76, 60, 0.5);
+  }
+  .link-block h3 {
+    font-size: 12px; color: #ecf0f1;
+    text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700;
+    margin-bottom: 10px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .link-tag {
+    font-size: 10px; padding: 2px 8px; border-radius: 10px;
+    text-transform: uppercase; letter-spacing: 1.2px; font-weight: 700;
+  }
+  .link-tag.ok   { background: rgba(46, 204, 113, 0.18); color: #2ecc71; }
+  .link-tag.warn { background: rgba(231, 76, 60, 0.20); color: #e74c3c; }
+  .link-row { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+  .link-row input {
+    flex: 1; min-width: 0;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #fff; padding: 9px 10px; border-radius: 6px;
+    font-size: 13px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .link-row button {
+    padding: 9px 14px; font-size: 13px;
+  }
+  button.link-secondary {
+    background: rgba(255,255,255,0.08); color: #ecf0f1; font-weight: 600;
+  }
+  canvas#public-qr {
+    display: block; margin: 6px auto 10px;
+    background: #1a252f; border-radius: 4px;
+  }
 
   .loading { color: #95a5a6; text-align: center; padding: 40px 0; font-size: 14px; }
   .loading.err { color: #e74c3c; }

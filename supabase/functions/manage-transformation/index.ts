@@ -55,6 +55,40 @@ function numOrNull(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function round1(n: number): number {
+  return Math.round(n * 10) / 10;
+}
+
+// Headlines are derived from before/after raw inputs, not stored separately.
+// Returns null for any computed value where either side is missing — keeps
+// the headline columns honest when one half hasn't been entered yet.
+function computeHeadlines(row: {
+  before_weight?: number | null;
+  after_weight?: number | null;
+  before_bf?: number | null;
+  after_bf?: number | null;
+  before_lean?: number | null;
+  after_lean?: number | null;
+}) {
+  const lbLoss =
+    row.before_weight != null && row.after_weight != null
+      ? round1(Number(row.before_weight) - Number(row.after_weight))
+      : null;
+  const bfDelta =
+    row.before_bf != null && row.after_bf != null
+      ? round1(Number(row.before_bf) - Number(row.after_bf))
+      : null;
+  const leanKept =
+    row.before_lean != null && row.after_lean != null && Number(row.before_lean) > 0
+      ? round1((Number(row.after_lean) / Number(row.before_lean)) * 100)
+      : null;
+  return {
+    headline_lb_loss: lbLoss,
+    headline_bf_delta_pts: bfDelta,
+    headline_lean_kept_pct: leanKept,
+  };
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (req.method !== 'POST') return errResp(405, 'method not allowed');
@@ -98,15 +132,31 @@ Deno.serve(async (req) => {
       .from('transformations').select('display_order')
       .eq('event_id', ev.id).order('display_order', { ascending: false }).limit(1).maybeSingle();
 
+    const beforeWeight = numOrNull(t.before_weight);
+    const afterWeight = numOrNull(t.after_weight);
+    const beforeBf = numOrNull(t.before_bf);
+    const afterBf = numOrNull(t.after_bf);
+    const beforeLean = numOrNull(t.before_lean);
+    const afterLean = numOrNull(t.after_lean);
+    const headlines = computeHeadlines({
+      before_weight: beforeWeight, after_weight: afterWeight,
+      before_bf: beforeBf, after_bf: afterBf,
+      before_lean: beforeLean, after_lean: afterLean,
+    });
+
     const row = {
       event_id: ev.id,
       slug: tslug,
       name,
       before_date: t.before_date || null,
       after_date: t.after_date || null,
-      headline_lb_loss: numOrNull(t.headline_lb_loss),
-      headline_lean_kept_pct: numOrNull(t.headline_lean_kept_pct),
-      headline_bf_delta_pts: numOrNull(t.headline_bf_delta_pts),
+      before_weight: beforeWeight,
+      after_weight: afterWeight,
+      before_bf: beforeBf,
+      after_bf: afterBf,
+      before_lean: beforeLean,
+      after_lean: afterLean,
+      ...headlines,
       takeaway_text: t.takeaway_text || null,
       display_order: (maxOrder?.display_order ?? -1) + 1,
     };
@@ -123,7 +173,7 @@ Deno.serve(async (req) => {
     if (!id) return errResp(400, 'transformation.id is required');
 
     const { data: existing, error: exErr } = await supabase
-      .from('transformations').select('id')
+      .from('transformations').select('*')
       .eq('id', id).eq('event_id', ev.id).maybeSingle();
     if (exErr) return errResp(500, exErr.message);
     if (!existing) return errResp(404, 'transformation not found in this event');
@@ -136,15 +186,23 @@ Deno.serve(async (req) => {
     }
     if ('before_date' in t) patch.before_date = t.before_date || null;
     if ('after_date' in t) patch.after_date = t.after_date || null;
-    if ('headline_lb_loss' in t) patch.headline_lb_loss = numOrNull(t.headline_lb_loss);
-    if ('headline_lean_kept_pct' in t) patch.headline_lean_kept_pct = numOrNull(t.headline_lean_kept_pct);
-    if ('headline_bf_delta_pts' in t) patch.headline_bf_delta_pts = numOrNull(t.headline_bf_delta_pts);
+    if ('before_weight' in t) patch.before_weight = numOrNull(t.before_weight);
+    if ('after_weight' in t) patch.after_weight = numOrNull(t.after_weight);
+    if ('before_bf' in t) patch.before_bf = numOrNull(t.before_bf);
+    if ('after_bf' in t) patch.after_bf = numOrNull(t.after_bf);
+    if ('before_lean' in t) patch.before_lean = numOrNull(t.before_lean);
+    if ('after_lean' in t) patch.after_lean = numOrNull(t.after_lean);
     if ('takeaway_text' in t) patch.takeaway_text = t.takeaway_text || null;
     if ('display_order' in t) patch.display_order = numOrNull(t.display_order) ?? 0;
     if ('before_photo_url' in t) patch.before_photo_url = t.before_photo_url || null;
     if ('after_photo_url' in t) patch.after_photo_url = t.after_photo_url || null;
 
     if (Object.keys(patch).length === 0) return errResp(400, 'no fields to update');
+
+    // Recompute headlines from the merged state so they're always in sync
+    // with whatever before/after raw values end up on the row after this patch.
+    const merged = { ...existing, ...patch };
+    Object.assign(patch, computeHeadlines(merged));
 
     const { data: upd, error } = await supabase
       .from('transformations').update(patch).eq('id', id).select('*').single();
