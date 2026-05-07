@@ -1,0 +1,343 @@
+---
+import Base from '../layouts/Base.astro';
+---
+<Base title="Live event dashboard">
+  <main class="live-main" id="live-root">
+    <p class="loading">Loading…</p>
+  </main>
+</Base>
+
+<script>
+  // Event-day cockpit: big QR for the raffle entry URL, live counts that
+  // refresh every 5s, recent entries scroll, and quick actions for drawing
+  // and opening the spinning wheel.
+  //
+  // Auth: same ?key= as the edit page. The page only loads when manage-raffle
+  // accepts the token (master edit_token or a co-host's host_token).
+  import { fetchEventBySlug, callFunction } from '../lib/supabase.js';
+  import QRCode from 'qrcode';
+
+  type Entry = {
+    id: string; name: string; email: string; phone: string | null;
+    risk_score: number | null;
+    apprentice_optin: boolean | null;
+    drawn: boolean; prize_won: string | null;
+    submitted_at: string;
+  };
+
+  const root = document.getElementById('live-root')!;
+  const base = import.meta.env.BASE_URL;
+  const params = new URLSearchParams(window.location.search);
+  const slug = params.get('slug');
+  const key = params.get('key');
+
+  function escapeHtml(s: unknown): string {
+    return String(s ?? '').replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
+    );
+  }
+
+  function fmtTime(iso: string): string {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+
+  if (!slug || !key) {
+    root.innerHTML = '<p class="loading err">Live dashboard requires both slug and key in the URL. Use the link from your edit page.</p>';
+  } else {
+    init();
+  }
+
+  let raffleUrl = '';
+  let wheelHostUrl = '';
+  let wheelViewerUrl = '';
+  let editUrl = '';
+  let pollTimer: number | undefined;
+
+  async function init() {
+    try {
+      const event = await fetchEventBySlug(slug);
+      if (!event) {
+        root.innerHTML = '<p class="loading err">Event not found.</p>';
+        return;
+      }
+      const accent = event.accent_color || '#f39c12';
+      document.documentElement.style.setProperty('--accent', accent);
+      document.title = `Live · ${event.name}`;
+
+      const origin = window.location.origin;
+      raffleUrl = `${origin}${base}raffle?slug=${encodeURIComponent(slug!)}`;
+      wheelHostUrl = `${origin}${base}wheel?slug=${encodeURIComponent(slug!)}&key=${encodeURIComponent(key!)}`;
+      wheelViewerUrl = `${origin}${base}wheel?slug=${encodeURIComponent(slug!)}`;
+      editUrl = `${origin}${base}edit?slug=${encodeURIComponent(slug!)}&key=${encodeURIComponent(key!)}`;
+
+      renderShell(event);
+
+      const qrCanvas = document.getElementById('raffle-qr') as HTMLCanvasElement;
+      QRCode.toCanvas(qrCanvas, raffleUrl, {
+        width: 280, margin: 2,
+        color: { dark: '#ffffff', light: '#1a252f' },
+      }).catch(() => {});
+
+      await refresh();
+      pollTimer = window.setInterval(refresh, 5000);
+
+      wireActions();
+    } catch (err) {
+      root.innerHTML = `<p class="loading err">${escapeHtml((err as Error).message)}</p>`;
+      if (pollTimer) clearInterval(pollTimer);
+    }
+  }
+
+  function renderShell(event: { name: string; raffle_status: string; raffle_prize: string | null }) {
+    const statusBadge = event.raffle_status === 'open'
+      ? '<span class="status-pill open">Raffle OPEN</span>'
+      : '<span class="status-pill closed">Raffle CLOSED</span>';
+    root.innerHTML = `
+      <header class="top">
+        <p class="eyebrow">Live event control</p>
+        <h1>${escapeHtml(event.name)}</h1>
+        <p class="status-line">${statusBadge}${event.raffle_prize ? ` · 🎁 ${escapeHtml(event.raffle_prize)}` : ''}</p>
+      </header>
+
+      <section class="qr-card">
+        <p class="qr-label">Scan to enter the raffle</p>
+        <canvas id="raffle-qr"></canvas>
+        <p class="qr-url">${escapeHtml(raffleUrl)}</p>
+        <button type="button" id="copy-raffle-url" class="link-secondary">Copy URL</button>
+      </section>
+
+      <section class="stats" id="stats-block">
+        <div class="stat"><span class="num" id="stat-total">—</span><span class="lbl">Entries</span></div>
+        <div class="stat"><span class="num" id="stat-eligible">—</span><span class="lbl">Eligible</span></div>
+        <div class="stat"><span class="num" id="stat-drawn">—</span><span class="lbl">Winners</span></div>
+        <div class="stat"><span class="num" id="stat-apprentice">—</span><span class="lbl">Apprentice ⚑</span></div>
+      </section>
+
+      <section class="actions">
+        <button type="button" id="draw-action" class="action draw" disabled>🎲 Draw next winner</button>
+        <a class="action wheel" href="${wheelHostUrl}" target="_blank" rel="noopener">🎡 Open the wheel (host)</a>
+        <a class="action wheel-view" href="${wheelViewerUrl}" target="_blank" rel="noopener">👀 Audience wheel</a>
+        <a class="action edit" href="${editUrl}">⚙️ Full edit page</a>
+      </section>
+      <p id="action-status" role="status" aria-live="polite"></p>
+
+      <section class="recent">
+        <h2>Recent entries</h2>
+        <ul id="recent-list"><li class="empty">Waiting for entries…</li></ul>
+      </section>
+    `;
+  }
+
+  async function refresh() {
+    try {
+      const res = await callFunction('manage-raffle', {
+        slug, edit_token: key, action: 'list',
+      });
+      const entries = (res.entries || []) as Entry[];
+      const total = entries.length;
+      const drawn = entries.filter((e) => e.drawn).length;
+      const eligible = total - drawn;
+      const apprentice = entries.filter((e) => e.apprentice_optin).length;
+
+      document.getElementById('stat-total')!.textContent = String(total);
+      document.getElementById('stat-eligible')!.textContent = String(eligible);
+      document.getElementById('stat-drawn')!.textContent = String(drawn);
+      document.getElementById('stat-apprentice')!.textContent = String(apprentice);
+
+      const drawBtn = document.getElementById('draw-action') as HTMLButtonElement;
+      drawBtn.disabled = eligible === 0;
+      drawBtn.title = eligible === 0 ? 'No eligible entries' : `${eligible} eligible`;
+
+      const recent = entries.slice(0, 8);
+      const recentEl = document.getElementById('recent-list')!;
+      if (recent.length === 0) {
+        recentEl.innerHTML = '<li class="empty">No entries yet — share the QR.</li>';
+      } else {
+        recentEl.innerHTML = recent.map((e) => {
+          const tags: string[] = [];
+          if (e.drawn) tags.push('<span class="tag won">🏆 won</span>');
+          if (e.apprentice_optin) tags.push('<span class="tag appr">⚑</span>');
+          return `
+            <li>
+              <strong>${escapeHtml(e.name)}</strong>
+              <span class="meta">${e.risk_score ?? 0}/3 · ${escapeHtml(fmtTime(e.submitted_at))}</span>
+              ${tags.join(' ')}
+            </li>`;
+        }).join('');
+      }
+    } catch (err) {
+      const msg = (err as Error).message;
+      const status = document.getElementById('action-status');
+      if (status) {
+        status.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+        status.className = 'err';
+      }
+    }
+  }
+
+  function wireActions() {
+    const drawBtn = document.getElementById('draw-action') as HTMLButtonElement;
+    const status = document.getElementById('action-status')!;
+    drawBtn.addEventListener('click', async () => {
+      if (!confirm('Pick a random winner from the eligible entries?')) return;
+      drawBtn.disabled = true;
+      status.textContent = 'Drawing…';
+      status.className = '';
+      try {
+        const res = await callFunction('manage-raffle', {
+          slug, edit_token: key, action: 'draw',
+        });
+        const winner = res.winner;
+        status.textContent = `🏆 ${winner.name}${winner.prize_won ? ` — ${winner.prize_won}` : ''}`;
+        status.className = 'ok';
+        await refresh();
+      } catch (err) {
+        status.textContent = (err as Error).message;
+        status.className = 'err';
+        drawBtn.disabled = false;
+      }
+    });
+    document.getElementById('copy-raffle-url')!.addEventListener('click', async () => {
+      await navigator.clipboard.writeText(raffleUrl);
+      const btn = document.getElementById('copy-raffle-url') as HTMLButtonElement;
+      const orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => (btn.textContent = orig), 1200);
+    });
+  }
+</script>
+
+<style is:global>
+  :root { --accent: #f39c12; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: #1a252f; color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  }
+  body { padding: 18px 14px 40px; line-height: 1.4; }
+  main.live-main { max-width: 640px; margin: 0 auto; }
+
+  .top { text-align: center; margin-bottom: 18px; }
+  .top .eyebrow {
+    font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; margin-bottom: 6px;
+  }
+  .top h1 { font-size: 24px; }
+  .top .status-line { font-size: 13px; color: #bdc3c7; margin-top: 8px; }
+  .status-pill {
+    display: inline-block; padding: 2px 10px; border-radius: 12px;
+    font-size: 11px; font-weight: 800; letter-spacing: 1px;
+  }
+  .status-pill.open  { background: rgba(46,204,113,0.18); color: #2ecc71; }
+  .status-pill.closed { background: rgba(255,255,255,0.06); color: #95a5a6; }
+
+  .qr-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px; padding: 16px;
+    text-align: center; margin-bottom: 14px;
+  }
+  .qr-card .qr-label {
+    font-size: 12px; color: #95a5a6;
+    text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 10px;
+  }
+  .qr-card canvas {
+    display: block; margin: 0 auto 10px;
+    background: #1a252f; border-radius: 6px;
+  }
+  .qr-card .qr-url {
+    font-size: 12px; color: #ecf0f1; word-break: break-all;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    margin-bottom: 8px;
+  }
+  .qr-card button {
+    padding: 8px 14px; font-size: 12px; font-weight: 700;
+    background: rgba(255,255,255,0.08); color: #ecf0f1;
+    border: 1px solid rgba(255,255,255,0.15); border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .stats {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+    margin-bottom: 14px;
+  }
+  .stat {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 12px 6px;
+    text-align: center;
+  }
+  .stat .num {
+    display: block; color: var(--accent);
+    font-size: 28px; font-weight: 800; line-height: 1.1;
+  }
+  .stat .lbl {
+    display: block; color: #95a5a6;
+    font-size: 10px; text-transform: uppercase;
+    letter-spacing: 1px; margin-top: 4px;
+  }
+
+  .actions {
+    display: grid; gap: 8px; margin-bottom: 8px;
+  }
+  .action {
+    display: block; padding: 14px;
+    text-align: center; text-decoration: none;
+    border-radius: 10px; font-weight: 700; font-size: 14px;
+    border: 1px solid rgba(255,255,255,0.10);
+    background: rgba(255,255,255,0.04); color: #ecf0f1;
+    cursor: pointer; font-family: inherit;
+  }
+  .action.draw {
+    background: var(--accent); color: #1a252f; border-color: var(--accent);
+    font-weight: 800;
+  }
+  .action.draw:disabled { opacity: 0.45; cursor: not-allowed; }
+  #action-status {
+    text-align: center; font-size: 13px; color: #95a5a6;
+    margin: 8px 0 14px; min-height: 18px;
+  }
+  #action-status.ok { color: #2ecc71; font-weight: 700; }
+  #action-status.err { color: #e74c3c; font-weight: 600; }
+
+  .recent {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px; padding: 14px 16px;
+  }
+  .recent h2 {
+    font-size: 11px; color: #95a5a6;
+    text-transform: uppercase; letter-spacing: 1.5px;
+    margin-bottom: 10px;
+  }
+  .recent ul { list-style: none; padding: 0; margin: 0; }
+  .recent li {
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    display: flex; align-items: center; gap: 10px;
+    font-size: 14px; color: #ecf0f1;
+  }
+  .recent li:last-child { border-bottom: none; }
+  .recent li strong { font-weight: 700; }
+  .recent li .meta { color: #95a5a6; font-size: 12px; margin-left: auto; }
+  .recent li .tag {
+    padding: 2px 8px; border-radius: 10px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+  }
+  .recent li .tag.won { background: rgba(46,204,113,0.18); color: #2ecc71; }
+  .recent li .tag.appr { background: rgba(243,156,18,0.20); color: var(--accent); }
+  .recent li.empty {
+    color: #95a5a6; font-style: italic; justify-content: center;
+    padding: 20px 0; border: none;
+  }
+
+  .loading { color: #95a5a6; text-align: center; padding: 60px 0; font-size: 14px; }
+  .loading.err { color: #e74c3c; }
+
+  @media (max-width: 480px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>

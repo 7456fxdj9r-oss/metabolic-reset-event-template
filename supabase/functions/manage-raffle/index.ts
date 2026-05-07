@@ -44,8 +44,8 @@ Deno.serve(async (req) => {
   const edit_token = String(body.edit_token || '').trim();
   const action = String(body.action || '');
   if (!slug || !edit_token) return errResp(400, 'slug and edit_token required');
-  if (!['list', 'draw'].includes(action)) {
-    return errResp(400, 'action must be one of: list, draw');
+  if (!['list', 'draw', 'clear'].includes(action)) {
+    return errResp(400, 'action must be one of: list, draw, clear');
   }
 
   const supabase = createClient(
@@ -108,6 +108,19 @@ Deno.serve(async (req) => {
     if (updErr) return errResp(500, updErr.message);
 
     return ok({ winner: updated, pool_size_before: pool.length });
+  }
+
+  if (action === 'clear') {
+    // Wipe all raffle entries for this event. Used to reset between
+    // dry-runs or after a real event has wrapped up. Doesn't touch the
+    // raffle settings (status, prize, photo) — host re-opens the raffle
+    // separately.
+    const { error: delErr, count } = await supabase
+      .from('raffle_entries')
+      .delete({ count: 'exact' })
+      .eq('event_id', ev.id);
+    if (delErr) return errResp(500, delErr.message);
+    return ok({ deleted: count || 0 });
   }
 
   return errResp(400, 'unknown action');
