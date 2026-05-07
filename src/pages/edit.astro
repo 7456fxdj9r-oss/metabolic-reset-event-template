@@ -8,7 +8,22 @@ import Base from '../layouts/Base.astro';
 </Base>
 
 <script>
-  import { fetchEventBySlug, callFunction } from '../lib/supabase.js';
+  import { fetchEventBySlug, fetchTransformations, callFunction } from '../lib/supabase.js';
+
+  type Transformation = {
+    id: string;
+    slug: string;
+    name: string;
+    before_date: string | null;
+    after_date: string | null;
+    before_photo_url: string | null;
+    after_photo_url: string | null;
+    headline_lb_loss: number | null;
+    headline_lean_kept_pct: number | null;
+    headline_bf_delta_pts: number | null;
+    takeaway_text: string | null;
+    display_order: number;
+  };
 
   const root = document.getElementById('edit-root')!;
   const base = import.meta.env.BASE_URL;
@@ -22,6 +37,79 @@ import Base from '../layouts/Base.astro';
     );
   }
 
+  function fmtDate(s: string | null): string {
+    if (!s) return '—';
+    return s; // ISO date yyyy-mm-dd is already short
+  }
+
+  function transformationFormHtml(t?: Transformation): string {
+    const v = t || ({} as Partial<Transformation>);
+    const mode = t ? 'edit' : 'add';
+    const idAttr = t ? `data-id="${t.id}"` : '';
+    return `
+      <form class="t-form" data-mode="${mode}" ${idAttr} novalidate>
+        <h3>${t ? 'Edit transformation' : 'New transformation'}</h3>
+        <label>
+          Client name
+          <input name="name" required maxlength="80" value="${escapeHtml(v.name || '')}" placeholder="Cearra's Story" />
+        </label>
+        <div class="grid-2">
+          <label>
+            Before date
+            <input type="date" name="before_date" value="${escapeHtml(v.before_date || '')}" />
+          </label>
+          <label>
+            After date
+            <input type="date" name="after_date" value="${escapeHtml(v.after_date || '')}" />
+          </label>
+        </div>
+        <div class="grid-3">
+          <label>
+            Lb lost
+            <input type="number" step="0.1" name="headline_lb_loss" value="${v.headline_lb_loss ?? ''}" placeholder="45" />
+          </label>
+          <label>
+            % lean kept
+            <input type="number" step="0.1" name="headline_lean_kept_pct" value="${v.headline_lean_kept_pct ?? ''}" placeholder="100" />
+          </label>
+          <label>
+            BF Δ pts
+            <input type="number" step="0.1" name="headline_bf_delta_pts" value="${v.headline_bf_delta_pts ?? ''}" placeholder="11.4" />
+          </label>
+        </div>
+        <label>
+          Takeaway <span class="opt">(short paragraph shown beneath the chart)</span>
+          <textarea name="takeaway_text" rows="3" placeholder="Most weight-loss attempts melt fat and muscle…">${escapeHtml(v.takeaway_text || '')}</textarea>
+        </label>
+        <div class="row">
+          <button type="submit">${t ? 'Save changes' : 'Create'}</button>
+          <button type="button" class="cancel">Cancel</button>
+          <span class="t-status" role="status" aria-live="polite"></span>
+        </div>
+      </form>
+    `;
+  }
+
+  function transformationRowHtml(t: Transformation): string {
+    const stats: string[] = [];
+    if (t.headline_lb_loss != null) stats.push(`−${t.headline_lb_loss} lb`);
+    if (t.headline_lean_kept_pct != null) stats.push(`${t.headline_lean_kept_pct}% lean`);
+    if (t.headline_bf_delta_pts != null) stats.push(`−${t.headline_bf_delta_pts} BF`);
+    return `
+      <li class="t-row" data-id="${t.id}">
+        <div class="t-info">
+          <strong>${escapeHtml(t.name)}</strong>
+          <span class="t-meta">${fmtDate(t.before_date)} → ${fmtDate(t.after_date)}</span>
+          ${stats.length ? `<span class="t-meta accent">${stats.join(' · ')}</span>` : ''}
+        </div>
+        <div class="t-actions">
+          <button class="edit" data-id="${t.id}">Edit</button>
+          <button class="del" data-id="${t.id}">Delete</button>
+        </div>
+      </li>
+    `;
+  }
+
   if (!slug || !key) {
     root.innerHTML =
       '<p class="loading err">Missing slug or key. Use the edit URL you saved at Build time.</p>';
@@ -33,6 +121,7 @@ import Base from '../layouts/Base.astro';
           root.innerHTML = '<p class="loading err">Event not found.</p>';
           return;
         }
+        let transformations: Transformation[] = await fetchTransformations(ev.id);
 
         const publicHref = `${base}event?slug=${encodeURIComponent(slug)}`;
         root.innerHTML = `
@@ -71,12 +160,15 @@ import Base from '../layouts/Base.astro';
             </form>
           </section>
 
-          <section class="card placeholder">
+          <section class="card">
             <h2>Transformations</h2>
-            <p>Coming in Phase 3.2 — add/edit/delete client transformations with photos and biometric data.</p>
+            <button id="add-t-btn" type="button" class="add-btn">+ Add transformation</button>
+            <div id="t-form-host"></div>
+            <ul id="t-list" class="t-list"></ul>
           </section>
         `;
 
+        // ---------- Event details form ----------
         const form = document.getElementById('event-form') as HTMLFormElement;
         const status = document.getElementById('save-status')!;
         const saveBtn = document.getElementById('save-btn') as HTMLButtonElement;
@@ -108,6 +200,111 @@ import Base from '../layouts/Base.astro';
             saveBtn.disabled = false;
           }
         });
+
+        // ---------- Transformations section ----------
+        const list = document.getElementById('t-list')!;
+        const formHost = document.getElementById('t-form-host')!;
+        const addBtn = document.getElementById('add-t-btn') as HTMLButtonElement;
+
+        function renderList() {
+          if (transformations.length === 0) {
+            list.innerHTML = '<li class="t-empty">No transformations yet. Add one above.</li>';
+            return;
+          }
+          list.innerHTML = transformations.map(transformationRowHtml).join('');
+        }
+
+        function showForm(t?: Transformation) {
+          formHost.innerHTML = transformationFormHtml(t);
+          addBtn.style.display = 'none';
+          const newForm = formHost.querySelector('form.t-form') as HTMLFormElement;
+          newForm.addEventListener('submit', (e) => handleSubmit(e, t));
+          newForm.querySelector('button.cancel')!.addEventListener('click', hideForm);
+          (newForm.querySelector('input[name=name]') as HTMLInputElement).focus();
+        }
+
+        function hideForm() {
+          formHost.innerHTML = '';
+          addBtn.style.display = '';
+        }
+
+        async function handleSubmit(submitEv: Event, editing?: Transformation) {
+          submitEv.preventDefault();
+          const formEl = submitEv.target as HTMLFormElement;
+          const fd = new FormData(formEl);
+          const tStatus = formEl.querySelector('.t-status') as HTMLSpanElement;
+          const submit = formEl.querySelector('button[type=submit]') as HTMLButtonElement;
+          submit.disabled = true;
+          tStatus.textContent = 'Saving…';
+          tStatus.className = 't-status';
+
+          const transformation: Record<string, unknown> = {
+            name: fd.get('name'),
+            before_date: fd.get('before_date') || null,
+            after_date: fd.get('after_date') || null,
+            headline_lb_loss: fd.get('headline_lb_loss') || null,
+            headline_lean_kept_pct: fd.get('headline_lean_kept_pct') || null,
+            headline_bf_delta_pts: fd.get('headline_bf_delta_pts') || null,
+            takeaway_text: fd.get('takeaway_text') || null,
+          };
+          if (editing) transformation.id = editing.id;
+
+          try {
+            const res = await callFunction('manage-transformation', {
+              action: editing ? 'update' : 'add',
+              slug,
+              edit_token: key,
+              transformation,
+            });
+            const saved = res.transformation as Transformation;
+            if (editing) {
+              transformations = transformations.map((t) => (t.id === saved.id ? saved : t));
+            } else {
+              transformations = [...transformations, saved];
+            }
+            renderList();
+            hideForm();
+          } catch (err) {
+            const msg = (err as Error).message;
+            tStatus.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+            tStatus.className = 't-status err';
+            submit.disabled = false;
+          }
+        }
+
+        async function handleDelete(id: string) {
+          const t = transformations.find((x) => x.id === id);
+          if (!t) return;
+          if (!confirm(`Delete "${t.name}" and all its biometric data?\n\nThis can't be undone.`)) return;
+          try {
+            await callFunction('manage-transformation', {
+              action: 'delete',
+              slug,
+              edit_token: key,
+              transformation_id: id,
+            });
+            transformations = transformations.filter((x) => x.id !== id);
+            renderList();
+          } catch (err) {
+            alert('Could not delete: ' + (err as Error).message);
+          }
+        }
+
+        addBtn.addEventListener('click', () => showForm());
+        list.addEventListener('click', (clickEv) => {
+          const target = clickEv.target as HTMLElement;
+          if (target.tagName !== 'BUTTON') return;
+          const id = target.getAttribute('data-id');
+          if (!id) return;
+          if (target.classList.contains('edit')) {
+            const t = transformations.find((x) => x.id === id);
+            if (t) showForm(t);
+          } else if (target.classList.contains('del')) {
+            handleDelete(id);
+          }
+        });
+
+        renderList();
       } catch (err) {
         root.innerHTML = `<p class="loading err">${escapeHtml((err as Error).message)}</p>`;
       }
@@ -146,31 +343,77 @@ import Base from '../layouts/Base.astro';
     text-transform: uppercase; letter-spacing: 1.5px;
     margin-bottom: 14px;
   }
-  .card.placeholder p { color: #95a5a6; font-size: 13px; font-style: italic; }
 
   form { display: grid; gap: 14px; }
   label { display: grid; gap: 6px; font-size: 13px; color: #ecf0f1; font-weight: 600; }
   label .opt { color: #95a5a6; font-weight: 400; font-size: 12px; }
-  input {
+  input, textarea {
     background: rgba(255,255,255,0.06);
     border: 1px solid rgba(255,255,255,0.15);
     border-radius: 6px; padding: 10px 12px;
     color: #fff; font-size: 15px; font-family: inherit;
   }
+  textarea { resize: vertical; min-height: 64px; }
   input[type="color"] { padding: 4px; height: 40px; width: 64px; }
-  input:focus { outline: 2px solid #f39c12; outline-offset: 1px; }
+  input:focus, textarea:focus { outline: 2px solid #f39c12; outline-offset: 1px; }
 
-  .row { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
+  .row { display: flex; align-items: center; gap: 12px; margin-top: 4px; flex-wrap: wrap; }
   button {
     padding: 12px 22px; background: #f39c12; color: #1a252f;
     border: none; border-radius: 8px; font-weight: 800; font-size: 15px;
     cursor: pointer;
   }
   button:disabled { opacity: 0.55; cursor: not-allowed; }
+  button.cancel {
+    background: transparent; color: #ecf0f1;
+    border: 1px solid rgba(255,255,255,0.2); font-weight: 600;
+  }
 
-  #save-status { font-size: 13px; color: #95a5a6; }
-  #save-status.ok { color: #2ecc71; font-weight: 700; }
-  #save-status.err { color: #e74c3c; font-weight: 600; }
+  #save-status, .t-status { font-size: 13px; color: #95a5a6; }
+  #save-status.ok, .t-status.ok { color: #2ecc71; font-weight: 700; }
+  #save-status.err, .t-status.err { color: #e74c3c; font-weight: 600; }
+
+  /* Transformations section */
+  button.add-btn {
+    background: transparent; color: #f39c12;
+    border: 1px dashed rgba(243,156,18,0.5);
+    width: 100%; padding: 12px; margin-bottom: 14px;
+    font-weight: 700;
+  }
+  button.add-btn:hover { background: rgba(243,156,18,0.06); }
+
+  #t-form-host form.t-form {
+    background: rgba(0,0,0,0.2);
+    border: 1px solid rgba(243,156,18,0.4);
+    border-radius: 10px; padding: 14px; margin-bottom: 14px;
+  }
+  form.t-form h3 {
+    font-size: 13px; color: #f39c12;
+    text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 12px;
+  }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  @media (max-width: 460px) { .grid-3 { grid-template-columns: 1fr; } }
+
+  ul.t-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+  .t-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; padding: 10px 12px;
+    background: rgba(0,0,0,0.2);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+  }
+  .t-info { display: grid; gap: 2px; min-width: 0; }
+  .t-info strong { font-size: 14px; color: #fff; }
+  .t-meta { font-size: 11px; color: #95a5a6; }
+  .t-meta.accent { color: #f39c12; font-weight: 700; }
+  .t-actions { display: flex; gap: 6px; }
+  .t-actions button {
+    padding: 6px 12px; font-size: 12px; font-weight: 700;
+  }
+  .t-actions button.edit { background: rgba(255,255,255,0.08); color: #ecf0f1; }
+  .t-actions button.del  { background: rgba(231,76,60,0.18); color: #e74c3c; }
+  .t-empty { color: #95a5a6; font-size: 13px; font-style: italic; padding: 8px 0; }
 
   .loading { color: #95a5a6; text-align: center; padding: 40px 0; font-size: 14px; }
   .loading.err { color: #e74c3c; }
