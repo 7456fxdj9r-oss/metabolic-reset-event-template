@@ -235,7 +235,7 @@ import Base from '../layouts/Base.astro';
             <legend>Before</legend>
             <label>
               Date <span class="opt">(month / year)</span>
-              <input type="month" name="before_date" value="${escapeHtml(dateToMonth(v.before_date || null))}" />
+              <input type="month" name="before_date" value="${escapeHtml(dateToMonth(v.before_date || null))}" placeholder="2025-09" />
             </label>
             <label>
               Weight (lb)
@@ -254,7 +254,7 @@ import Base from '../layouts/Base.astro';
             <legend>After</legend>
             <label>
               Date <span class="opt">(month / year)</span>
-              <input type="month" name="after_date" value="${escapeHtml(dateToMonth(v.after_date || null))}" />
+              <input type="month" name="after_date" value="${escapeHtml(dateToMonth(v.after_date || null))}" placeholder="2026-04" />
             </label>
             <label>
               Weight (lb)
@@ -367,6 +367,34 @@ import Base from '../layouts/Base.astro';
             <button id="add-t-btn" type="button" class="add-btn">+ Add transformation</button>
             <div id="t-form-host"></div>
             <ul id="t-list" class="t-list"></ul>
+          </section>
+
+          <section class="card">
+            <h2>Raffle</h2>
+            <form id="raffle-form" novalidate>
+              <label>
+                Status
+                <select name="raffle_status">
+                  <option value="closed" ${ev.raffle_status !== 'open' ? 'selected' : ''}>Closed</option>
+                  <option value="open" ${ev.raffle_status === 'open' ? 'selected' : ''}>Open for entries</option>
+                </select>
+              </label>
+              <label>
+                Prize description <span class="opt">(shown on the entry page; leave blank if generic)</span>
+                <input name="raffle_prize" maxlength="200" value="${escapeHtml(ev.raffle_prize || '')}" placeholder="Free 30-min consult" />
+              </label>
+              <div class="row">
+                <button type="submit" id="raffle-save">Save raffle settings</button>
+                <span id="raffle-save-status" role="status" aria-live="polite"></span>
+              </div>
+            </form>
+
+            <h3 class="raffle-entries-h">
+              Entries <span class="entry-count" id="entry-count">—</span>
+            </h3>
+            <div id="entries-list-wrap">
+              <p class="entries-loading">Loading entries…</p>
+            </div>
           </section>
 
           <section class="card">
@@ -600,11 +628,29 @@ import Base from '../layouts/Base.astro';
           tStatus.textContent = 'Saving…';
           tStatus.className = 't-status';
 
-          // <input type="month"> emits YYYY-MM; pad to YYYY-MM-01 for the DB
-          // date column. Display elsewhere strips the day back off.
+          // <input type="month"> emits YYYY-MM in Chrome/Edge with a native
+          // picker. In Safari and Firefox the input degrades to a plain text
+          // box and the user types whatever format they want. Accept the
+          // common ones and normalize to YYYY-MM-01 for the DB date column.
           const monthOrNull = (v: FormDataEntryValue | null): string | null => {
             const s = String(v || '').trim();
-            return s ? `${s}-01` : null;
+            if (!s) return null;
+            let m: RegExpMatchArray | null;
+            if ((m = s.match(/^(\d{4})-(\d{1,2})$/))) {
+              return `${m[1]}-${m[2].padStart(2, '0')}-01`;
+            }
+            if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/))) {
+              return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+            }
+            if ((m = s.match(/^(\d{1,2})\/(\d{4})$/))) {
+              return `${m[2]}-${m[1].padStart(2, '0')}-01`;
+            }
+            if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/))) {
+              let y = +m[3];
+              if (y < 100) y += 2000;
+              return `${y}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
+            }
+            return null;
           };
           const transformation: Record<string, unknown> = {
             name: fd.get('name'),
@@ -733,6 +779,127 @@ import Base from '../layouts/Base.astro';
             alert('Could not delete: ' + (err as Error).message);
           }
         }
+
+        // ---------- Raffle settings + entries ----------
+        const raffleForm = document.getElementById('raffle-form') as HTMLFormElement;
+        const raffleSaveBtn = document.getElementById('raffle-save') as HTMLButtonElement;
+        const raffleSaveStatus = document.getElementById('raffle-save-status')!;
+        const entryCountEl = document.getElementById('entry-count')!;
+        const entriesWrap = document.getElementById('entries-list-wrap')!;
+        let raffleStatus: 'open' | 'closed' = (ev.raffle_status === 'open' ? 'open' : 'closed');
+
+        raffleForm.addEventListener('submit', async (submitEv) => {
+          submitEv.preventDefault();
+          raffleSaveBtn.disabled = true;
+          raffleSaveStatus.textContent = 'Saving…';
+          raffleSaveStatus.className = '';
+          const fd = new FormData(raffleForm);
+          try {
+            await callFunction('update-event', {
+              slug,
+              edit_token: key,
+              raffle_status: fd.get('raffle_status'),
+              raffle_prize: fd.get('raffle_prize') || null,
+            });
+            raffleStatus = String(fd.get('raffle_status')) === 'open' ? 'open' : 'closed';
+            raffleSaveStatus.textContent = 'Saved ✓';
+            raffleSaveStatus.className = 'ok';
+          } catch (err) {
+            const msg = (err as Error).message;
+            raffleSaveStatus.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+            raffleSaveStatus.className = 'err';
+          } finally {
+            raffleSaveBtn.disabled = false;
+          }
+        });
+
+        function renderEntries(entries: Array<{
+          id: string; name: string; email: string; phone: string | null;
+          invited_by: string | null;
+          risk_score: number | null;
+          quiz_answers: Record<string, string | number | null> | null;
+          goal_text: string | null;
+          newsletter_optin: boolean | null;
+          apprentice_optin: boolean | null;
+          drawn: boolean; prize_won: string | null;
+          submitted_at: string;
+        }>) {
+          entryCountEl.textContent = String(entries.length);
+          if (entries.length === 0) {
+            entriesWrap.innerHTML =
+              `<p class="entries-empty">No entries yet. Open the raffle and share <code>${base}raffle?slug=${escapeHtml(slug || '')}</code>.</p>`;
+            return;
+          }
+          const flagLabels: Record<string, string> = {
+            has_diabetes: 'Diabetes',
+            has_high_bp: 'High BP',
+            has_high_cholesterol: 'High chol',
+          };
+          const ratingLabels: Record<string, string> = {
+            rate_energy: 'Energy',
+            rate_sleep: 'Sleep',
+            rate_weight: 'Weight',
+            rate_cravings: 'Cravings',
+            rate_mood: 'Mood',
+            rate_digestion: 'Digestion',
+            rate_community: 'Community',
+          };
+          entriesWrap.innerHTML = `
+            <ul class="entry-list">
+              ${entries.map((e) => {
+                const q = e.quiz_answers || {};
+                const flags = Object.entries(flagLabels)
+                  .filter(([k]) => q[k] === 'yes')
+                  .map(([, lbl]) => `<span class="flag">${lbl}</span>`)
+                  .join('');
+                const ratings = Object.entries(ratingLabels)
+                  .filter(([k]) => typeof q[k] === 'number')
+                  .map(([k, lbl]) => `<span class="rate">${lbl} ${q[k]}</span>`)
+                  .join('');
+                const optins: string[] = [];
+                if (e.apprentice_optin) optins.push('<span class="optin apprentice">⚑ Apprentice interest</span>');
+                if (e.newsletter_optin) optins.push('<span class="optin">Newsletter</span>');
+                const submitted = new Date(e.submitted_at);
+                const submittedTxt = isNaN(submitted.getTime())
+                  ? e.submitted_at
+                  : submitted.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+                return `
+                  <li class="entry-item">
+                    <div class="entry-head">
+                      <strong>${escapeHtml(e.name)}</strong>
+                      <span class="entry-score">${e.risk_score ?? 0}/3</span>
+                    </div>
+                    <div class="entry-meta">
+                      ${escapeHtml(e.email)}${e.phone ? ` · ${escapeHtml(e.phone)}` : ''}<br />
+                      ${e.invited_by ? `Invited by ${escapeHtml(e.invited_by)} · ` : ''}entered ${escapeHtml(submittedTxt)}
+                    </div>
+                    ${flags ? `<div class="entry-flags">${flags}</div>` : ''}
+                    ${ratings ? `<div class="entry-ratings">${ratings}</div>` : ''}
+                    ${optins.length ? `<div class="entry-optins">${optins.join(' ')}</div>` : ''}
+                    ${e.goal_text ? `<p class="entry-goal">${escapeHtml(e.goal_text)}</p>` : ''}
+                    ${e.drawn ? `<p class="entry-drawn">🏆 Winner${e.prize_won ? ` — ${escapeHtml(e.prize_won)}` : ''}</p>` : ''}
+                  </li>`;
+              }).join('')}
+            </ul>
+          `;
+        }
+
+        async function loadEntries() {
+          try {
+            const res = await callFunction('manage-raffle', {
+              slug,
+              edit_token: key,
+              action: 'list',
+            });
+            renderEntries(res.entries);
+          } catch (err) {
+            entriesWrap.innerHTML = `<p class="entries-empty err">${escapeHtml((err as Error).message)}</p>`;
+          }
+        }
+        loadEntries();
+        // Light polling so a host watching the dashboard sees new entries
+        // come in during an event without having to refresh manually.
+        window.setInterval(loadEntries, 10000);
 
         // ---------- Share & save links section ----------
         const origin = window.location.origin;
@@ -1018,6 +1185,88 @@ import Base from '../layouts/Base.astro';
   .t-actions button.edit { background: rgba(255,255,255,0.08); color: #ecf0f1; }
   .t-actions button.del  { background: rgba(231,76,60,0.18); color: #e74c3c; }
   .t-empty { color: #95a5a6; font-size: 13px; font-style: italic; padding: 8px 0; }
+
+  /* Raffle section */
+  select[name="raffle_status"] {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px; padding: 10px 12px;
+    color: #fff; font-size: 15px; font-family: inherit;
+    width: 100%;
+  }
+  h3.raffle-entries-h {
+    margin-top: 22px; margin-bottom: 10px;
+    font-size: 12px; color: #ecf0f1;
+    text-transform: uppercase; letter-spacing: 1.5px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  h3.raffle-entries-h .entry-count {
+    background: rgba(243,156,18,0.18);
+    color: #f39c12; padding: 2px 10px; border-radius: 12px;
+    font-size: 11px; font-weight: 800;
+  }
+  .entries-loading, .entries-empty {
+    color: #95a5a6; font-size: 13px; font-style: italic; padding: 8px 0;
+  }
+  .entries-empty.err { color: #e74c3c; font-style: normal; }
+  .entries-empty code {
+    background: rgba(255,255,255,0.08);
+    padding: 1px 5px; border-radius: 3px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-style: normal; font-size: 11px;
+  }
+  ul.entry-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+  .entry-item {
+    background: rgba(0,0,0,0.2);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: grid; gap: 6px;
+  }
+  .entry-head {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 10px;
+  }
+  .entry-head strong { font-size: 14px; color: #fff; }
+  .entry-score {
+    font-size: 11px; font-weight: 800; color: #f39c12;
+    background: rgba(243,156,18,0.15);
+    padding: 2px 10px; border-radius: 12px;
+  }
+  .entry-meta {
+    font-size: 11px; color: #95a5a6;
+    word-break: break-word;
+  }
+  .entry-flags, .entry-ratings, .entry-optins { display: flex; flex-wrap: wrap; gap: 4px; }
+  .flag {
+    font-size: 10px; padding: 2px 8px;
+    background: rgba(231,76,60,0.18); color: #e74c3c;
+    border-radius: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .rate {
+    font-size: 10px; padding: 2px 8px;
+    background: rgba(255,255,255,0.06); color: #ecf0f1;
+    border-radius: 10px; font-weight: 700;
+    letter-spacing: 0.3px;
+  }
+  .optin {
+    font-size: 10px; padding: 2px 8px;
+    background: rgba(46,204,113,0.15); color: #2ecc71;
+    border-radius: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .optin.apprentice {
+    background: rgba(243,156,18,0.20); color: #f39c12;
+  }
+  .entry-goal {
+    font-size: 13px; color: #bdc3c7; font-style: italic;
+    border-left: 2px solid rgba(243,156,18,0.5);
+    padding-left: 10px; margin-top: 4px;
+  }
+  .entry-drawn {
+    font-size: 13px; color: #2ecc71; font-weight: 700;
+  }
 
   /* Share & save links section */
   .link-blurb {

@@ -55,6 +55,14 @@ Deno.serve(async (req) => {
   if ('accent_color' in body) patch.accent_color = body.accent_color || '#f39c12';
   if ('email' in body) patch.email = body.email || null;
   if ('science_url' in body) patch.science_url = body.science_url || null;
+  if ('raffle_status' in body) {
+    const s = String(body.raffle_status || 'closed');
+    if (!['open', 'closed'].includes(s)) {
+      return errResp(400, 'raffle_status must be open|closed');
+    }
+    patch.raffle_status = s;
+  }
+  if ('raffle_prize' in body) patch.raffle_prize = body.raffle_prize || null;
 
   if (Object.keys(patch).length === 0) return errResp(400, 'no fields to update');
 

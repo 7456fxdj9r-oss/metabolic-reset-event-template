@@ -52,7 +52,10 @@ import Base from '../layouts/Base.astro';
             </a>`;
         }).join('');
 
-        const scienceCta = `<a class="science-btn" href="${base}science?slug=${encodeURIComponent(slug)}">The Science →</a>`;
+        const scienceCta = `<a class="cta-btn science" href="${base}science?slug=${encodeURIComponent(slug)}">The Science →</a>`;
+        const raffleCta = event.raffle_status === 'open'
+          ? `<a class="cta-btn raffle" href="${base}raffle?slug=${encodeURIComponent(slug)}">🎟️ Enter the Raffle${event.raffle_prize ? ` — ${escapeHtml(event.raffle_prize)}` : ''}</a>`
+          : '';
 
         root.innerHTML = `
           <header class="top">
@@ -62,7 +65,10 @@ import Base from '../layouts/Base.astro';
           <section class="cards">
             ${cards || '<p class="empty">No transformations added yet.</p>'}
           </section>
-          ${scienceCta}
+          <div class="cta-stack">
+            ${raffleCta}
+            ${scienceCta}
+          </div>
         `;
       } catch (err) {
         root.innerHTML = `<p class="loading err">${escapeHtml((err as Error).message)}</p>`;
@@ -104,14 +110,23 @@ import Base from '../layouts/Base.astro';
   .loading { color: #95a5a6; text-align: center; padding: 40px 0; font-size: 14px; }
   .loading.err { color: #e74c3c; }
 
-  a.science-btn {
-    display: block; margin-top: 22px; padding: 14px;
+  .cta-stack { display: grid; gap: 10px; margin-top: 22px; }
+  a.cta-btn {
+    display: block; padding: 14px;
     text-align: center; text-decoration: none;
+    border-radius: 10px;
+    font-weight: 800; font-size: 14px;
+    letter-spacing: 1.5px; text-transform: uppercase;
+  }
+  a.cta-btn.raffle {
+    background: var(--accent); color: #1a252f;
+    border: 1px solid var(--accent);
+  }
+  a.cta-btn.raffle:hover { filter: brightness(1.07); }
+  a.cta-btn.science {
     background: rgba(243,156,18,0.10);
     border: 1px solid var(--accent);
-    border-radius: 10px;
-    color: var(--accent); font-weight: 800;
-    font-size: 14px; letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--accent);
   }
-  a.science-btn:hover { background: rgba(243,156,18,0.18); }
+  a.cta-btn.science:hover { background: rgba(243,156,18,0.18); }
 </style>

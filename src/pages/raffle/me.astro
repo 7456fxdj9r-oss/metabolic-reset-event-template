@@ -1,0 +1,225 @@
+---
+import Base from '../../layouts/Base.astro';
+---
+<Base title="Your raffle entry">
+  <main class="me" id="me-root">
+    <p class="loading">Loading your entry…</p>
+  </main>
+</Base>
+
+<script>
+  import { callFunction } from '../../lib/supabase.js';
+
+  const root = document.getElementById('me-root')!;
+  const base = import.meta.env.BASE_URL;
+  const params = new URLSearchParams(window.location.search);
+  const slug = params.get('slug');
+  const token = params.get('token');
+
+  function escapeHtml(s: unknown): string {
+    return String(s ?? '').replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
+    );
+  }
+
+  function fmtDate(s: string | null): string {
+    if (!s) return '';
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return s;
+    return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
+  if (!slug || !token) {
+    root.innerHTML = '<p class="loading err">Missing slug or token. Bookmark the link you got after entering.</p>';
+  } else {
+    let timer: number | undefined;
+
+    async function refresh() {
+      try {
+        const res = await callFunction('get-my-raffle-entry', { slug, token });
+        const entry = res.entry;
+        const event = res.event;
+        document.title = `Your entry — ${event.name}`;
+        const accent = event.accent_color || '#f39c12';
+        document.documentElement.style.setProperty('--accent', accent);
+
+        let statusBlock = '';
+        if (entry.drawn) {
+          if (entry.prize_won) {
+            statusBlock = `
+              <div class="status-card won">
+                <p class="big">🎉 You won!</p>
+                <p class="prize-detail">${escapeHtml(entry.prize_won)}</p>
+                <p class="meta">Drawn ${fmtDate(entry.drawn_at)}. The host will be in touch about your prize.</p>
+              </div>`;
+          } else {
+            statusBlock = `
+              <div class="status-card not-won">
+                <p class="big">Drawing complete</p>
+                <p class="meta">You weren't selected this time. Thanks for entering — and watch for the next event.</p>
+              </div>`;
+          }
+          if (timer) { clearInterval(timer); timer = undefined; }
+        } else {
+          statusBlock = `
+            <div class="status-card pending">
+              <p class="big">Entry confirmed ✓</p>
+              <p class="meta">
+                ${event.raffle_prize ? `Drawing for: <strong>${escapeHtml(event.raffle_prize)}</strong>` : 'Drawing pending.'}<br />
+                This page updates itself when winners are drawn — keep it open or bookmark it.
+              </p>
+            </div>`;
+        }
+
+        const yes = (k: string) => entry.quiz_answers?.[k] === 'yes';
+        const flagRows: string[] = [];
+        if (yes('has_diabetes')) flagRows.push('Diabetes / pre-diabetes');
+        if (yes('has_high_bp')) flagRows.push('High blood pressure');
+        if (yes('has_high_cholesterol')) flagRows.push('High cholesterol');
+
+        const ratingLabels: Record<string, string> = {
+          rate_energy: 'Energy',
+          rate_sleep: 'Sleep',
+          rate_weight: 'Weight',
+          rate_cravings: 'Cravings / blood sugar',
+          rate_mood: 'Mood / stress',
+          rate_digestion: 'Digestion',
+          rate_community: 'Community',
+        };
+        const ratingRows = Object.entries(ratingLabels)
+          .filter(([k]) => entry.quiz_answers?.[k] != null)
+          .map(([k, lbl]) => `<li><span class="rl">${lbl}</span><span class="rv">${entry.quiz_answers[k]}/5</span></li>`)
+          .join('');
+
+        root.innerHTML = `
+          <header class="top">
+            <p class="eyebrow">Your raffle entry</p>
+            <h1>${escapeHtml(entry.name)}</h1>
+            <p class="meta">
+              ${escapeHtml(event.name)} · entered ${fmtDate(entry.submitted_at)}
+              ${entry.invited_by ? `<br />Invited by ${escapeHtml(entry.invited_by)}` : ''}
+            </p>
+          </header>
+
+          ${statusBlock}
+
+          <section class="card">
+            <h2>Your answers</h2>
+            <p class="meta">Risk markers: <strong>${entry.risk_score}/3</strong></p>
+            ${flagRows.length
+              ? `<ul class="answers">${flagRows.map((s) => `<li>${escapeHtml(s)}</li>`).join('')}</ul>`
+              : '<p class="meta">No risk markers reported.</p>'}
+            ${ratingRows ? `<h3 class="ratings-h">Where you wished things were better</h3><ul class="ratings">${ratingRows}</ul>` : ''}
+            ${entry.goal_text ? `<p class="goal"><em>"${escapeHtml(entry.goal_text)}"</em></p>` : ''}
+          </section>
+
+          <div class="footer-cta">
+            <a class="secondary" href="${base}event?slug=${encodeURIComponent(slug!)}">← Back to the event</a>
+            <a class="secondary" href="${base}science?slug=${encodeURIComponent(slug!)}">The Science →</a>
+          </div>
+        `;
+      } catch (err) {
+        root.innerHTML = `<p class="loading err">${escapeHtml((err as Error).message)}</p>`;
+        if (timer) { clearInterval(timer); timer = undefined; }
+      }
+    }
+
+    refresh();
+    timer = window.setInterval(refresh, 10000);
+  }
+</script>
+
+<style is:global>
+  :root { --accent: #f39c12; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: #1a252f; color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  }
+  body { padding: 26px 14px 50px; line-height: 1.45; }
+  main.me { max-width: 540px; margin: 0 auto; }
+
+  .top { text-align: center; margin-bottom: 22px; }
+  .top .eyebrow {
+    font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; margin-bottom: 6px;
+  }
+  .top h1 { font-size: 28px; line-height: 1.2; margin-bottom: 6px; }
+  .top .meta { font-size: 13px; color: #95a5a6; }
+
+  .status-card {
+    border-radius: 12px; padding: 22px 18px; text-align: center;
+    margin-bottom: 18px;
+  }
+  .status-card.pending {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  }
+  .status-card.won {
+    background: rgba(46,204,113,0.10);
+    border: 1px solid rgba(46,204,113,0.5);
+  }
+  .status-card.not-won {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.10);
+  }
+  .status-card .big {
+    font-size: 24px; font-weight: 800; color: var(--accent);
+    margin-bottom: 8px;
+  }
+  .status-card.won .big { color: #2ecc71; }
+  .status-card.not-won .big { color: #ecf0f1; }
+  .status-card .prize-detail {
+    font-size: 16px; color: #ecf0f1; font-weight: 700; margin-bottom: 8px;
+  }
+  .status-card .meta { font-size: 13px; color: #bdc3c7; line-height: 1.5; }
+  .status-card strong { color: var(--accent); }
+
+  .card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px; padding: 18px;
+    margin-bottom: 16px;
+  }
+  .card h2 {
+    font-size: 13px; color: #ecf0f1;
+    text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 10px;
+  }
+  .card .meta { font-size: 12px; color: #95a5a6; margin-bottom: 8px; }
+  .card .meta strong { color: var(--accent); }
+  ul.answers { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 6px; }
+  ul.answers li {
+    font-size: 13px; color: #ecf0f1;
+    padding: 6px 10px;
+    background: rgba(0,0,0,0.2);
+    border-radius: 6px;
+  }
+  h3.ratings-h {
+    font-size: 11px; color: #95a5a6;
+    text-transform: uppercase; letter-spacing: 1.2px;
+    margin-top: 14px; margin-bottom: 6px;
+  }
+  ul.ratings { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+  ul.ratings li {
+    display: flex; justify-content: space-between; gap: 10px;
+    font-size: 13px; color: #ecf0f1;
+    padding: 5px 10px;
+    background: rgba(0,0,0,0.15);
+    border-radius: 6px;
+  }
+  ul.ratings .rv {
+    font-weight: 800; color: var(--accent);
+  }
+  .goal { margin-top: 14px; font-size: 14px; color: #bdc3c7; }
+
+  .footer-cta { display: grid; gap: 10px; margin-top: 22px; }
+  .footer-cta a {
+    display: block; text-align: center; padding: 12px;
+    background: transparent; color: #ecf0f1;
+    border: 1px solid rgba(255,255,255,0.2); border-radius: 8px;
+    text-decoration: none; font-weight: 600; font-size: 14px;
+  }
+
+  .loading { color: #95a5a6; text-align: center; padding: 40px 0; font-size: 14px; }
+  .loading.err { color: #e74c3c; }
+</style>

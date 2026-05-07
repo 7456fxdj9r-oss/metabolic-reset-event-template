@@ -1,0 +1,396 @@
+---
+import Base from '../layouts/Base.astro';
+---
+<Base title="Enter the Raffle">
+  <main class="raffle" id="raffle-root">
+    <p class="loading">Loading…</p>
+  </main>
+</Base>
+
+<script>
+  import { fetchEventBySlug, callFunction } from '../lib/supabase.js';
+
+  const root = document.getElementById('raffle-root')!;
+  const base = import.meta.env.BASE_URL;
+  const params = new URLSearchParams(window.location.search);
+  const slug = params.get('slug');
+
+  function escapeHtml(s: unknown): string {
+    return String(s ?? '').replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
+    );
+  }
+
+  if (!slug) {
+    root.innerHTML = '<p class="loading err">No event specified.</p>';
+  } else {
+    (async () => {
+      try {
+        const event = await fetchEventBySlug(slug);
+        if (!event) {
+          root.innerHTML = '<p class="loading err">Event not found.</p>';
+          return;
+        }
+        document.title = `Raffle — ${event.name}`;
+        const accent = event.accent_color || '#f39c12';
+        document.documentElement.style.setProperty('--accent', accent);
+
+        if (event.raffle_status !== 'open') {
+          root.innerHTML = `
+            <header class="top">
+              <p class="eyebrow">Raffle</p>
+              <h1>${escapeHtml(event.name)}</h1>
+            </header>
+            <div class="closed-card">
+              <h2>Entries are closed</h2>
+              <p>The raffle for this event isn't accepting new entries right now.</p>
+              <a class="back" href="${base}event?slug=${encodeURIComponent(slug)}">← Back to the event</a>
+            </div>`;
+          return;
+        }
+
+        root.innerHTML = `
+          <header class="top">
+            <p class="eyebrow">Raffle Entry</p>
+            <h1>🎟️ ${escapeHtml(event.name)}</h1>
+            ${event.raffle_prize
+              ? `<p class="prize">🎁 <strong>${escapeHtml(event.raffle_prize)}</strong></p>`
+              : ''}
+            <p class="lede">Enter to win — and tell us a bit about where you're at.</p>
+          </header>
+
+          <form id="entry-form" class="card" novalidate>
+            <h2>Your info</h2>
+            <label>
+              Full name <span class="req">*</span>
+              <input name="name" required maxlength="100" autocomplete="name" />
+            </label>
+            <label>
+              Email <span class="req">*</span>
+              <input type="email" name="email" required autocomplete="email" inputmode="email" />
+            </label>
+            <label>
+              Phone <span class="opt">(optional)</span>
+              <input type="tel" name="phone" autocomplete="tel" inputmode="tel" />
+            </label>
+            <label>
+              Who invited you to this event? <span class="req">*</span>
+              <input name="invited_by" required maxlength="100" />
+            </label>
+
+            <h2>Do you or someone close to you have…</h2>
+            ${ynBlock('has_diabetes', '<strong>Diabetes</strong> or pre-diabetes?')}
+            ${ynBlock('has_high_bp', '<strong>High blood pressure</strong>?')}
+            ${ynBlock('has_high_cholesterol', '<strong>High cholesterol</strong>?')}
+
+            <h2>Rate the areas you wish were better</h2>
+            <p class="hint">1 = doing great · 5 = really need help</p>
+            ${scaleRow('rate_energy', 'Energy')}
+            ${scaleRow('rate_sleep', 'Sleep')}
+            ${scaleRow('rate_weight', 'Weight')}
+            ${scaleRow('rate_cravings', 'Cravings / blood sugar')}
+            ${scaleRow('rate_mood', 'Mood / stress')}
+            ${scaleRow('rate_digestion', 'Digestion')}
+            ${scaleRow('rate_community', 'Community / connection')}
+
+            <h2>A couple more</h2>
+            <label class="row-label">Tried a reset / cleanse / diet program before?</label>
+            ${ynRow('tried_before')}
+
+            <label>
+              Anything else on your mind? <span class="opt">(optional)</span>
+              <textarea name="goal_text" rows="3" maxlength="500"
+                placeholder="What's on your mind?"></textarea>
+            </label>
+
+            <label class="checkbox-row">
+              <input type="checkbox" name="newsletter_optin" checked />
+              <span>Add me to the newsletter</span>
+            </label>
+            <label class="checkbox-row">
+              <input type="checkbox" name="apprentice_optin" />
+              <span><strong>I'm curious about metabolic coaching.</strong> Tell me more about the apprentice program.</span>
+            </label>
+
+            <p class="privacy">Your info goes to the event host and team only. We won't share or sell it.</p>
+
+            <div class="row">
+              <button type="submit" id="submit-btn">Enter the Raffle</button>
+              <span id="entry-status" role="status" aria-live="polite"></span>
+            </div>
+          </form>
+
+          <div class="footer-cta">
+            <a class="secondary" href="${base}event?slug=${encodeURIComponent(slug)}">← Back to the event</a>
+          </div>
+        `;
+
+        const form = document.getElementById('entry-form') as HTMLFormElement;
+        const status = document.getElementById('entry-status')!;
+        const submitBtn = document.getElementById('submit-btn') as HTMLButtonElement;
+
+        form.addEventListener('submit', async (submitEv) => {
+          submitEv.preventDefault();
+          status.textContent = '';
+          status.className = '';
+
+          const fd = new FormData(form);
+          const requiredText = ['name', 'email', 'invited_by'];
+          const missingText = requiredText.filter((k) => !String(fd.get(k) || '').trim());
+          if (missingText.length) {
+            status.textContent = 'Please fill in name, email, and who invited you.';
+            status.className = 'err';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            return;
+          }
+
+          const requiredRadios: Array<[string, string]> = [
+            ['has_diabetes', 'Diabetes question'],
+            ['has_high_bp', 'High blood pressure question'],
+            ['has_high_cholesterol', 'High cholesterol question'],
+            ['rate_energy', 'Energy rating'],
+            ['rate_sleep', 'Sleep rating'],
+            ['rate_weight', 'Weight rating'],
+            ['rate_cravings', 'Cravings rating'],
+            ['rate_mood', 'Mood / stress rating'],
+            ['rate_digestion', 'Digestion rating'],
+            ['rate_community', 'Community rating'],
+            ['tried_before', 'Tried-before question'],
+          ];
+          const missing = requiredRadios.filter(([k]) => !fd.get(k));
+          if (missing.length) {
+            status.textContent = `Please answer all questions (${missing.length} left).`;
+            status.className = 'err';
+            const firstMissing = form.querySelector<HTMLInputElement>(`input[name="${missing[0][0]}"]`);
+            const block = firstMissing?.closest('.yn-block, .scale-row, .yn-row');
+            block?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
+          }
+
+          submitBtn.disabled = true;
+          status.textContent = 'Submitting…';
+          status.className = '';
+
+          const quiz_answers: Record<string, string | number | null> = {};
+          for (const [k] of requiredRadios) {
+            const v = fd.get(k);
+            // ratings come through as numeric strings; coerce
+            const asNum = Number(v);
+            quiz_answers[k] = Number.isInteger(asNum) && asNum >= 1 && asNum <= 5
+              ? asNum
+              : (v === 'yes' || v === 'no' ? v : null);
+          }
+
+          try {
+            const res = await callFunction('submit-raffle-entry', {
+              slug,
+              name: fd.get('name'),
+              email: fd.get('email'),
+              phone: fd.get('phone') || null,
+              invited_by: fd.get('invited_by'),
+              goal_text: fd.get('goal_text') || null,
+              newsletter_optin: fd.get('newsletter_optin') === 'on',
+              apprentice_optin: fd.get('apprentice_optin') === 'on',
+              quiz_answers,
+            });
+            const params = new URLSearchParams({ slug: slug!, token: res.entry_token });
+            window.location.href = `${base}raffle/me?${params.toString()}`;
+          } catch (err) {
+            status.textContent = (err as Error).message;
+            status.className = 'err';
+            submitBtn.disabled = false;
+          }
+        });
+      } catch (err) {
+        root.innerHTML = `<p class="loading err">${escapeHtml((err as Error).message)}</p>`;
+      }
+    })();
+  }
+
+  function ynBlock(name: string, question: string): string {
+    return `
+      <div class="yn-block">
+        <span class="question">${question}</span>
+        <div class="yn-options">
+          <label><input type="radio" name="${name}" value="yes" /><span>Yes</span></label>
+          <label><input type="radio" name="${name}" value="no" /><span>No</span></label>
+        </div>
+      </div>`;
+  }
+
+  function ynRow(name: string): string {
+    return `
+      <div class="yn-row">
+        <label><input type="radio" name="${name}" value="yes" /><span>Yes</span></label>
+        <label><input type="radio" name="${name}" value="no" /><span>No</span></label>
+      </div>`;
+  }
+
+  function scaleRow(name: string, label: string): string {
+    return `
+      <label class="row-label">${label}</label>
+      <div class="scale-row">
+        ${[1, 2, 3, 4, 5].map((n) =>
+          `<label><input type="radio" name="${name}" value="${n}" /><span>${n}</span></label>`
+        ).join('')}
+      </div>`;
+  }
+</script>
+
+<style is:global>
+  :root { --accent: #f39c12; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: #1a252f; color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  }
+  body { padding: 26px 14px 50px; line-height: 1.45; }
+  main.raffle { max-width: 540px; margin: 0 auto; }
+
+  .top { text-align: center; margin-bottom: 22px; }
+  .top .eyebrow {
+    font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; margin-bottom: 6px;
+  }
+  .top h1 { font-size: 26px; line-height: 1.2; }
+  .top .lede { font-size: 14px; color: #95a5a6; font-style: italic; margin-top: 10px; }
+  .top .prize {
+    margin-top: 14px;
+    padding: 12px 14px;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
+    border-radius: 10px;
+    font-size: 15px; color: #ecf0f1;
+  }
+  .top .prize strong { color: var(--accent); }
+
+  .card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 18px; margin-bottom: 16px;
+    display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr);
+  }
+  .card h2 {
+    font-size: 13px; color: var(--accent);
+    text-transform: uppercase; letter-spacing: 1.5px;
+    margin: 14px 0 -2px; font-weight: 700;
+  }
+  .card h2:first-child { margin-top: 0; }
+  .card .hint, .card .privacy {
+    font-size: 12px; color: #95a5a6;
+    line-height: 1.5; font-style: italic;
+    text-align: left;
+  }
+  .card .privacy { text-align: center; margin-top: 6px; }
+
+  label { display: grid; gap: 6px; font-size: 13px; color: #ecf0f1; font-weight: 600; min-width: 0; }
+  label.row-label { display: block; margin-top: 2px; }
+  label .req { color: #e74c3c; font-weight: 700; }
+  label .opt { color: #95a5a6; font-weight: 400; font-size: 12px; }
+  input[type=text], input[type=email], input[type=tel], textarea, input:not([type]) {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px; padding: 12px;
+    color: #fff; font-size: 16px; font-family: inherit;
+    width: 100%; min-width: 0;
+  }
+  input:not([type=radio]):not([type=checkbox]):focus, textarea:focus {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+  textarea { resize: vertical; min-height: 64px; }
+
+  /* Yes / No question card */
+  .yn-block {
+    margin: 4px 0;
+    padding: 12px;
+    background: rgba(0,0,0,0.20);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    display: grid; gap: 10px;
+  }
+  .yn-block .question { font-size: 14px; color: #ecf0f1; font-weight: 600; }
+  .yn-block .question strong { color: #fff; font-weight: 800; }
+  .yn-options, .yn-row {
+    display: flex; gap: 8px;
+  }
+  .yn-options label, .yn-row label {
+    flex: 1; margin: 0; padding: 0; cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px; background: rgba(255,255,255,0.04);
+    overflow: hidden; min-width: 0;
+  }
+  .yn-options input, .yn-row input { display: none; }
+  .yn-options label span, .yn-row label span {
+    display: block; padding: 12px 0;
+    text-align: center; font-weight: 700; font-size: 14px;
+    color: #ecf0f1;
+  }
+  .yn-options input:checked + span,
+  .yn-row input:checked + span {
+    background: var(--accent); color: #1a252f;
+  }
+
+  /* 1-5 scale rows */
+  .scale-row {
+    display: flex; gap: 6px;
+  }
+  .scale-row label {
+    flex: 1; margin: 0; padding: 0; cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px; background: rgba(255,255,255,0.04);
+    overflow: hidden; min-width: 0;
+  }
+  .scale-row input { display: none; }
+  .scale-row label span {
+    display: block; padding: 11px 0;
+    text-align: center; font-weight: 700; font-size: 14px;
+    color: #ecf0f1;
+  }
+  .scale-row input:checked + span {
+    background: var(--accent); color: #1a252f;
+  }
+
+  /* Checkbox rows */
+  label.checkbox-row {
+    display: flex; flex-direction: row; gap: 10px;
+    align-items: flex-start;
+    padding: 10px 12px;
+    background: rgba(0,0,0,0.20);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px; cursor: pointer;
+    font-weight: 500;
+  }
+  label.checkbox-row input { width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px; accent-color: var(--accent); }
+  label.checkbox-row span { font-size: 13px; color: #ecf0f1; line-height: 1.4; font-weight: 500; }
+  label.checkbox-row strong { color: #fff; font-weight: 700; }
+
+  .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
+  button {
+    padding: 14px 22px; background: var(--accent); color: #1a252f;
+    border: none; border-radius: 8px; font-weight: 800; font-size: 16px;
+    cursor: pointer; width: 100%;
+  }
+  button:disabled { opacity: 0.55; cursor: not-allowed; }
+  #entry-status { font-size: 13px; color: #95a5a6; min-height: 18px; text-align: center; width: 100%; }
+  #entry-status.err { color: #e74c3c; font-weight: 600; }
+
+  .closed-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px; padding: 28px 18px; text-align: center;
+  }
+  .closed-card h2 { font-size: 18px; color: var(--accent); margin-bottom: 10px; }
+  .closed-card p { color: #bdc3c7; font-size: 14px; margin-bottom: 18px; }
+  .closed-card a.back, .footer-cta a {
+    display: inline-block; padding: 10px 16px;
+    background: transparent; color: #ecf0f1;
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;
+  }
+  .footer-cta { display: grid; gap: 10px; margin-top: 20px; }
+  .footer-cta a { text-align: center; }
+
+  .loading { color: #95a5a6; text-align: center; padding: 40px 0; font-size: 14px; }
+  .loading.err { color: #e74c3c; }
+</style>
