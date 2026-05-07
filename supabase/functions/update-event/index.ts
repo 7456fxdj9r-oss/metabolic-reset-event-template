@@ -63,6 +63,7 @@ Deno.serve(async (req) => {
     patch.raffle_status = s;
   }
   if ('raffle_prize' in body) patch.raffle_prize = body.raffle_prize || null;
+  if ('raffle_prize_photo_url' in body) patch.raffle_prize_photo_url = body.raffle_prize_photo_url || null;
 
   if (Object.keys(patch).length === 0) return errResp(400, 'no fields to update');
 

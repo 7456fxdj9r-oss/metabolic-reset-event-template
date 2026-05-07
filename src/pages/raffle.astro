@@ -53,6 +53,9 @@ import Base from '../layouts/Base.astro';
           <header class="top">
             <p class="eyebrow">Raffle Entry</p>
             <h1>🎟️ ${escapeHtml(event.name)}</h1>
+            ${event.raffle_prize_photo_url
+              ? `<img class="prize-photo" src="${escapeHtml(event.raffle_prize_photo_url)}" alt="${escapeHtml(event.raffle_prize || 'Prize')}" />`
+              : ''}
             ${event.raffle_prize
               ? `<p class="prize">🎁 <strong>${escapeHtml(event.raffle_prize)}</strong></p>`
               : ''}
@@ -254,6 +257,15 @@ import Base from '../layouts/Base.astro';
   }
   .top h1 { font-size: 26px; line-height: 1.2; }
   .top .lede { font-size: 14px; color: #95a5a6; font-style: italic; margin-top: 10px; }
+  .top .prize-photo {
+    display: block;
+    margin: 14px auto 6px;
+    width: 60%;
+    max-width: 220px;
+    height: auto;
+    border-radius: 10px;
+    background: #000;
+  }
   .top .prize {
     margin-top: 14px;
     padding: 12px 14px;
