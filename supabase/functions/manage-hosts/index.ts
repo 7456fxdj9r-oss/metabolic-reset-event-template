@@ -83,7 +83,7 @@ Deno.serve(async (req) => {
   if (action === 'list') {
     const { data: rows, error } = await supabase
       .from('hosts')
-      .select('id, name, email, host_token, created_at')
+      .select('id, name, email, phone, host_token, created_at')
       .eq('event_id', ev.id)
       .order('created_at', { ascending: true });
     if (error) return errResp(500, error.message);
@@ -92,6 +92,7 @@ Deno.serve(async (req) => {
       id: row.id,
       name: row.name,
       email: row.email,
+      phone: row.phone,
       created_at: row.created_at,
       host_token: isMaster ? row.host_token : null,
     }));
@@ -102,11 +103,12 @@ Deno.serve(async (req) => {
     if (!isMaster) return errResp(403, 'only the master host can add co-hosts');
     const name = body.name ? String(body.name).trim() : null;
     const email = body.email ? String(body.email).trim().toLowerCase() : null;
+    const phone = body.phone ? String(body.phone).trim() : null;
     const host_token = randomToken(32);
     const { data: inserted, error } = await supabase
       .from('hosts')
-      .insert({ event_id: ev.id, host_token, name, email })
-      .select('id, name, email, host_token, created_at')
+      .insert({ event_id: ev.id, host_token, name, email, phone })
+      .select('id, name, email, phone, host_token, created_at')
       .single();
     if (error) return errResp(500, error.message);
     return ok({ host: inserted });

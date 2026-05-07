@@ -1573,6 +1573,7 @@ import Base from '../layouts/Base.astro';
           id: string;
           name: string | null;
           email: string | null;
+          phone: string | null;
           host_token: string | null; // null when the viewer isn't the master
           created_at: string;
         };
@@ -1589,13 +1590,17 @@ import Base from '../layouts/Base.astro';
           if (isMaster) {
             hostsAddSection.innerHTML = `
               <form id="add-host-form" class="add-host-form" novalidate>
+                <label>
+                  Co-host name
+                  <input name="name" maxlength="120" placeholder="Coach Sam" />
+                </label>
                 <div class="grid-2">
                   <label>
-                    Co-host name
-                    <input name="name" maxlength="120" placeholder="Coach Sam" />
+                    Phone <span class="opt">(public)</span>
+                    <input type="tel" name="phone" placeholder="555-123-4567" />
                   </label>
                   <label>
-                    Email <span class="opt">(optional)</span>
+                    Email <span class="opt">(private)</span>
                     <input type="email" name="email" />
                   </label>
                 </div>
@@ -1624,7 +1629,8 @@ import Base from '../layouts/Base.astro';
               <li class="host-item" data-id="${h.id}">
                 <div class="host-info">
                   <strong>${escapeHtml(h.name || 'Unnamed co-host')}</strong>
-                  ${h.email ? `<span class="host-meta">${escapeHtml(h.email)}</span>` : ''}
+                  ${h.phone ? `<span class="host-meta">📞 ${escapeHtml(h.phone)}</span>` : ''}
+                  ${h.email ? `<span class="host-meta">✉️ ${escapeHtml(h.email)}</span>` : ''}
                   <span class="host-meta">added ${escapeHtml(createdTxt)}</span>
                 </div>
                 ${h.host_token
@@ -1671,6 +1677,7 @@ import Base from '../layouts/Base.astro';
               action: 'add',
               name: fd.get('name') || null,
               email: fd.get('email') || null,
+              phone: fd.get('phone') || null,
             });
             statusEl.textContent = 'Added ✓';
             statusEl.className = 'ok';
