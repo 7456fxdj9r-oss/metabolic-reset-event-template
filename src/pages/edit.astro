@@ -202,11 +202,15 @@ import Base from '../layouts/Base.astro';
     const v = t || ({} as Partial<Transformation>);
     const mode = t ? 'edit' : 'add';
     const idAttr = t ? `data-id="${t.id}"` : '';
-    const photos = t ? `
+    // Photo slots show in both Add and Edit modes. In Add mode the user can
+    // pick photos before clicking Create; we'll queue them in memory and
+    // upload right after the row is inserted so the new transformation lands
+    // with photos already attached.
+    const photos = `
         <div class="photos-grid">
-          ${photoSlotHtml('before', 'Before photo', t.before_photo_url)}
-          ${photoSlotHtml('after', 'After photo', t.after_photo_url)}
-        </div>` : '';
+          ${photoSlotHtml('before', 'Before photo', t?.before_photo_url ?? null)}
+          ${photoSlotHtml('after', 'After photo', t?.after_photo_url ?? null)}
+        </div>`;
     const biometrics = t ? `
         <div class="biometrics">
           <span class="slot-label">Biometric data</span>
@@ -228,45 +232,45 @@ import Base from '../layouts/Base.astro';
         <h3>${t ? 'Edit transformation' : 'New transformation'}</h3>
         <label>
           Client name
-          <input name="name" required maxlength="80" value="${escapeHtml(v.name || '')}" placeholder="Cearra's Story" />
+          <input name="name" required maxlength="80" value="${escapeHtml(v.name || '')}" placeholder="Enter your client's name here" />
         </label>
         <div class="ba-grid">
           <fieldset class="ba-block">
             <legend>Before</legend>
             <label>
               Date <span class="opt">(month / year)</span>
-              <input type="month" name="before_date" value="${escapeHtml(dateToMonth(v.before_date || null))}" placeholder="2025-09" />
+              <input type="month" name="before_date" value="${escapeHtml(dateToMonth(v.before_date || null))}" placeholder="Enter month and year" />
             </label>
             <label>
               Weight (lb)
-              <input type="number" step="0.1" name="before_weight" value="${v.before_weight ?? ''}" placeholder="217" />
+              <input type="number" step="0.1" name="before_weight" value="${v.before_weight ?? ''}" />
             </label>
             <label>
               Body fat (%)
-              <input type="number" step="0.1" name="before_bf" value="${v.before_bf ?? ''}" placeholder="52" />
+              <input type="number" step="0.1" name="before_bf" value="${v.before_bf ?? ''}" />
             </label>
             <label>
               Lean mass (lb)
-              <input type="number" step="0.1" name="before_lean" value="${v.before_lean ?? ''}" placeholder="101.4" />
+              <input type="number" step="0.1" name="before_lean" value="${v.before_lean ?? ''}" />
             </label>
           </fieldset>
           <fieldset class="ba-block">
             <legend>After</legend>
             <label>
               Date <span class="opt">(month / year)</span>
-              <input type="month" name="after_date" value="${escapeHtml(dateToMonth(v.after_date || null))}" placeholder="2026-04" />
+              <input type="month" name="after_date" value="${escapeHtml(dateToMonth(v.after_date || null))}" placeholder="Enter month and year" />
             </label>
             <label>
               Weight (lb)
-              <input type="number" step="0.1" name="after_weight" value="${v.after_weight ?? ''}" placeholder="172" />
+              <input type="number" step="0.1" name="after_weight" value="${v.after_weight ?? ''}" />
             </label>
             <label>
               Body fat (%)
-              <input type="number" step="0.1" name="after_bf" value="${v.after_bf ?? ''}" placeholder="40.6" />
+              <input type="number" step="0.1" name="after_bf" value="${v.after_bf ?? ''}" />
             </label>
             <label>
               Lean mass (lb)
-              <input type="number" step="0.1" name="after_lean" value="${v.after_lean ?? ''}" placeholder="103" />
+              <input type="number" step="0.1" name="after_lean" value="${v.after_lean ?? ''}" />
             </label>
           </fieldset>
         </div>
@@ -474,21 +478,83 @@ import Base from '../layouts/Base.astro';
           list.innerHTML = transformations.map(transformationRowHtml).join('');
         }
 
+        // Photos selected before a brand-new transformation has been Created
+        // need to wait for the row to exist before we can upload them. Hold
+        // them here keyed by slot; handleSubmit drains this map after insert.
+        let pendingPhotos: Map<'before' | 'after', File> = new Map();
+
         function showForm(t?: Transformation) {
           formHost.innerHTML = transformationFormHtml(t);
           addBtn.style.display = 'none';
+          pendingPhotos = new Map();
           const newForm = formHost.querySelector('form.t-form') as HTMLFormElement;
           newForm.addEventListener('submit', (e) => handleSubmit(e, t));
           newForm.querySelector('button.cancel')!.addEventListener('click', hideForm);
           setupComputedStats(newForm);
-          if (t) {
-            newForm.querySelectorAll('input[type=file][data-slot]').forEach((input) => {
-              input.addEventListener('change', (e) => handlePhotoUpload(e as Event, t));
+          newForm.querySelectorAll('input[type=file][data-slot]').forEach((input) => {
+            input.addEventListener('change', (changeEv) => {
+              if (t) {
+                handlePhotoUpload(changeEv as Event, t);
+              } else {
+                handlePendingPhoto(changeEv as Event);
+              }
             });
+          });
+          if (t) {
             setupBiometrics(newForm, t);
           } else {
             (newForm.querySelector('input[name=name]') as HTMLInputElement).focus();
           }
+        }
+
+        // Add-mode photo selection: stash the file + show a local preview so
+        // the user sees it picked. Actual upload happens after Create.
+        function handlePendingPhoto(changeEv: Event) {
+          const input = changeEv.target as HTMLInputElement;
+          const file = input.files?.[0];
+          if (!file) return;
+          const slot = input.dataset.slot as 'before' | 'after';
+          const slotEl = input.closest('.photo-slot') as HTMLElement;
+          const previewEl = slotEl.querySelector('.photo-preview') as HTMLElement;
+          const labelEl = slotEl.querySelector('.upload-label') as HTMLElement;
+          const statusEl = slotEl.querySelector('.upload-status') as HTMLElement;
+
+          const reader = new FileReader();
+          reader.onload = () => {
+            const dataUrl = reader.result as string;
+            pendingPhotos.set(slot, file);
+            previewEl.innerHTML = `<img src="${dataUrl}" alt="" />`;
+            labelEl.textContent = 'Replace photo';
+            statusEl.textContent = 'Will upload after Create';
+            statusEl.className = 'upload-status';
+          };
+          reader.readAsDataURL(file);
+        }
+
+        async function blobToBase64(blob: Blob): Promise<string> {
+          return new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const result = reader.result as string;
+              resolve(result.split(',')[1] || result);
+            };
+            reader.onerror = () => reject(new Error('Failed to read file'));
+            reader.readAsDataURL(blob);
+          });
+        }
+
+        async function uploadOnePhoto(transformationId: string, slot: 'before' | 'after', file: File): Promise<string> {
+          const compressed = await compressImage(file, 1200, 0.82);
+          const data_b64 = await blobToBase64(compressed);
+          const res = await callFunction('upload-photo', {
+            slug,
+            edit_token: key,
+            transformation_id: transformationId,
+            slot,
+            filename: 'photo.jpg',
+            data: data_b64,
+          });
+          return res.url as string;
         }
 
         function setupComputedStats(formEl: HTMLFormElement) {
@@ -673,7 +739,25 @@ import Base from '../layouts/Base.astro';
               edit_token: key,
               transformation,
             });
-            const saved = res.transformation as Transformation;
+            let saved = res.transformation as Transformation;
+
+            // Drain any photos the user picked before clicking Create.
+            if (!editing && pendingPhotos.size > 0) {
+              tStatus.textContent = `Uploading photo${pendingPhotos.size > 1 ? 's' : ''}…`;
+              for (const [slot, file] of pendingPhotos) {
+                try {
+                  const url = await uploadOnePhoto(saved.id, slot, file);
+                  saved = {
+                    ...saved,
+                    [slot === 'before' ? 'before_photo_url' : 'after_photo_url']: url,
+                  };
+                } catch (err) {
+                  console.error(`Failed to upload ${slot} photo:`, err);
+                }
+              }
+              pendingPhotos = new Map();
+            }
+
             if (editing) {
               transformations = transformations.map((t) => (t.id === saved.id ? saved : t));
             } else {
@@ -686,11 +770,12 @@ import Base from '../layouts/Base.astro';
               tStatus.className = 't-status ok';
               submit.disabled = false;
             } else {
-              // Re-show the form in edit mode so the user can immediately add photos.
+              // Re-show the form in edit mode so the user can keep tweaking
+              // (replace photos, add biometric data, etc.) without leaving.
               showForm(saved);
               const reopenStatus = formHost.querySelector('.t-status') as HTMLSpanElement;
               if (reopenStatus) {
-                reopenStatus.textContent = 'Created ✓ — add photos below';
+                reopenStatus.textContent = 'Created ✓';
                 reopenStatus.className = 't-status ok';
               }
             }
@@ -716,31 +801,9 @@ import Base from '../layouts/Base.astro';
           statusEl.className = 'upload-status';
 
           try {
-            const compressed = await compressImage(file, 1200, 0.82);
-
             statusEl.textContent = 'Uploading…';
+            const url = await uploadOnePhoto(t.id, slot, file);
 
-            const data_b64 = await new Promise<string>((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onload = () => {
-                const result = reader.result as string;
-                resolve(result.split(',')[1] || result);
-              };
-              reader.onerror = () => reject(new Error('Failed to read file'));
-              reader.readAsDataURL(compressed);
-            });
-
-            // compressImage always emits JPEG, so the extension is fixed.
-            const res = await callFunction('upload-photo', {
-              slug,
-              edit_token: key,
-              transformation_id: t.id,
-              slot,
-              filename: 'photo.jpg',
-              data: data_b64,
-            });
-
-            const url = res.url as string;
             transformations = transformations.map((x) =>
               x.id === t.id
                 ? { ...x, [slot === 'before' ? 'before_photo_url' : 'after_photo_url']: url }
