@@ -1,0 +1,266 @@
+---
+// Print-optimized event poster. Letter portrait with a big QR for the
+// public event URL. The layout is a real DOM page so the host can preview
+// in the browser before hitting print; the browser's "Save as PDF" option
+// covers the PDF case without us needing a PDF library.
+import Base from '../layouts/Base.astro';
+---
+<Base title="Event poster">
+  <div class="page-controls" id="page-controls">
+    <a class="back" id="back-link" href="#">← Back</a>
+    <button id="print-btn" type="button">🖨 Print or Save as PDF</button>
+    <p class="hint">Tip: in the print dialog, set <strong>Background graphics</strong> to ON so the colors print, and choose <strong>Save as PDF</strong> as the destination if you want a file.</p>
+  </div>
+
+  <main class="poster" id="poster-root">
+    <p class="loading">Loading…</p>
+  </main>
+</Base>
+
+<script>
+  import { fetchEventBySlug, callFunction } from '../lib/supabase.js';
+  import QRCode from 'qrcode';
+
+  const root = document.getElementById('poster-root')!;
+  const base = import.meta.env.BASE_URL;
+  const params = new URLSearchParams(window.location.search);
+  const slug = params.get('slug');
+  const key = params.get('key'); // optional — sets up the back link
+
+  function escapeHtml(s: unknown): string {
+    return String(s ?? '').replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
+    );
+  }
+
+  function fmtEventDate(d: string | null): string {
+    if (!d) return '';
+    const dt = new Date(d + 'T00:00:00');
+    if (isNaN(dt.getTime())) return d;
+    return dt.toLocaleDateString(undefined, {
+      weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+    });
+  }
+
+  if (!slug) {
+    root.innerHTML = '<p class="loading err">No event specified.</p>';
+  } else {
+    (async () => {
+      try {
+        const event = await fetchEventBySlug(slug);
+        if (!event) {
+          root.innerHTML = '<p class="loading err">Event not found.</p>';
+          return;
+        }
+        document.title = `Poster — ${event.name}`;
+        const accent = event.accent_color || '#f39c12';
+        document.documentElement.style.setProperty('--accent', accent);
+
+        // Back link goes to edit page if we have a key, else the public event.
+        const back = document.getElementById('back-link') as HTMLAnchorElement;
+        back.href = key
+          ? `${base}edit?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}`
+          : `${base}event?slug=${encodeURIComponent(slug)}`;
+        back.textContent = key ? '← Back to edit page' : '← Back to event';
+
+        // Pull team list to render organizer name + phone in the footer.
+        let primary: { name: string | null; phone: string | null } = { name: null, phone: null };
+        try {
+          const hostsRes = await callFunction('get-event-hosts', { slug });
+          const primaryHost = (hostsRes.hosts || []).find((h: { primary?: boolean }) => h.primary);
+          if (primaryHost) primary = { name: primaryHost.name, phone: primaryHost.phone };
+        } catch { /* non-fatal */ }
+
+        const eventUrl = `${window.location.origin}${base}event?slug=${encodeURIComponent(slug)}`;
+        const datePretty = fmtEventDate(event.event_date);
+        const today = new Date().toISOString().slice(0, 10);
+        const raffleAutoClosed = event.event_date && today > event.event_date;
+        const raffleOpen = event.raffle_status === 'open' && !raffleAutoClosed;
+
+        root.innerHTML = `
+          <article class="sheet">
+            <header class="sheet-top">
+              <p class="kicker">Metabolic Reset Event</p>
+              <h1>${escapeHtml(event.name)}</h1>
+              ${event.host_line ? `<p class="loc">📍 ${escapeHtml(event.host_line)}</p>` : ''}
+              ${datePretty ? `<p class="date">${escapeHtml(datePretty)}</p>` : ''}
+            </header>
+
+            <div class="qr-block">
+              <canvas id="qr-canvas"></canvas>
+            </div>
+
+            <p class="cta">SCAN TO ENTER</p>
+            <p class="sub">transformation stories · the science · win prizes</p>
+
+            ${raffleOpen && event.raffle_prize ? `
+              <div class="prize-callout">
+                <p class="prize-label">🎁 Tonight's Prize</p>
+                <p class="prize-name">${escapeHtml(event.raffle_prize)}</p>
+              </div>` : ''}
+
+            <footer class="sheet-bottom">
+              ${primary.name ? `<p class="hosted-by">Hosted by ${escapeHtml(primary.name)}${primary.phone ? ` · ${escapeHtml(primary.phone)}` : ''}</p>` : ''}
+              <p class="url">${escapeHtml(eventUrl)}</p>
+            </footer>
+          </article>
+        `;
+
+        const canvas = document.getElementById('qr-canvas') as HTMLCanvasElement;
+        QRCode.toCanvas(canvas, eventUrl, {
+          width: 600, margin: 2,
+          color: { dark: '#1a252f', light: '#ffffff' },
+        }).catch(() => {});
+
+        document.getElementById('print-btn')!.addEventListener('click', () => window.print());
+      } catch (err) {
+        root.innerHTML = `<p class="loading err">${escapeHtml((err as Error).message)}</p>`;
+      }
+    })();
+  }
+</script>
+
+<style is:global>
+  :root { --accent: #f39c12; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: #2c3e50; color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  }
+  body { padding: 20px 14px 60px; line-height: 1.4; }
+
+  /* Screen-only controls; hidden when printing */
+  .page-controls {
+    max-width: 720px; margin: 0 auto 16px;
+    background: rgba(0,0,0,0.30);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 10px; padding: 14px 16px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  }
+  .page-controls .back {
+    color: #ecf0f1; text-decoration: none;
+    padding: 8px 14px; font-size: 13px; font-weight: 600;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.15); border-radius: 6px;
+  }
+  .page-controls #print-btn {
+    padding: 10px 18px; font-size: 14px; font-weight: 800;
+    background: var(--accent); color: #1a252f;
+    border: none; border-radius: 8px; cursor: pointer;
+  }
+  .page-controls .hint {
+    flex-basis: 100%;
+    font-size: 12px; color: #95a5a6; line-height: 1.5;
+  }
+  .page-controls .hint strong { color: #ecf0f1; }
+
+  /* Letter portrait sheet, light bg, accent strip */
+  main.poster { display: flex; justify-content: center; }
+  .sheet {
+    width: 8.5in;
+    min-height: 11in;
+    background: #ffffff;
+    color: #1a252f;
+    padding: 0.6in 0.6in 0.55in;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.35);
+    display: flex; flex-direction: column;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .sheet::before {
+    content: ""; position: absolute;
+    top: 0; left: 0; right: 0; height: 14px;
+    background: var(--accent);
+  }
+  .sheet::after {
+    content: ""; position: absolute;
+    bottom: 0; left: 0; right: 0; height: 8px;
+    background: var(--accent);
+  }
+
+  .sheet-top { margin-top: 14px; }
+  .kicker {
+    font-size: 12px; letter-spacing: 4px;
+    text-transform: uppercase; font-weight: 800;
+    color: var(--accent); margin-bottom: 14px;
+  }
+  .sheet h1 {
+    font-size: 56px; line-height: 1.05;
+    letter-spacing: -1px;
+    color: #1a252f; font-weight: 800;
+    margin-bottom: 14px;
+  }
+  .sheet .loc { font-size: 18px; color: #34495e; margin-bottom: 4px; font-weight: 600; }
+  .sheet .date { font-size: 16px; color: #7f8c8d; font-style: italic; }
+
+  .qr-block {
+    margin: 36px auto 18px;
+    padding: 18px;
+    background: #ffffff;
+    border: 6px solid #1a252f;
+    border-radius: 14px;
+    display: inline-block;
+  }
+  .qr-block canvas {
+    display: block;
+    width: 3.6in !important;
+    height: 3.6in !important;
+  }
+
+  .cta {
+    font-size: 38px; font-weight: 900;
+    letter-spacing: 6px;
+    color: #1a252f;
+    margin: 8px 0 6px;
+  }
+  .sub {
+    font-size: 15px; color: #7f8c8d;
+    letter-spacing: 1px;
+  }
+
+  .prize-callout {
+    margin: 28px auto 0;
+    padding: 16px 22px;
+    border: 3px dashed var(--accent);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--accent) 10%, white);
+    display: inline-block;
+  }
+  .prize-callout .prize-label {
+    font-size: 11px; letter-spacing: 3px;
+    text-transform: uppercase; font-weight: 800;
+    color: var(--accent); margin-bottom: 6px;
+  }
+  .prize-callout .prize-name {
+    font-size: 20px; font-weight: 700; color: #1a252f;
+  }
+
+  .sheet-bottom {
+    margin-top: auto; padding-top: 24px;
+  }
+  .hosted-by {
+    font-size: 14px; color: #34495e;
+    margin-bottom: 8px; font-weight: 600;
+  }
+  .sheet-bottom .url {
+    font-size: 11px; color: #95a5a6;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    word-break: break-all;
+  }
+
+  .loading { color: #95a5a6; text-align: center; padding: 60px 0; font-size: 14px; }
+  .loading.err { color: #e74c3c; }
+
+  @media print {
+    @page { size: letter portrait; margin: 0; }
+    html, body { background: #ffffff; padding: 0; margin: 0; }
+    .page-controls { display: none !important; }
+    .sheet {
+      box-shadow: none;
+      width: 100%;
+      min-height: 100vh;
+      page-break-inside: avoid;
+    }
+  }
+</style>

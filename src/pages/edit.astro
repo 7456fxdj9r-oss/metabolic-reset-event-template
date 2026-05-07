@@ -555,6 +555,7 @@ import Base from '../layouts/Base.astro';
               <a class="wheel-link live" href="${base}live?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}" target="_blank" rel="noopener">📊 Live event dashboard</a>
               <a class="wheel-link host" href="${base}wheel?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}" target="_blank" rel="noopener">🎡 Open the wheel (host)</a>
               <a class="wheel-link viewer" href="${base}wheel?slug=${encodeURIComponent(slug)}" target="_blank" rel="noopener">👀 Audience view</a>
+              <a class="wheel-link poster" href="${base}poster?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}" target="_blank" rel="noopener">🖨 Print poster</a>
             </div>
 
             <h3 class="raffle-entries-h">
@@ -2201,6 +2202,10 @@ import Base from '../layouts/Base.astro';
   a.wheel-link.live {
     background: rgba(46,204,113,0.18); color: #2ecc71;
     border: 1px solid rgba(46,204,113,0.5);
+  }
+  a.wheel-link.poster {
+    background: rgba(255,255,255,0.06); color: #ecf0f1;
+    border: 1px solid rgba(255,255,255,0.20);
   }
 
   /* Speaker photo slot — circular preview */

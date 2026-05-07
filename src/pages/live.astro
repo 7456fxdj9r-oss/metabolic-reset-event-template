@@ -121,6 +121,7 @@ import Base from '../layouts/Base.astro';
         <button type="button" id="draw-action" class="action draw" disabled>🎲 Draw next winner</button>
         <a class="action wheel" href="${wheelHostUrl}" target="_blank" rel="noopener">🎡 Open the wheel (host)</a>
         <a class="action wheel-view" href="${wheelViewerUrl}" target="_blank" rel="noopener">👀 Audience wheel</a>
+        <a class="action poster" href="${base}poster?slug=${encodeURIComponent(slug!)}&key=${encodeURIComponent(key!)}" target="_blank" rel="noopener">🖨 Print poster</a>
         <button type="button" id="export-action" class="action export" disabled>📥 Export entries (CSV)</button>
         <a class="action edit" href="${editUrl}">⚙️ Full edit page</a>
       </section>
