@@ -190,7 +190,7 @@ import Base from '../layouts/Base.astro';
           ${url ? `<img src="${escapeHtml(url)}" alt="" />` : '<div class="empty">No photo</div>'}
         </div>
         <label class="upload-btn">
-          <input type="file" accept="image/jpeg,image/png,image/webp" data-slot="${slot}" hidden />
+          <input type="file" accept="image/*" data-slot="${slot}" hidden />
           <span class="upload-label">${url ? 'Replace photo' : 'Upload photo'}</span>
         </label>
         <span class="upload-status" data-slot="${slot}"></span>
