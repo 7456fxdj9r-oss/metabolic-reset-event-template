@@ -11,7 +11,7 @@ import '../styles/story.css';
 <script>
   import { drawMultiChart } from '../lib/chart.js';
   import {
-    fetchHubBySlug,
+    fetchEventBySlug,
     fetchTransformationBySlug,
     fetchDataPoints,
   } from '../lib/supabase.js';
@@ -37,18 +37,18 @@ import '../styles/story.css';
   } else {
     (async () => {
       try {
-        const hub = await fetchHubBySlug(slug);
-        if (!hub) {
-          root.innerHTML = '<p class="loading">Hub not found.</p>';
+        const event = await fetchEventBySlug(slug);
+        if (!event) {
+          root.innerHTML = '<p class="loading">Event not found.</p>';
           return;
         }
-        const t = await fetchTransformationBySlug(hub.id, tslug);
+        const t = await fetchTransformationBySlug(event.id, tslug);
         if (!t) {
           root.innerHTML = '<p class="loading">Transformation not found.</p>';
           return;
         }
-        document.title = `${t.name} — ${hub.name}`;
-        const accent = hub.accent_color || '#f39c12';
+        document.title = `${t.name} — ${event.name}`;
+        const accent = event.accent_color || '#f39c12';
         document.documentElement.style.setProperty('--accent', accent);
 
         const points = await fetchDataPoints(t.id);
@@ -112,7 +112,7 @@ import '../styles/story.css';
           ${t.takeaway_text ? `<p class="takeaway">${escapeHtml(t.takeaway_text)}</p>` : ''}
 
           <div class="footer-cta">
-            <a href="${base}h?slug=${encodeURIComponent(slug)}" class="secondary">← Back to the hub</a>
+            <a href="${base}event?slug=${encodeURIComponent(slug)}" class="secondary">← Back to the event</a>
           </div>
         `;
 

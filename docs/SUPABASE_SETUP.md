@@ -15,7 +15,7 @@ Open **SQL Editor → New query**, paste this, run it:
 ```sql
 -- ===== Tables =====
 
-create table if not exists hubs (
+create table if not exists events (
   id           uuid primary key default gen_random_uuid(),
   slug         text unique not null,
   edit_token   text not null,
@@ -28,7 +28,7 @@ create table if not exists hubs (
 
 create table if not exists transformations (
   id                     uuid primary key default gen_random_uuid(),
-  hub_id                 uuid not null references hubs(id) on delete cascade,
+  event_id                 uuid not null references events(id) on delete cascade,
   slug                   text not null,
   name                   text not null,
   before_photo_url       text,
@@ -40,7 +40,7 @@ create table if not exists transformations (
   headline_bf_delta_pts  numeric,
   takeaway_text          text,
   display_order          int default 0,
-  unique (hub_id, slug)
+  unique (event_id, slug)
 );
 
 create table if not exists data_points (
@@ -55,15 +55,15 @@ create index if not exists data_points_lookup
 
 -- ===== Row Level Security =====
 
-alter table hubs            enable row level security;
+alter table events            enable row level security;
 alter table transformations enable row level security;
 alter table data_points     enable row level security;
 
 -- Public read of everything. Writes are blocked at the table level — only
 -- the Edge Functions (running with the service-role key) can write, and
 -- they verify the supplied edit_token before doing so.
-create policy "public read hubs"
-  on hubs for select using (true);
+create policy "public read events"
+  on events for select using (true);
 
 create policy "public read transformations"
   on transformations for select using (true);
@@ -74,7 +74,7 @@ create policy "public read data_points"
 
 ## 3. Create the Storage bucket (for photos)
 
-1. **Storage → New bucket**, name `hub-photos`, mark **Public**.
+1. **Storage → New bucket**, name `event-photos`, mark **Public**.
 2. (Optional, recommended) add a per-object policy or rely on the photo-url
    pattern below to keep things simple. The Edge Functions upload using the
    service-role key, so no Storage RLS write policy is needed.
@@ -89,17 +89,17 @@ supabase login
 supabase link --project-ref <your-project-ref>
 ```
 
-Create the `create-hub` function:
+Create the `create-event` function:
 
 ```bash
-supabase functions new create-hub
+supabase functions new create-event
 ```
 
-Replace `supabase/functions/create-hub/index.ts` with:
+Replace `supabase/functions/create-event/index.ts` with:
 
 ```ts
 // Deno runtime — runs inside Supabase Edge.
-// Generates a unique slug + secret edit_token, then inserts a hub row.
+// Generates a unique slug + secret edit_token, then inserts a event row.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
@@ -122,7 +122,7 @@ function slugify(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .slice(0, 40) || 'hub';
+    .slice(0, 40) || 'event';
 }
 
 Deno.serve(async (req) => {
@@ -147,13 +147,13 @@ Deno.serve(async (req) => {
   let slug = baseSlug;
   for (let attempt = 0; attempt < 6; attempt++) {
     const { data: existing } = await supabase
-      .from('hubs').select('id').eq('slug', slug).maybeSingle();
+      .from('events').select('id').eq('slug', slug).maybeSingle();
     if (!existing) break;
     slug = `${baseSlug}-${randomToken(3).toLowerCase()}`;
   }
 
   const edit_token = randomToken(32);
-  const { error } = await supabase.from('hubs').insert({
+  const { error } = await supabase.from('events').insert({
     slug,
     edit_token,
     name,
@@ -176,7 +176,7 @@ Deno.serve(async (req) => {
 Deploy:
 
 ```bash
-supabase functions deploy create-hub --no-verify-jwt
+supabase functions deploy create-event --no-verify-jwt
 ```
 
 > `--no-verify-jwt` lets anonymous coaches call this function without a Supabase
@@ -187,8 +187,8 @@ supabase functions deploy create-hub --no-verify-jwt
 
 The full v0.1 spec lists these. Stubs to add when you wire up the admin UI:
 
-- `update-hub` — verifies `edit_token` matches `hubs.edit_token`, updates fields
-- `delete-hub`
+- `update-event` — verifies `edit_token` matches `events.edit_token`, updates fields
+- `delete-event`
 - `add-transformation`
 - `update-transformation`
 - `delete-transformation`
@@ -198,8 +198,8 @@ The full v0.1 spec lists these. Stubs to add when you wire up the admin UI:
 Each one should:
 
 1. Read `slug` + `edit_token` from the request body.
-2. Look up the hub by slug.
-3. Compare `body.edit_token === hub.edit_token` (constant-time compare ideally).
+2. Look up the event by slug.
+3. Compare `body.edit_token === event.edit_token` (constant-time compare ideally).
 4. Reject 403 if mismatch.
 5. Otherwise do the write with the service-role client.
 

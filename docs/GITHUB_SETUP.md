@@ -1,13 +1,13 @@
 # GitHub Pages setup
 
-Deploy `coach-hub-template` to a free `https://<user>.github.io/<repo>/` URL.
+Deploy `metabolic-reset-event-template` to a free `https://<user>.github.io/<repo>/` URL.
 
 ## 1. Create the GitHub repo
 
 From the project folder:
 
 ```bash
-gh repo create coach-hub-template --public --source=. --remote=origin --push
+gh repo create metabolic-reset-event-template --public --source=. --remote=origin --push
 ```
 
 (Or do it through the web UI; just make sure you push `main`.)
@@ -40,7 +40,7 @@ If you use a custom domain or move to user/org Pages, set repo **Variables**:
 | Name | Value |
 |---|---|
 | `SITE_BASE_PATH` | `/` for custom domain or user/org root |
-| `SITE_URL` | the canonical site origin, e.g. `https://hub.coach-mike.com` |
+| `SITE_URL` | the canonical site origin, e.g. `https://event.coach-mike.com` |
 
 ## 5. Push and watch the build
 
@@ -53,6 +53,6 @@ successful run, your site is live at the URL printed in the Pages settings.
 
 ## 6. CORS for Supabase Edge Functions
 
-The `create-hub` template in `SUPABASE_SETUP.md` uses
+The `create-event` template in `SUPABASE_SETUP.md` uses
 `Access-Control-Allow-Origin: *`. That's fine for v0.1. If you tighten it
 later, add your GitHub Pages origin to the allowlist.

@@ -1,19 +1,19 @@
 ---
 import Base from '../../layouts/Base.astro';
 ---
-<Base title="Build your hub">
+<Base title="Build your event">
   <main class="build">
-    <h1>Build your hub</h1>
+    <h1>Build your event</h1>
     <p class="hint">
       v0.1 stub — fill in the basics, then add transformations later from the
-      edit page. Submission calls the <code>create-hub</code> Supabase Edge
-      Function. See <a href="https://github.com/7456fxdj9r-oss/coach-hub-template/blob/main/docs/SUPABASE_SETUP.md">SUPABASE_SETUP.md</a>.
+      edit page. Submission calls the <code>create-event</code> Supabase Edge
+      Function. See <a href="https://github.com/7456fxdj9r-oss/metabolic-reset-event-template/blob/main/docs/SUPABASE_SETUP.md">SUPABASE_SETUP.md</a>.
     </p>
 
     <form id="build-form" novalidate>
       <label>
-        Hub name
-        <input name="name" required maxlength="80" placeholder="Coach Mike's Transformation Hub" />
+        Event name
+        <input name="name" required maxlength="80" placeholder="Coach Mike's Transformation Event" />
       </label>
 
       <label>
@@ -31,7 +31,7 @@ import Base from '../../layouts/Base.astro';
         <input type="email" name="email" placeholder="you@example.com" />
       </label>
 
-      <button type="submit" id="submit-btn">Build my hub</button>
+      <button type="submit" id="submit-btn">Build my event</button>
       <p id="status" role="status" aria-live="polite"></p>
     </form>
   </main>
@@ -58,7 +58,7 @@ import Base from '../../layouts/Base.astro';
     status.textContent = 'Building…';
     const fd = new FormData(form);
     try {
-      const { slug, edit_token } = await callFunction('create-hub', {
+      const { slug, edit_token } = await callFunction('create-event', {
         name: fd.get('name'),
         host_line: fd.get('host_line'),
         accent_color: fd.get('accent_color'),

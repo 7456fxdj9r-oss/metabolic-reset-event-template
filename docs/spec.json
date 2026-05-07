@@ -1,15 +1,15 @@
 {
   "_meta": {
-    "purpose": "Self-contained handoff spec for the coach-hub-template project. Drop this into a fresh chat / new project and the agent can pick up scaffolding without re-deriving the architecture.",
+    "purpose": "Self-contained handoff spec for the metabolic-reset-event-template project. Drop this into a fresh chat / new project and the agent can pick up scaffolding without re-deriving the architecture.",
     "spec_version": "1.0",
     "created": "2026-05-03",
     "status": "Design complete, ready for Phase 0 decisions then code"
   },
 
   "project": {
-    "working_name": "coach-hub-template",
-    "tagline": "A plug-and-play mobile transformation hub for fitness/wellness coaches.",
-    "elevator_pitch": "Like Linktree, but for fitness coaches. End user fills a form, clicks Build, gets a shareable URL with their own branded before/after stories and a dual-axis biometric chart that auto-renders from pasted-in data. Audience scans a QR, sees the coach's hub on their phone.",
+    "working_name": "metabolic-reset-event-template",
+    "tagline": "A plug-and-play mobile transformation event for fitness/wellness coaches.",
+    "elevator_pitch": "Like Linktree, but for fitness coaches. End user fills a form, clicks Build, gets a shareable URL with their own branded before/after stories and a dual-axis biometric chart that auto-renders from pasted-in data. Audience scans a QR, sees the coach's event on their phone.",
     "stage": "v0.1 MVP scoping complete. No code written yet."
   },
 
@@ -46,7 +46,7 @@
     },
     "auth": {
       "model": "NONE. Edit-token URLs.",
-      "pattern": "On Build, server generates a public slug AND a secret edit_token. Hub gets two URLs: a public read-only one (audience-facing) and a private edit one containing the token. Anyone with the edit URL can edit; anyone without can't. Pattern is proven by Pastebin, Imgur anonymous, etc.",
+      "pattern": "On Build, server generates a public slug AND a secret edit_token. Event gets two URLs: a public read-only one (audience-facing) and a private edit one containing the token. Anyone with the edit URL can edit; anyone without can't. Pattern is proven by Pastebin, Imgur anonymous, etc.",
       "rationale": "Coaches won't sign up. Plug-and-play means zero-friction. Edit-token UX is strictly better than email/password for this use case."
     },
     "cost_target": "$0 / month at small-to-moderate scale (tens of coaches, hundreds of audience scans per event)"
@@ -67,10 +67,10 @@
   "mvp_scope_v0_1": {
     "in": [
       "Anonymous fill-form-and-Build flow",
-      "Hub: name, host_line, accent_color",
-      "N transformations per hub: name, before/after photos, before/after dates, paste-in weight/bf/lean time-series",
-      "Public hub URL: /h/{slug} — branded landing with story cards",
-      "Public transformation URL: /h/{slug}/{transformation-slug} — photos + dual-axis chart",
+      "Event: name, host_line, accent_color",
+      "N transformations per event: name, before/after photos, before/after dates, paste-in weight/bf/lean time-series",
+      "Public event URL: /event/{slug} — branded landing with story cards",
+      "Public transformation URL: /event/{slug}/{transformation-slug} — photos + dual-axis chart",
       "Edit URL: /edit/{slug}?key={token} — returns coach to the admin form",
       "QR-download buttons (client-side generated)",
       "Optional email field for edit-link recovery"
@@ -80,7 +80,7 @@
       "Speaker presentation deck",
       "TV slide rendering",
       "Lead capture / apprentice opt-in",
-      "Multiple hubs per coach",
+      "Multiple events per coach",
       "Custom domains per coach",
       "Stripe / paid plans",
       "Per-coach color palettes (use single brand palette in v0.1; let coach pick accent_color only)"
@@ -90,7 +90,7 @@
   "database_schema": {
     "tables": [
       {
-        "name": "hubs",
+        "name": "events",
         "columns": [
           { "name": "id",           "type": "uuid",         "pk": true,    "default": "gen_random_uuid()" },
           { "name": "slug",         "type": "text",         "unique": true, "note": "Public-facing URL piece. Lowercase, dashes." },
@@ -106,8 +106,8 @@
         "name": "transformations",
         "columns": [
           { "name": "id",                       "type": "uuid",   "pk": true,                  "default": "gen_random_uuid()" },
-          { "name": "hub_id",                   "type": "uuid",   "fk": "hubs.id",             "on_delete": "CASCADE" },
-          { "name": "slug",                     "type": "text",   "note": "Unique within hub" },
+          { "name": "event_id",                   "type": "uuid",   "fk": "events.id",             "on_delete": "CASCADE" },
+          { "name": "slug",                     "type": "text",   "note": "Unique within event" },
           { "name": "name",                     "type": "text" },
           { "name": "before_photo_url",         "type": "text",   "nullable": true },
           { "name": "after_photo_url",          "type": "text",   "nullable": true },
@@ -133,14 +133,14 @@
       }
     ],
     "rls_policies": [
-      "Public SELECT on all three tables (anyone can read any hub)",
+      "Public SELECT on all three tables (anyone can read any event)",
       "All INSERT/UPDATE/DELETE blocked at table level",
-      "All writes go through Supabase Edge Functions that verify the supplied edit_token matches the hub's stored edit_token"
+      "All writes go through Supabase Edge Functions that verify the supplied edit_token matches the event's stored edit_token"
     ],
     "edge_functions_needed": [
-      "create-hub",
-      "update-hub",
-      "delete-hub",
+      "create-event",
+      "update-event",
+      "delete-event",
       "add-transformation",
       "update-transformation",
       "delete-transformation",
@@ -150,27 +150,27 @@
   },
 
   "user_flows": {
-    "build_first_hub": [
+    "build_first_event": [
       "Coach lands on tool.com",
       "Clicks Build Yours",
-      "Fills form: hub name, host line, accent color, optional email",
+      "Fills form: event name, host line, accent color, optional email",
       "Adds 1+ transformations: name, dates, before/after photos (client-side compressed, uploaded to Supabase Storage), pastes time-series data (parsed client-side, previewed in a chart, saved as data_points)",
       "Hits Build",
-      "Server runs create-hub Edge Function with Turnstile token, returns { slug, edit_token }",
+      "Server runs create-event Edge Function with Turnstile token, returns { slug, edit_token }",
       "Coach lands on Success page showing both URLs with LOUD warning to save the edit URL: Copy / mailto: pre-filled / Download as .txt",
       "Bookmarks edit URL"
     ],
     "audience_scan": [
       "Audience member scans QR code on a poster or TV slide",
-      "Lands on /h/{slug}",
-      "Sees branded hub with story cards",
+      "Lands on /event/{slug}",
+      "Sees branded event with story cards",
       "Taps a story card",
-      "Lands on /h/{slug}/{transformation-slug}",
+      "Lands on /event/{slug}/{transformation-slug}",
       "Sees photos + dual-axis chart auto-rendered from data_points"
     ],
-    "edit_existing_hub": [
+    "edit_existing_event": [
       "Coach opens edit URL from bookmark / email",
-      "Page validates token against hub.edit_token",
+      "Page validates token against event.edit_token",
       "Renders the same admin form pre-filled with current data",
       "Coach edits, hits Save, Edge Function checks token, writes update"
     ]
@@ -195,7 +195,7 @@
       "tasks": [
         "New repo, Astro init, deploy to Cloudflare Pages on push",
         "Supabase project: tables, RLS policies",
-        "Edge Function create-hub (validates Turnstile, generates slug + edit_token, inserts row)",
+        "Edge Function create-event (validates Turnstile, generates slug + edit_token, inserts row)",
         "Build form (no transformations yet)",
         "Success page with both URLs and the loud-save UI"
       ]
@@ -207,7 +207,7 @@
       "tasks": [
         "Lift drawMultiChart from origin project into src/lib/chart.js",
         "Lift story-page CSS into src/styles/story.css",
-        "Astro page /h/[slug] (fetches hub + transformations, renders story cards)",
+        "Astro page /h/[slug] (fetches event + transformations, renders story cards)",
         "Astro page /h/[slug]/[transformation-slug] (fetches one transformation + data_points, renders photos + chart)",
         "Validate by manually inserting Cearra-equivalent test data and confirming rendering matches origin app"
       ]
@@ -219,7 +219,7 @@
       "tasks": [
         "Page /edit/[slug] reading ?key= query param",
         "Validates token via Edge Function (or client-side fetch with token, server confirms on save)",
-        "Hub edit form (name, host_line, accent_color)",
+        "Event edit form (name, host_line, accent_color)",
         "Transformation list with add/edit/delete",
         "Photo upload widget: client-side compress (browser-image-compression), upload to Supabase Storage via signed URL or Edge Function",
         "Time-series paste box: textarea, parse 'date,value' or tab-separated lines, show preview chart, save as data_points",
@@ -232,7 +232,7 @@
       "duration": "~half day",
       "tasks": [
         "Cloudflare Turnstile on Build form",
-        "Per-hub photo quota (max 12) and max file size 5MB",
+        "Per-event photo quota (max 12) and max file size 5MB",
         "Onboarding example data when admin form is empty",
         "Empty states + good error messages",
         "Mobile-responsive admin (coach should be able to edit from phone)",
@@ -244,8 +244,8 @@
       "name": "Raffle (defer until v0.1 has real users)",
       "duration": "TBD",
       "tasks": [
-        "Per-hub raffle: schema (raffle_entries with hub_id), entry form, wheel page",
-        "Lift wheel.html from origin project, generalize for any hub_id",
+        "Per-event raffle: schema (raffle_entries with event_id), entry form, wheel page",
+        "Lift wheel.html from origin project, generalize for any event_id",
         "Decide: per-coach Google Sheet (matches origin), or multi-tenant Supabase table (cleaner)"
       ]
     }
@@ -255,7 +255,7 @@
     {
       "id": "project_name",
       "question": "Final project / domain name",
-      "default_if_skipped": "coach-hub-template (working name)"
+      "default_if_skipped": "metabolic-reset-event-template (working name)"
     },
     {
       "id": "domain",
@@ -288,16 +288,16 @@
     "Mobile-first: audience scans on phones",
     "Zero technical knowledge required of the coach",
     "Zero ongoing infrastructure cost",
-    "10-minute setup test: coach should have a working hub from cold start in under 10 minutes",
+    "10-minute setup test: coach should have a working event from cold start in under 10 minutes",
     "Loud save warning: edit URL must be saved before they leave Build success page",
     "Dark theme with orange accent inherited from origin project; coach picks accent only",
     "Chart is the hero artifact: auto-axis-snapping, real values, end-of-line labels, dual y-axis"
   ],
 
   "abuse_prevention": {
-    "spam_hubs": "Cloudflare Turnstile on Build form (invisible captcha, free, ~30 min to add)",
-    "photo_storage_abuse": "Per-hub photo limit (12), per-file size cap (5MB), client-side compression to ~500KB before upload",
-    "rate_limiting": "Edge Function checks per-IP rate limit on create-hub (e.g. max 3 hubs/hour/IP)",
+    "spam_events": "Cloudflare Turnstile on Build form (invisible captcha, free, ~30 min to add)",
+    "photo_storage_abuse": "Per-event photo limit (12), per-file size cap (5MB), client-side compression to ~500KB before upload",
+    "rate_limiting": "Edge Function checks per-IP rate limit on create-event (e.g. max 3 events/hour/IP)",
     "edit_token_brute_force": "Use cryptographically strong tokens (32+ char base62). 0% chance of guessing."
   },
 
@@ -320,5 +320,5 @@
     "Rounded numbers caused inconsistencies in the origin project (40 vs 40.6) — store raw values, format at render time"
   ],
 
-  "first_concrete_action_after_handoff": "Resolve the six open_decisions_for_phase_0 with the user. Then scaffold the new repo with Astro, set up the Supabase project, write the create-hub Edge Function and the Build form. That's Phase 1. Stop and demo before moving to Phase 2."
+  "first_concrete_action_after_handoff": "Resolve the six open_decisions_for_phase_0 with the user. Then scaffold the new repo with Astro, set up the Supabase project, write the create-event Edge Function and the Build form. That's Phase 1. Stop and demo before moving to Phase 2."
 }

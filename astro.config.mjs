@@ -1,7 +1,7 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 
-// Static-only output. Public read pages fetch hub/transformation/data
+// Static-only output. Public read pages fetch event/transformation/data
 // straight from Supabase REST at runtime. The Build/Edit forms call
 // Supabase Edge Functions. No server-side Astro routes.
 //

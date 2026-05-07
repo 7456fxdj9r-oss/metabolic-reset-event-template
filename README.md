@@ -1,8 +1,9 @@
-# coach-hub-template
+# metabolic-reset-event-template
 
-A plug-and-play mobile transformation hub for fitness/wellness coaches.
+A plug-and-play event-page template for fitness/wellness coaches.
 Coaches fill a form, click Build, and get a shareable URL with branded
-before/after stories and a dual-axis biometric chart that auto-renders.
+before/after client transformation stories and a dual-axis biometric
+chart that auto-renders.
 
 > **Reference implementation:** [Spokane Metabolic Momentum](https://7456fxdj9r-oss.github.io/Spokane-MREvent/)
 > ([repo](https://github.com/7456fxdj9r-oss/Spokane-MREvent)). The chart engine
@@ -38,7 +39,7 @@ Estimated cost: **$0/mo** at small/moderate scale.
 │       ├── build/
 │       │   ├── index.astro        # Build form
 │       │   └── success.astro      # shows public + private URLs, QR, mailto, .txt
-│       ├── h.astro                # public hub view  (?slug=)
+│       ├── h.astro                # public event view  (?slug=)
 │       ├── t.astro                # transformation view (?slug=&t=)
 │       └── edit.astro             # edit page (?slug=&key=) [stub for Phase 3]
 ├── docs/
@@ -52,11 +53,11 @@ Estimated cost: **$0/mo** at small/moderate scale.
 
 Per `docs/spec.json`:
 
-- ✅ **Phase 0** — decisions locked in (working name `coach-hub-template`,
+- ✅ **Phase 0** — decisions locked in (working name `metabolic-reset-event-template`,
   hosting GitHub Pages, free tier everywhere)
 - ✅ **Phase 1** — skeleton + Build form scaffolded; success page with
   loud-save UI, QR, mailto, .txt download
-- 🟡 **Phase 2** — public hub + transformation pages render client-side
+- 🟡 **Phase 2** — public event + transformation pages render client-side
   from Supabase REST. Chart engine lifted in.
 - ⏳ **Phase 3** — full admin UI (transformation list, photo upload,
   time-series paste box). The edit page is currently a read-only stub.
@@ -68,7 +69,7 @@ Per `docs/spec.json`:
 GitHub Pages can't generate dynamic routes for user-created slugs at
 build time, so v0.1 uses query strings:
 
-- Public hub: `/h?slug=mike`
+- Public event: `/h?slug=mike`
 - Transformation: `/t?slug=mike&t=cearra-story`
 - Edit: `/edit?slug=mike&key=<edit_token>`
 
@@ -90,7 +91,7 @@ Without Supabase credentials, the Build form will refuse to submit
 ## Setup walkthroughs
 
 - [docs/SUPABASE_SETUP.md](docs/SUPABASE_SETUP.md) — create the project,
-  run the schema, deploy the `create-hub` Edge Function
+  run the schema, deploy the `create-event` Edge Function
 - [docs/GITHUB_SETUP.md](docs/GITHUB_SETUP.md) — create the repo, enable
   Pages, add secrets
 

@@ -1,17 +1,17 @@
 ---
 import Base from '../../layouts/Base.astro';
 ---
-<Base title="Hub created — save your edit link">
+<Base title="Event created — save your edit link">
   <main class="success">
     <p class="eyebrow">⚠ Save this before you leave</p>
-    <h1>Your hub is live.</h1>
+    <h1>Your event is live.</h1>
     <p class="lede">
-      The edit URL below is the only way back into your hub. There is no
+      The edit URL below is the only way back into your event. There is no
       account and no password — anyone with this link can edit. Save it now.
     </p>
 
     <section class="link-card">
-      <h3>Public hub URL <span class="tag">share this</span></h3>
+      <h3>Public event URL <span class="tag">share this</span></h3>
       <div class="row">
         <input type="text" id="public-url" readonly />
         <button data-copy="#public-url">Copy</button>
@@ -48,10 +48,10 @@ import Base from '../../layouts/Base.astro';
 
   if (!slug || !key) {
     document.querySelector('main.success')!.innerHTML =
-      '<p>Missing slug or key in the URL. Was the hub created successfully?</p>';
+      '<p>Missing slug or key in the URL. Was the event created successfully?</p>';
   } else {
     const origin = window.location.origin;
-    const publicUrl = `${origin}${base}h?slug=${encodeURIComponent(slug)}`;
+    const publicUrl = `${origin}${base}event?slug=${encodeURIComponent(slug)}`;
     const editUrl = `${origin}${base}edit?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}`;
     (document.getElementById('public-url') as HTMLInputElement).value = publicUrl;
     (document.getElementById('edit-url') as HTMLInputElement).value = editUrl;
@@ -79,19 +79,19 @@ import Base from '../../layouts/Base.astro';
     });
 
     document.getElementById('email-edit')?.addEventListener('click', () => {
-      const subj = encodeURIComponent('Edit link for my coach hub');
+      const subj = encodeURIComponent('Edit link for my coach event');
       const body = encodeURIComponent(
-        `Save this — it's the only way back into your hub.\n\nEdit URL:\n${editUrl}\n\nPublic URL:\n${publicUrl}\n`
+        `Save this — it's the only way back into your event.\n\nEdit URL:\n${editUrl}\n\nPublic URL:\n${publicUrl}\n`
       );
       window.location.href = `mailto:?subject=${subj}&body=${body}`;
     });
 
     document.getElementById('download-edit')?.addEventListener('click', () => {
-      const txt = `Coach Hub — edit link\n\nEdit URL (KEEP SECRET):\n${editUrl}\n\nPublic URL (share):\n${publicUrl}\n`;
+      const txt = `Metabolic Reset Event — edit link\n\nEdit URL (KEEP SECRET):\n${editUrl}\n\nPublic URL (share):\n${publicUrl}\n`;
       const blob = new Blob([txt], { type: 'text/plain' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `coach-hub-${slug}-edit-link.txt`;
+      a.download = `metabolic-reset-event-${slug}-edit-link.txt`;
       a.click();
     });
   }

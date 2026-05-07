@@ -1,18 +1,18 @@
 ---
 import Base from '../layouts/Base.astro';
 ---
-<Base title="Edit your hub">
+<Base title="Edit your event">
   <main class="edit" id="edit-root">
     <p class="loading">Loading edit form…</p>
   </main>
 </Base>
 
 <script>
-  // v0.1 stub. Phase 3 of the spec wires up the full admin: hub fields,
+  // v0.1 stub. Phase 3 of the spec wires up the full admin: event fields,
   // transformation list with add/edit/delete, photo upload, time-series
   // paste box, link/QR panel. For now we just confirm the token is valid
-  // by reading the hub row, then surface the public URL + a placeholder.
-  import { fetchHubBySlug } from '../lib/supabase.js';
+  // by reading the event row, then surface the public URL + a placeholder.
+  import { fetchEventBySlug } from '../lib/supabase.js';
 
   const root = document.getElementById('edit-root')!;
   const base = import.meta.env.BASE_URL;
@@ -31,22 +31,22 @@ import Base from '../layouts/Base.astro';
   } else {
     (async () => {
       try {
-        const hub = await fetchHubBySlug(slug);
-        if (!hub) {
-          root.innerHTML = '<p class="loading err">Hub not found.</p>';
+        const event = await fetchEventBySlug(slug);
+        if (!event) {
+          root.innerHTML = '<p class="loading err">Event not found.</p>';
           return;
         }
         // Real token verification happens server-side on save (Edge Function).
-        // For the stub, we just show the hub fields read-only.
+        // For the stub, we just show the event fields read-only.
         root.innerHTML = `
-          <h1>Edit · ${escapeHtml(hub.name)}</h1>
+          <h1>Edit · ${escapeHtml(event.name)}</h1>
           <p class="hint">v0.1 stub. The admin form ships in Phase 3 of the spec.</p>
           <ul class="meta">
-            <li><strong>Hub name:</strong> ${escapeHtml(hub.name)}</li>
-            <li><strong>Host line:</strong> ${escapeHtml(hub.host_line || '—')}</li>
-            <li><strong>Accent:</strong> <span class="swatch" style="background:${escapeHtml(hub.accent_color)}"></span> ${escapeHtml(hub.accent_color)}</li>
+            <li><strong>Event name:</strong> ${escapeHtml(event.name)}</li>
+            <li><strong>Host line:</strong> ${escapeHtml(event.host_line || '—')}</li>
+            <li><strong>Accent:</strong> <span class="swatch" style="background:${escapeHtml(event.accent_color)}"></span> ${escapeHtml(event.accent_color)}</li>
           </ul>
-          <p>Public URL: <a href="${base}h?slug=${encodeURIComponent(slug)}">${base}h?slug=${escapeHtml(slug)}</a></p>
+          <p>Public URL: <a href="${base}event?slug=${encodeURIComponent(slug)}">${base}event?slug=${escapeHtml(slug)}</a></p>
         `;
       } catch (err) {
         root.innerHTML = `<p class="loading err">${escapeHtml((err as Error).message)}</p>`;

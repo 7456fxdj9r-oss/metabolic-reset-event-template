@@ -1,16 +1,16 @@
 ---
 import Base from '../layouts/Base.astro';
 ---
-<Base title="Hub">
-  <main class="hub" id="hub-root">
-    <p class="loading">Loading hub…</p>
+<Base title="Event">
+  <main class="event" id="event-root">
+    <p class="loading">Loading event…</p>
   </main>
 </Base>
 
 <script>
-  import { fetchHubBySlug, fetchTransformations } from '../lib/supabase.js';
+  import { fetchEventBySlug, fetchTransformations } from '../lib/supabase.js';
 
-  const root = document.getElementById('hub-root')!;
+  const root = document.getElementById('event-root')!;
   const base = import.meta.env.BASE_URL;
   const params = new URLSearchParams(window.location.search);
   const slug = params.get('slug');
@@ -22,20 +22,20 @@ import Base from '../layouts/Base.astro';
   }
 
   if (!slug) {
-    root.innerHTML = '<p class="loading">No hub specified.</p>';
+    root.innerHTML = '<p class="loading">No event specified.</p>';
   } else {
     (async () => {
       try {
-        const hub = await fetchHubBySlug(slug);
-        if (!hub) {
-          root.innerHTML = '<p class="loading">Hub not found.</p>';
+        const event = await fetchEventBySlug(slug);
+        if (!event) {
+          root.innerHTML = '<p class="loading">Event not found.</p>';
           return;
         }
-        document.title = hub.name;
-        const accent = hub.accent_color || '#f39c12';
+        document.title = event.name;
+        const accent = event.accent_color || '#f39c12';
         root.style.setProperty('--accent', accent);
 
-        const transformations = await fetchTransformations(hub.id);
+        const transformations = await fetchTransformations(event.id);
 
         const cards = transformations.map((t: any) => {
           const tHref = `${base}t?slug=${encodeURIComponent(slug)}&t=${encodeURIComponent(t.slug)}`;
@@ -54,8 +54,8 @@ import Base from '../layouts/Base.astro';
 
         root.innerHTML = `
           <header class="top">
-            <h1>${escapeHtml(hub.name)}</h1>
-            ${hub.host_line ? `<p class="host">${escapeHtml(hub.host_line)}</p>` : ''}
+            <h1>${escapeHtml(event.name)}</h1>
+            ${event.host_line ? `<p class="host">${escapeHtml(event.host_line)}</p>` : ''}
           </header>
           <section class="cards">
             ${cards || '<p class="empty">No transformations added yet.</p>'}
@@ -76,7 +76,7 @@ import Base from '../layouts/Base.astro';
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
   }
   body { padding: 26px 14px 50px; line-height: 1.45; }
-  main.hub { max-width: 540px; margin: 0 auto; }
+  main.event { max-width: 540px; margin: 0 auto; }
   .top { text-align: center; margin-bottom: 22px; }
   .top h1 { font-size: 28px; }
   .top .host { color: #bdc3c7; font-style: italic; margin-top: 4px; font-size: 14px; }

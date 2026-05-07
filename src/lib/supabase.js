@@ -48,22 +48,22 @@ async function request(path, init = {}) {
   return res.status === 204 ? null : res.json();
 }
 
-export async function fetchHubBySlug(slug) {
+export async function fetchEventBySlug(slug) {
   const rows = await request(
-    `/rest/v1/hubs?slug=eq.${encodeURIComponent(slug)}&select=*`
+    `/rest/v1/events?slug=eq.${encodeURIComponent(slug)}&select=*`
   );
   return rows[0] || null;
 }
 
-export async function fetchTransformations(hubId) {
+export async function fetchTransformations(eventId) {
   return request(
-    `/rest/v1/transformations?hub_id=eq.${hubId}&select=*&order=display_order.asc`
+    `/rest/v1/transformations?event_id=eq.${eventId}&select=*&order=display_order.asc`
   );
 }
 
-export async function fetchTransformationBySlug(hubId, tslug) {
+export async function fetchTransformationBySlug(eventId, tslug) {
   const rows = await request(
-    `/rest/v1/transformations?hub_id=eq.${hubId}&slug=eq.${encodeURIComponent(tslug)}&select=*`
+    `/rest/v1/transformations?event_id=eq.${eventId}&slug=eq.${encodeURIComponent(tslug)}&select=*`
   );
   return rows[0] || null;
 }
