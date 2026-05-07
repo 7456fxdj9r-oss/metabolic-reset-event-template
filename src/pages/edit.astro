@@ -10,6 +10,7 @@ import Base from '../layouts/Base.astro';
 <script>
   import { fetchEventBySlug, fetchTransformations, fetchDataPoints, fetchSpeakers, callFunction } from '../lib/supabase.js';
   import { drawMultiChart } from '../lib/chart.js';
+  import { buildRaffleEntriesCsv, downloadCsv } from '../lib/csv.js';
   import QRCode from 'qrcode';
 
   type DataPoint = { metric: 'weight' | 'bf' | 'lean'; date: string; value: number };
@@ -459,6 +460,7 @@ import Base from '../layouts/Base.astro';
             <h3 class="raffle-entries-h">
               Entries <span class="entry-count" id="entry-count">—</span>
               <button type="button" id="draw-btn" class="draw-btn" disabled>🎲 Draw winner</button>
+              <button type="button" id="export-btn" class="export-btn" disabled>📥 Export CSV</button>
               <button type="button" id="clear-btn" class="clear-btn" disabled>🗑 Clear all</button>
             </h3>
             <p class="draw-status" id="draw-status" role="status" aria-live="polite"></p>
@@ -1073,7 +1075,9 @@ import Base from '../layouts/Base.astro';
 
         const drawBtn = document.getElementById('draw-btn') as HTMLButtonElement;
         const clearBtn = document.getElementById('clear-btn') as HTMLButtonElement;
+        const exportBtn = document.getElementById('export-btn') as HTMLButtonElement;
         const drawStatus = document.getElementById('draw-status')!;
+        let entriesCache: any[] = [];
 
         async function loadEntries() {
           try {
@@ -1082,15 +1086,18 @@ import Base from '../layouts/Base.astro';
               edit_token: key,
               action: 'list',
             });
-            renderEntries(res.entries);
-            const total = (res.entries || []).length;
-            const eligible = (res.entries || []).filter((e: { drawn: boolean }) => !e.drawn).length;
+            entriesCache = res.entries || [];
+            renderEntries(entriesCache);
+            const total = entriesCache.length;
+            const eligible = entriesCache.filter((e: { drawn: boolean }) => !e.drawn).length;
             drawBtn.disabled = eligible === 0;
             drawBtn.title = eligible === 0
               ? 'No entries left to draw'
               : `${eligible} eligible entries`;
             clearBtn.disabled = total === 0;
             clearBtn.title = total === 0 ? 'Nothing to clear' : `Delete all ${total} entries`;
+            exportBtn.disabled = total === 0;
+            exportBtn.title = total === 0 ? 'Nothing to export' : `Download ${total} entries as CSV`;
           } catch (err) {
             entriesWrap.innerHTML = `<p class="entries-empty err">${escapeHtml((err as Error).message)}</p>`;
           }
@@ -1099,6 +1106,12 @@ import Base from '../layouts/Base.astro';
         // Light polling so a host watching the dashboard sees new entries
         // come in during an event without having to refresh manually.
         window.setInterval(loadEntries, 10000);
+
+        exportBtn.addEventListener('click', () => {
+          const csv = buildRaffleEntriesCsv(entriesCache);
+          const stamp = new Date().toISOString().slice(0, 10);
+          downloadCsv(`raffle-entries-${slug}-${stamp}.csv`, csv);
+        });
 
         clearBtn.addEventListener('click', async () => {
           if (!confirm('Delete ALL raffle entries for this event?\n\nThis cannot be undone. The raffle settings (status, prize, photo) stay as they are — only the entries themselves are wiped.')) return;
@@ -1883,6 +1896,12 @@ import Base from '../layouts/Base.astro';
     border: 1px solid rgba(231,76,60,0.4);
   }
   button.clear-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  button.export-btn {
+    padding: 6px 12px; font-size: 12px;
+    background: rgba(255,255,255,0.08); color: #ecf0f1;
+    border: 1px solid rgba(255,255,255,0.15);
+  }
+  button.export-btn:disabled { opacity: 0.35; cursor: not-allowed; }
   p.draw-status {
     font-size: 13px; color: #95a5a6;
     text-align: center; padding: 6px 0;

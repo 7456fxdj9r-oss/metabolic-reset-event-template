@@ -15,6 +15,7 @@ import Base from '../layouts/Base.astro';
   // Auth: same ?key= as the edit page. The page only loads when manage-raffle
   // accepts the token (master edit_token or a co-host's host_token).
   import { fetchEventBySlug, callFunction } from '../lib/supabase.js';
+  import { buildRaffleEntriesCsv, downloadCsv } from '../lib/csv.js';
   import QRCode from 'qrcode';
 
   type Entry = {
@@ -54,6 +55,7 @@ import Base from '../layouts/Base.astro';
   let wheelViewerUrl = '';
   let editUrl = '';
   let pollTimer: number | undefined;
+  let entriesCache: Entry[] = [];
 
   async function init() {
     try {
@@ -119,6 +121,7 @@ import Base from '../layouts/Base.astro';
         <button type="button" id="draw-action" class="action draw" disabled>🎲 Draw next winner</button>
         <a class="action wheel" href="${wheelHostUrl}" target="_blank" rel="noopener">🎡 Open the wheel (host)</a>
         <a class="action wheel-view" href="${wheelViewerUrl}" target="_blank" rel="noopener">👀 Audience wheel</a>
+        <button type="button" id="export-action" class="action export" disabled>📥 Export entries (CSV)</button>
         <a class="action edit" href="${editUrl}">⚙️ Full edit page</a>
       </section>
       <p id="action-status" role="status" aria-live="polite"></p>
@@ -135,7 +138,8 @@ import Base from '../layouts/Base.astro';
       const res = await callFunction('manage-raffle', {
         slug, edit_token: key, action: 'list',
       });
-      const entries = (res.entries || []) as Entry[];
+      entriesCache = (res.entries || []) as Entry[];
+      const entries = entriesCache;
       const total = entries.length;
       const drawn = entries.filter((e) => e.drawn).length;
       const eligible = total - drawn;
@@ -149,6 +153,9 @@ import Base from '../layouts/Base.astro';
       const drawBtn = document.getElementById('draw-action') as HTMLButtonElement;
       drawBtn.disabled = eligible === 0;
       drawBtn.title = eligible === 0 ? 'No eligible entries' : `${eligible} eligible`;
+      const exportBtn = document.getElementById('export-action') as HTMLButtonElement;
+      exportBtn.disabled = total === 0;
+      exportBtn.title = total === 0 ? 'Nothing to export' : `Download ${total} entries as CSV`;
 
       const recent = entries.slice(0, 8);
       const recentEl = document.getElementById('recent-list')!;
@@ -205,6 +212,11 @@ import Base from '../layouts/Base.astro';
       const orig = btn.textContent;
       btn.textContent = 'Copied!';
       setTimeout(() => (btn.textContent = orig), 1200);
+    });
+    document.getElementById('export-action')!.addEventListener('click', () => {
+      const csv = buildRaffleEntriesCsv(entriesCache);
+      const stamp = new Date().toISOString().slice(0, 10);
+      downloadCsv(`raffle-entries-${slug}-${stamp}.csv`, csv);
     });
   }
 </script>
