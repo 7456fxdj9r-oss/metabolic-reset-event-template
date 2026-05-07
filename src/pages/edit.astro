@@ -8,11 +8,7 @@ import Base from '../layouts/Base.astro';
 </Base>
 
 <script>
-  // v0.1 stub. Phase 3 of the spec wires up the full admin: event fields,
-  // transformation list with add/edit/delete, photo upload, time-series
-  // paste box, link/QR panel. For now we just confirm the token is valid
-  // by reading the event row, then surface the public URL + a placeholder.
-  import { fetchEventBySlug } from '../lib/supabase.js';
+  import { fetchEventBySlug, callFunction } from '../lib/supabase.js';
 
   const root = document.getElementById('edit-root')!;
   const base = import.meta.env.BASE_URL;
@@ -27,27 +23,91 @@ import Base from '../layouts/Base.astro';
   }
 
   if (!slug || !key) {
-    root.innerHTML = '<p class="loading err">Missing slug or key. Use the edit URL you saved at Build time.</p>';
+    root.innerHTML =
+      '<p class="loading err">Missing slug or key. Use the edit URL you saved at Build time.</p>';
   } else {
     (async () => {
       try {
-        const event = await fetchEventBySlug(slug);
-        if (!event) {
+        const ev = await fetchEventBySlug(slug);
+        if (!ev) {
           root.innerHTML = '<p class="loading err">Event not found.</p>';
           return;
         }
-        // Real token verification happens server-side on save (Edge Function).
-        // For the stub, we just show the event fields read-only.
+
+        const publicHref = `${base}event?slug=${encodeURIComponent(slug)}`;
         root.innerHTML = `
-          <h1>Edit · ${escapeHtml(event.name)}</h1>
-          <p class="hint">v0.1 stub. The admin form ships in Phase 3 of the spec.</p>
-          <ul class="meta">
-            <li><strong>Event name:</strong> ${escapeHtml(event.name)}</li>
-            <li><strong>Host line:</strong> ${escapeHtml(event.host_line || '—')}</li>
-            <li><strong>Accent:</strong> <span class="swatch" style="background:${escapeHtml(event.accent_color)}"></span> ${escapeHtml(event.accent_color)}</li>
-          </ul>
-          <p>Public URL: <a href="${base}event?slug=${encodeURIComponent(slug)}">${base}event?slug=${escapeHtml(slug)}</a></p>
+          <header class="head">
+            <p class="eyebrow">Edit · ${escapeHtml(ev.slug)}</p>
+            <h1 id="page-title">${escapeHtml(ev.name)}</h1>
+            <p class="hint">
+              Public URL:
+              <a href="${publicHref}" target="_blank">${publicHref}</a>
+            </p>
+          </header>
+
+          <section class="card">
+            <h2>Event details</h2>
+            <form id="event-form" novalidate>
+              <label>
+                Event name
+                <input name="name" required maxlength="80" value="${escapeHtml(ev.name)}" />
+              </label>
+              <label>
+                Host line <span class="opt">(shown under the title)</span>
+                <input name="host_line" maxlength="120" value="${escapeHtml(ev.host_line || '')}" />
+              </label>
+              <label>
+                Accent color
+                <input type="color" name="accent_color" value="${escapeHtml(ev.accent_color || '#f39c12')}" />
+              </label>
+              <label>
+                Email <span class="opt">(only used to recover your edit link)</span>
+                <input type="email" name="email" value="${escapeHtml(ev.email || '')}" />
+              </label>
+              <div class="row">
+                <button type="submit" id="save-btn">Save changes</button>
+                <span id="save-status" role="status" aria-live="polite"></span>
+              </div>
+            </form>
+          </section>
+
+          <section class="card placeholder">
+            <h2>Transformations</h2>
+            <p>Coming in Phase 3.2 — add/edit/delete client transformations with photos and biometric data.</p>
+          </section>
         `;
+
+        const form = document.getElementById('event-form') as HTMLFormElement;
+        const status = document.getElementById('save-status')!;
+        const saveBtn = document.getElementById('save-btn') as HTMLButtonElement;
+
+        form.addEventListener('submit', async (submitEv) => {
+          submitEv.preventDefault();
+          saveBtn.disabled = true;
+          status.textContent = 'Saving…';
+          status.className = '';
+          const fd = new FormData(form);
+          try {
+            await callFunction('update-event', {
+              slug,
+              edit_token: key,
+              name: fd.get('name'),
+              host_line: fd.get('host_line') || null,
+              accent_color: fd.get('accent_color'),
+              email: fd.get('email') || null,
+            });
+            status.textContent = 'Saved ✓';
+            status.className = 'ok';
+            const newName = String(fd.get('name') || '').trim();
+            if (newName) document.getElementById('page-title')!.textContent = newName;
+          } catch (err) {
+            const msg = (err as Error).message;
+            status.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+            status.className = 'err';
+          } finally {
+            saveBtn.disabled = false;
+          }
+        });
       } catch (err) {
         root.innerHTML = `<p class="loading err">${escapeHtml((err as Error).message)}</p>`;
       }
@@ -63,18 +123,55 @@ import Base from '../layouts/Base.astro';
     margin: 0;
   }
   body { padding: 30px 18px 60px; }
-  main.edit { max-width: 540px; margin: 0 auto; }
-  h1 { font-size: 24px; margin-bottom: 6px; }
-  p.hint { color: #95a5a6; font-size: 13px; margin-bottom: 18px; }
-  .meta { list-style: none; padding: 0; margin: 14px 0; }
-  .meta li {
-    padding: 8px 12px; background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08); border-radius: 6px;
-    margin-bottom: 8px; font-size: 14px;
+  main.edit { max-width: 620px; margin: 0 auto; }
+
+  .head { margin-bottom: 22px; }
+  .eyebrow {
+    font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
+    color: #f39c12; font-weight: 700; margin-bottom: 6px;
   }
-  .meta strong { color: #f39c12; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin-right: 8px; }
-  .swatch { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: middle; }
-  a { color: #f39c12; }
+  h1 { font-size: 28px; line-height: 1.2; margin-bottom: 8px; }
+  p.hint { color: #95a5a6; font-size: 13px; }
+  p.hint a { color: #f39c12; word-break: break-all; }
+
+  .card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 18px 18px 20px;
+    margin-bottom: 16px;
+  }
+  .card h2 {
+    font-size: 13px; color: #ecf0f1;
+    text-transform: uppercase; letter-spacing: 1.5px;
+    margin-bottom: 14px;
+  }
+  .card.placeholder p { color: #95a5a6; font-size: 13px; font-style: italic; }
+
+  form { display: grid; gap: 14px; }
+  label { display: grid; gap: 6px; font-size: 13px; color: #ecf0f1; font-weight: 600; }
+  label .opt { color: #95a5a6; font-weight: 400; font-size: 12px; }
+  input {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px; padding: 10px 12px;
+    color: #fff; font-size: 15px; font-family: inherit;
+  }
+  input[type="color"] { padding: 4px; height: 40px; width: 64px; }
+  input:focus { outline: 2px solid #f39c12; outline-offset: 1px; }
+
+  .row { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
+  button {
+    padding: 12px 22px; background: #f39c12; color: #1a252f;
+    border: none; border-radius: 8px; font-weight: 800; font-size: 15px;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+  #save-status { font-size: 13px; color: #95a5a6; }
+  #save-status.ok { color: #2ecc71; font-weight: 700; }
+  #save-status.err { color: #e74c3c; font-weight: 600; }
+
   .loading { color: #95a5a6; text-align: center; padding: 40px 0; font-size: 14px; }
   .loading.err { color: #e74c3c; }
 </style>
