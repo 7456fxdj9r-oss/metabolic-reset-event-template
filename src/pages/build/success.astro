@@ -1,40 +1,72 @@
 ---
 import Base from '../../layouts/Base.astro';
 ---
-<Base title="Event created — save your edit link">
+<Base title="Event created — what to do next">
   <main class="success">
-    <p class="eyebrow">⚠ Save this before you leave</p>
-    <h1>Your event is live.</h1>
-    <p class="lede">
-      The edit URL below is the only way back into your event. There is no
-      account and no password — anyone with this link can edit. Save it now.
-    </p>
+    <header class="hero">
+      <p class="eyebrow">🎉 Created</p>
+      <h1>Your event has been created.</h1>
+      <p class="lede">
+        It exists, but it's empty. Two things to do — in this order — to get it
+        ready to share with attendees.
+      </p>
+    </header>
 
-    <section class="link-card">
-      <h3>Public event URL <span class="tag">share this</span></h3>
-      <div class="row">
-        <input type="text" id="public-url" readonly />
-        <button data-copy="#public-url">Copy</button>
+    <!-- STEP 1: SAVE THE EDIT LINK -->
+    <section class="step step-1">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <h2>Save your edit link <span class="critical">critical</span></h2>
+        <p>
+          This URL is the <strong>only way back</strong> to your event admin.
+          There's no password reset — if you lose it and didn't email it to
+          yourself, you can't recover it. Save it now in three places.
+        </p>
+        <div class="link-row">
+          <input type="text" id="edit-url" readonly />
+          <button data-copy="#edit-url">Copy</button>
+        </div>
+        <div class="save-actions">
+          <button id="email-edit">📧 Email it to me</button>
+          <button id="download-edit">💾 Download as .txt</button>
+        </div>
       </div>
-      <canvas id="public-qr"></canvas>
-      <button id="public-qr-dl">Download QR</button>
     </section>
 
-    <section class="link-card private">
-      <h3>Private edit URL <span class="tag warn">keep secret</span></h3>
-      <div class="row">
-        <input type="text" id="edit-url" readonly />
-        <button data-copy="#edit-url">Copy</button>
-      </div>
-      <div class="row">
-        <button id="email-edit">Email me this link</button>
-        <button id="download-edit">Download as .txt</button>
+    <!-- STEP 2: GO TO EDIT PAGE -->
+    <section class="step step-2">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <h2>Open your edit page and add content</h2>
+        <p>
+          Add transformation stories, speaker bios, raffle settings, and your
+          contact info. The public page is empty until you do.
+        </p>
+        <a class="big-cta" id="open-edit" href="#">⚙️ Open the edit page →</a>
       </div>
     </section>
 
-    <p class="next">
-      Next: open your edit URL and start adding transformations.
-    </p>
+    <!-- STEP 3: PUBLIC URL (deemphasized) -->
+    <section class="step step-3 muted">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <h2>Share with attendees <span class="later">do this later</span></h2>
+        <p>
+          Once your event has stories / speakers / raffle ready, this is the
+          URL that goes on QR posters, in emails, etc. <em>Don't</em> share it
+          while the page is still empty.
+        </p>
+        <details>
+          <summary>Show public URL + QR</summary>
+          <div class="link-row">
+            <input type="text" id="public-url" readonly />
+            <button data-copy="#public-url">Copy</button>
+          </div>
+          <canvas id="public-qr"></canvas>
+          <button id="public-qr-dl" type="button">Download QR</button>
+        </details>
+      </div>
+    </section>
   </main>
 </Base>
 
@@ -55,6 +87,7 @@ import Base from '../../layouts/Base.astro';
     const editUrl = `${origin}${base}edit?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}`;
     (document.getElementById('public-url') as HTMLInputElement).value = publicUrl;
     (document.getElementById('edit-url') as HTMLInputElement).value = editUrl;
+    (document.getElementById('open-edit') as HTMLAnchorElement).href = editUrl;
 
     const canvas = document.getElementById('public-qr') as HTMLCanvasElement;
     QRCode.toCanvas(canvas, publicUrl, { width: 220, margin: 1, color: { dark: '#ffffff', light: '#1a252f' } });
@@ -79,15 +112,15 @@ import Base from '../../layouts/Base.astro';
     });
 
     document.getElementById('email-edit')?.addEventListener('click', () => {
-      const subj = encodeURIComponent('Edit link for my coach event');
+      const subj = encodeURIComponent('Edit link for my event');
       const body = encodeURIComponent(
-        `Save this — it's the only way back into your event.\n\nEdit URL:\n${editUrl}\n\nPublic URL:\n${publicUrl}\n`
+        `KEEP THIS — it's the only way back into your event admin.\n\nEdit URL:\n${editUrl}\n\nPublic URL (share later, once your event has content):\n${publicUrl}\n`
       );
       window.location.href = `mailto:?subject=${subj}&body=${body}`;
     });
 
     document.getElementById('download-edit')?.addEventListener('click', () => {
-      const txt = `Metabolic Reset Event — edit link\n\nEdit URL (KEEP SECRET):\n${editUrl}\n\nPublic URL (share):\n${publicUrl}\n`;
+      const txt = `Metabolic Reset Event — edit link\n\nEDIT URL (KEEP SECRET):\n${editUrl}\n\nPUBLIC URL (share later):\n${publicUrl}\n`;
       const blob = new Blob([txt], { type: 'text/plain' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -105,43 +138,108 @@ import Base from '../../layouts/Base.astro';
     margin: 0;
   }
   body { padding: 30px 18px 60px; }
-  main.success { max-width: 540px; margin: 0 auto; }
-  .eyebrow {
-    font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
-    color: #e74c3c; font-weight: 800; margin-bottom: 8px;
-  }
-  h1 { font-size: 26px; margin-bottom: 8px; }
-  p.lede { color: #bdc3c7; font-size: 14px; margin-bottom: 22px; line-height: 1.45; }
+  main.success { max-width: 580px; margin: 0 auto; }
 
-  .link-card {
+  .hero { text-align: center; margin-bottom: 28px; }
+  .hero .eyebrow {
+    font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
+    color: #2ecc71; font-weight: 800; margin-bottom: 8px;
+  }
+  .hero h1 { font-size: 28px; margin-bottom: 12px; line-height: 1.2; }
+  .hero .lede { color: #bdc3c7; font-size: 15px; line-height: 1.5; }
+
+  .step {
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    gap: 14px;
+    margin-bottom: 20px;
     background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.10);
-    border-radius: 10px; padding: 14px; margin-bottom: 16px;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 18px;
   }
-  .link-card.private {
-    border-color: rgba(231, 76, 60, 0.5);
-    background: rgba(231, 76, 60, 0.06);
+  .step-1 {
+    background: rgba(231,76,60,0.06);
+    border-color: rgba(231,76,60,0.45);
   }
-  .link-card h3 {
-    font-size: 14px; margin-bottom: 10px; color: #ecf0f1;
-    display: flex; align-items: center; gap: 8px;
+  .step-2 {
+    background: rgba(243,156,18,0.06);
+    border-color: rgba(243,156,18,0.45);
   }
-  .tag {
+  .step.muted { opacity: 0.85; }
+  .step-num {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.08);
+    color: #ecf0f1;
+    font-weight: 800; font-size: 18px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step-1 .step-num { background: #e74c3c; color: #1a252f; }
+  .step-2 .step-num { background: #f39c12; color: #1a252f; }
+
+  .step-body h2 {
+    font-size: 17px; color: #fff; margin-bottom: 6px;
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .step-body p { color: #bdc3c7; font-size: 14px; line-height: 1.55; margin-bottom: 12px; }
+  .step-body p strong { color: #fff; }
+  .step-body p em { color: #e74c3c; font-style: normal; font-weight: 700; }
+
+  .critical, .later {
     font-size: 10px; padding: 2px 8px; border-radius: 10px;
-    background: rgba(46, 204, 113, 0.18); color: #2ecc71;
-    text-transform: uppercase; letter-spacing: 1.2px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1.2px; font-weight: 800;
   }
-  .tag.warn { background: rgba(231, 76, 60, 0.2); color: #e74c3c; }
-  .row { display: flex; gap: 8px; margin-bottom: 10px; }
-  .row input {
-    flex: 1; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15);
-    color: #fff; padding: 9px 10px; border-radius: 6px; font-size: 13px;
+  .critical { background: rgba(231,76,60,0.20); color: #e74c3c; }
+  .later    { background: rgba(255,255,255,0.08); color: #95a5a6; }
+
+  .link-row { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+  .link-row input {
+    flex: 1; min-width: 0;
+    background: rgba(0,0,0,0.30);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #fff; padding: 10px 12px; border-radius: 6px;
+    font-size: 12px;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   }
-  .row button, button#public-qr-dl {
-    background: #f39c12; color: #1a252f; border: none; padding: 9px 14px;
-    border-radius: 6px; font-weight: 700; font-size: 13px; cursor: pointer;
+  .link-row button {
+    background: #f39c12; color: #1a252f; border: none;
+    padding: 10px 14px; border-radius: 6px;
+    font-weight: 700; font-size: 13px; cursor: pointer;
   }
-  canvas { display: block; margin: 10px auto; background: #1a252f; border-radius: 4px; }
-  p.next { color: #95a5a6; font-size: 13px; text-align: center; margin-top: 18px; }
+
+  .save-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .save-actions button {
+    padding: 10px 14px; font-size: 13px; font-weight: 700;
+    background: rgba(255,255,255,0.08); color: #ecf0f1;
+    border: 1px solid rgba(255,255,255,0.15); border-radius: 6px;
+    cursor: pointer;
+  }
+
+  a.big-cta {
+    display: block;
+    padding: 16px;
+    background: #f39c12; color: #1a252f;
+    text-align: center; text-decoration: none;
+    border-radius: 10px;
+    font-size: 16px; font-weight: 800;
+    letter-spacing: 0.5px;
+  }
+  a.big-cta:hover { filter: brightness(1.07); }
+
+  details summary {
+    cursor: pointer; color: #95a5a6;
+    font-size: 13px; font-weight: 600;
+    padding: 4px 0;
+    user-select: none;
+  }
+  details[open] summary { margin-bottom: 12px; }
+  canvas#public-qr { display: block; margin: 10px auto; background: #1a252f; border-radius: 4px; }
+  button#public-qr-dl {
+    display: block; margin: 0 auto;
+    padding: 8px 14px; font-size: 12px; font-weight: 700;
+    background: rgba(255,255,255,0.08); color: #ecf0f1;
+    border: 1px solid rgba(255,255,255,0.15); border-radius: 6px;
+    cursor: pointer;
+  }
 </style>

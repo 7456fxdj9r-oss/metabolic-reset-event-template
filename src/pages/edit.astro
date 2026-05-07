@@ -333,12 +333,18 @@ import Base from '../layouts/Base.astro';
         const publicHref = `${base}event?slug=${encodeURIComponent(slug)}`;
         root.innerHTML = `
           <header class="head">
-            <p class="eyebrow">Edit · ${escapeHtml(ev.slug)}</p>
+            <p class="eyebrow">Event admin</p>
             <h1 id="page-title">${escapeHtml(ev.name)}</h1>
-            <p class="hint">
-              Public URL:
-              <a href="${publicHref}" target="_blank">${publicHref}</a>
-            </p>
+            <div class="status-bar">
+              <span class="stat-pill" id="pill-stories">📊 — stories</span>
+              <span class="stat-pill" id="pill-speakers">🎤 — speakers</span>
+              <span class="stat-pill" id="pill-raffle">🎟️ raffle ${ev.raffle_status === 'open' ? '<span class="dot open"></span>open' : '<span class="dot closed"></span>closed'}</span>
+              <span class="stat-pill" id="pill-entries">— entries</span>
+            </div>
+            <div class="head-cta">
+              <a class="cta-view" href="${publicHref}" target="_blank">👀 View public event page</a>
+              <a class="cta-live" href="${base}live?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}" target="_blank">📊 Live dashboard</a>
+            </div>
           </header>
 
           <section class="card">
@@ -555,12 +561,28 @@ import Base from '../layouts/Base.astro';
         const formHost = document.getElementById('t-form-host')!;
         const addBtn = document.getElementById('add-t-btn') as HTMLButtonElement;
 
+        function updateStatusPills() {
+          const sPill = document.getElementById('pill-stories');
+          if (sPill) {
+            const n = transformations.length;
+            sPill.innerHTML = `📊 ${n} ${n === 1 ? 'story' : 'stories'}`;
+            sPill.classList.toggle('filled', n > 0);
+          }
+          const spPill = document.getElementById('pill-speakers');
+          if (spPill && typeof speakers !== 'undefined') {
+            const n = speakers.length;
+            spPill.innerHTML = `🎤 ${n} ${n === 1 ? 'speaker' : 'speakers'}`;
+            spPill.classList.toggle('filled', n > 0);
+          }
+        }
+
         function renderList() {
           if (transformations.length === 0) {
             list.innerHTML = '<li class="t-empty">No transformations yet. Add one above.</li>';
-            return;
+          } else {
+            list.innerHTML = transformations.map(transformationRowHtml).join('');
           }
-          list.innerHTML = transformations.map(transformationRowHtml).join('');
+          updateStatusPills();
         }
 
         // Photos selected before a brand-new transformation has been Created
@@ -1090,6 +1112,11 @@ import Base from '../layouts/Base.astro';
             renderEntries(entriesCache);
             const total = entriesCache.length;
             const eligible = entriesCache.filter((e: { drawn: boolean }) => !e.drawn).length;
+            const ePill = document.getElementById('pill-entries');
+            if (ePill) {
+              ePill.innerHTML = `${total} ${total === 1 ? 'entry' : 'entries'}`;
+              ePill.classList.toggle('filled', total > 0);
+            }
             drawBtn.disabled = eligible === 0;
             drawBtn.title = eligible === 0
               ? 'No entries left to draw'
@@ -1226,9 +1253,10 @@ import Base from '../layouts/Base.astro';
         function renderSpeakerList() {
           if (speakers.length === 0) {
             sList.innerHTML = '<li class="t-empty">No speakers yet.</li>';
-            return;
+          } else {
+            sList.innerHTML = speakers.map(speakerRowHtml).join('');
           }
-          sList.innerHTML = speakers.map(speakerRowHtml).join('');
+          updateStatusPills();
         }
 
         function showSpeakerForm(sp?: Speaker) {
@@ -1630,9 +1658,47 @@ import Base from '../layouts/Base.astro';
     font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
     color: #f39c12; font-weight: 700; margin-bottom: 6px;
   }
-  h1 { font-size: 28px; line-height: 1.2; margin-bottom: 8px; }
+  h1 { font-size: 28px; line-height: 1.2; margin-bottom: 12px; }
   p.hint { color: #95a5a6; font-size: 13px; }
   p.hint a { color: #f39c12; word-break: break-all; }
+
+  .status-bar {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-bottom: 14px;
+  }
+  .stat-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 12px;
+    font-size: 12px; font-weight: 700;
+    background: rgba(255,255,255,0.06);
+    color: #95a5a6;
+    border: 1px solid rgba(255,255,255,0.10);
+  }
+  .stat-pill.filled {
+    background: rgba(243,156,18,0.15);
+    color: #f39c12;
+    border-color: rgba(243,156,18,0.4);
+  }
+  .stat-pill .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    display: inline-block;
+  }
+  .stat-pill .dot.open { background: #2ecc71; }
+  .stat-pill .dot.closed { background: #95a5a6; }
+
+  .head-cta { display: flex; gap: 8px; flex-wrap: wrap; }
+  .head-cta a {
+    display: inline-block; padding: 10px 14px;
+    border-radius: 8px; text-decoration: none;
+    font-size: 13px; font-weight: 700;
+  }
+  .head-cta .cta-view {
+    background: var(--accent, #f39c12); color: #1a252f;
+  }
+  .head-cta .cta-live {
+    background: rgba(46,204,113,0.18); color: #2ecc71;
+    border: 1px solid rgba(46,204,113,0.5);
+  }
 
   .card {
     background: rgba(255,255,255,0.04);
