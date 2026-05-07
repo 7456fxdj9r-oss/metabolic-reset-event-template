@@ -348,7 +348,7 @@ import Base from '../layouts/Base.astro';
                 <input name="name" required maxlength="80" value="${escapeHtml(ev.name)}" />
               </label>
               <label>
-                Host line <span class="opt">(shown under the title)</span>
+                Subtitle / tagline <span class="opt">(shown under the title; e.g. "Hosted by Coach Mike")</span>
                 <input name="host_line" maxlength="120" value="${escapeHtml(ev.host_line || '')}" />
               </label>
               <label>
@@ -356,27 +356,18 @@ import Base from '../layouts/Base.astro';
                 <input type="color" name="accent_color" value="${escapeHtml(ev.accent_color || '#f39c12')}" />
               </label>
               <label>
-                Email <span class="opt">(only used to recover your edit link)</span>
-                <input type="email" name="email" value="${escapeHtml(ev.email || '')}" />
-              </label>
-              <label>
                 Event date <span class="opt">(raffle auto-closes after this date)</span>
                 <input type="date" name="event_date" value="${escapeHtml(ev.event_date || '')}" />
               </label>
-              <div class="row">
-                <button type="submit" id="save-btn">Save changes</button>
-                <span id="save-status" role="status" aria-live="polite"></span>
-              </div>
-            </form>
-          </section>
 
-          <section class="card">
-            <h2>Connect with the host</h2>
-            <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;">
-              Shows up at the bottom of your public event page. Every field is
-              optional; only filled-in fields render.
-            </p>
-            <form id="organizer-form" novalidate>
+              <div class="section-divider"></div>
+              <p class="section-note">
+                <strong>Host / organizer info</strong> — appears in the
+                "Connect with the host" panel at the bottom of your public
+                event page. Every field is optional; only filled-in fields
+                render. The email here is also where we'll send your edit
+                link if you ever lose it.
+              </p>
               <label>
                 Host / organizer name
                 <input name="organizer_name" maxlength="120" value="${escapeHtml(ev.organizer_name || '')}" />
@@ -388,7 +379,7 @@ import Base from '../layouts/Base.astro';
               <div class="grid-2">
                 <label>
                   Email
-                  <input type="email" name="organizer_email" value="${escapeHtml(ev.organizer_email || '')}" />
+                  <input type="email" name="organizer_email" value="${escapeHtml(ev.organizer_email || ev.email || '')}" />
                 </label>
                 <label>
                   Phone
@@ -399,9 +390,10 @@ import Base from '../layouts/Base.astro';
                 Website
                 <input type="url" name="organizer_website" value="${escapeHtml(ev.organizer_website || '')}" placeholder="https://example.com" />
               </label>
+
               <div class="row">
-                <button type="submit" id="organizer-save">Save organizer info</button>
-                <span id="organizer-save-status" role="status" aria-live="polite"></span>
+                <button type="submit" id="save-btn">Save changes</button>
+                <span id="save-status" role="status" aria-live="polite"></span>
               </div>
             </form>
           </section>
@@ -529,8 +521,12 @@ import Base from '../layouts/Base.astro';
               name: fd.get('name'),
               host_line: fd.get('host_line') || null,
               accent_color: fd.get('accent_color'),
-              email: fd.get('email') || null,
               event_date: fd.get('event_date') || null,
+              organizer_name: fd.get('organizer_name') || null,
+              organizer_bio: fd.get('organizer_bio') || null,
+              organizer_email: fd.get('organizer_email') || null,
+              organizer_phone: fd.get('organizer_phone') || null,
+              organizer_website: fd.get('organizer_website') || null,
             });
             status.textContent = 'Saved ✓';
             status.className = 'ok';
@@ -542,35 +538,6 @@ import Base from '../layouts/Base.astro';
             status.className = 'err';
           } finally {
             saveBtn.disabled = false;
-          }
-        });
-
-        // ---------- Organizer info ----------
-        const organizerForm = document.getElementById('organizer-form') as HTMLFormElement;
-        const organizerSaveBtn = document.getElementById('organizer-save') as HTMLButtonElement;
-        const organizerSaveStatus = document.getElementById('organizer-save-status')!;
-
-        organizerForm.addEventListener('submit', async (submitEv) => {
-          submitEv.preventDefault();
-          organizerSaveBtn.disabled = true;
-          organizerSaveStatus.textContent = 'Saving…';
-          organizerSaveStatus.className = '';
-          const fd = new FormData(organizerForm);
-          const fields = [
-            'organizer_name', 'organizer_email', 'organizer_phone', 'organizer_website', 'organizer_bio',
-          ];
-          const payload: Record<string, unknown> = { slug, edit_token: key };
-          for (const f of fields) payload[f] = (fd.get(f) || null);
-          try {
-            await callFunction('update-event', payload);
-            organizerSaveStatus.textContent = 'Saved ✓';
-            organizerSaveStatus.className = 'ok';
-          } catch (err) {
-            const msg = (err as Error).message;
-            organizerSaveStatus.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
-            organizerSaveStatus.className = 'err';
-          } finally {
-            organizerSaveBtn.disabled = false;
           }
         });
 
@@ -1675,6 +1642,20 @@ import Base from '../layouts/Base.astro';
     margin-top: 14px; margin-bottom: 4px;
     font-size: 12px; color: #ecf0f1;
     text-transform: uppercase; letter-spacing: 1.5px;
+  }
+  .section-divider {
+    margin: 18px 0 4px;
+    height: 1px;
+    background: rgba(255,255,255,0.10);
+  }
+  p.section-note {
+    font-size: 12px; color: #95a5a6;
+    line-height: 1.5;
+    margin-bottom: 4px;
+  }
+  p.section-note strong {
+    color: var(--accent, #f39c12);
+    font-weight: 700;
   }
 
   /* Transformations section */
