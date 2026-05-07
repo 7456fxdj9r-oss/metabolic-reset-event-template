@@ -348,8 +348,8 @@ import Base from '../layouts/Base.astro';
                 <input name="name" required maxlength="80" value="${escapeHtml(ev.name)}" />
               </label>
               <label>
-                Subtitle / tagline <span class="opt">(shown under the title; e.g. "Hosted by Coach Mike")</span>
-                <input name="host_line" maxlength="120" value="${escapeHtml(ev.host_line || '')}" />
+                Business location <span class="opt">(venue or address; shown under the title)</span>
+                <input name="host_line" maxlength="200" value="${escapeHtml(ev.host_line || '')}" placeholder="OPTAVIA Pacific NW · Spokane, WA" />
               </label>
               <label>
                 Accent color
