@@ -60,6 +60,7 @@ Deno.serve(async (req) => {
   if ('accent_color' in body) patch.accent_color = body.accent_color || '#f39c12';
   if ('email' in body) patch.email = body.email || null;
   if ('science_url' in body) patch.science_url = body.science_url || null;
+  if ('event_date' in body) patch.event_date = body.event_date || null;
   if ('raffle_status' in body) {
     const s = String(body.raffle_status || 'closed');
     if (!['open', 'closed'].includes(s)) {

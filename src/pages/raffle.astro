@@ -35,7 +35,9 @@ import Base from '../layouts/Base.astro';
         const accent = event.accent_color || '#f39c12';
         document.documentElement.style.setProperty('--accent', accent);
 
-        if (event.raffle_status !== 'open') {
+        const today = new Date().toISOString().slice(0, 10);
+        const autoClosed = event.event_date && today > event.event_date;
+        if (event.raffle_status !== 'open' || autoClosed) {
           root.innerHTML = `
             <header class="top">
               <p class="eyebrow">Raffle</p>

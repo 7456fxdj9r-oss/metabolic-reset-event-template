@@ -53,31 +53,20 @@ import Base from '../layouts/Base.astro';
         }).join('');
 
         const scienceCta = `<a class="cta-btn science" href="${base}science?slug=${encodeURIComponent(slug)}">The Science →</a>`;
-        const raffleCta = event.raffle_status === 'open'
+        // Auto-close: even if raffle_status is 'open', hide the CTA after
+        // the event date (compared as YYYY-MM-DD, today vs event_date).
+        const today = new Date().toISOString().slice(0, 10);
+        const raffleAutoClosed = event.event_date && today > event.event_date;
+        const raffleOpen = event.raffle_status === 'open' && !raffleAutoClosed;
+        const raffleCta = raffleOpen
           ? `<a class="cta-btn raffle" href="${base}raffle?slug=${encodeURIComponent(slug)}">🎟️ Enter the Raffle${event.raffle_prize ? ` — ${escapeHtml(event.raffle_prize)}` : ''}</a>`
           : '';
 
         // Organizer-contact panel: each row only shows if its field has a
-        // value, the whole panel hides if everything is empty. Lets the host
-        // turn this on incrementally without weird placeholder rows.
-        const socialHandle = (raw: string | null | undefined, urlBuilder: (h: string) => string): string | null => {
-          if (!raw) return null;
-          const t = raw.trim();
-          if (!t) return null;
-          if (/^https?:\/\//i.test(t)) return t;
-          return urlBuilder(t.replace(/^@/, ''));
-        };
-        const socials: Array<[string, string, string]> = [
-          ['Instagram', socialHandle(event.social_instagram, (h) => `https://instagram.com/${h}`) || '', '📷'],
-          ['Facebook', socialHandle(event.social_facebook, (h) => `https://facebook.com/${h}`) || '', '👤'],
-          ['TikTok', socialHandle(event.social_tiktok, (h) => `https://tiktok.com/@${h}`) || '', '🎵'],
-          ['YouTube', socialHandle(event.social_youtube, (h) => `https://youtube.com/@${h}`) || '', '▶️'],
-          ['LinkedIn', socialHandle(event.social_linkedin, (h) => `https://linkedin.com/in/${h}`) || '', '💼'],
-        ].filter((row) => row[1]);
-
+        // value, whole panel hides if everything is empty.
         const hasContact = event.organizer_name || event.organizer_email
           || event.organizer_phone || event.organizer_website
-          || event.organizer_bio || socials.length > 0;
+          || event.organizer_bio;
 
         const organizerPanel = hasContact ? `
           <section class="organizer">
@@ -89,12 +78,6 @@ import Base from '../layouts/Base.astro';
               ${event.organizer_phone ? `<a href="tel:${escapeHtml(event.organizer_phone)}">📞 ${escapeHtml(event.organizer_phone)}</a>` : ''}
               ${event.organizer_website ? `<a href="${escapeHtml(event.organizer_website)}" target="_blank" rel="noopener">🌐 Website</a>` : ''}
             </div>
-            ${socials.length ? `
-              <div class="org-social">
-                ${socials.map(([label, url, icon]) =>
-                  `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" title="${label}">${icon} ${label}</a>`
-                ).join('')}
-              </div>` : ''}
           </section>` : '';
 
         root.innerHTML = `

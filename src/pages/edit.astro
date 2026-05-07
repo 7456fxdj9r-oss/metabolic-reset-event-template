@@ -359,6 +359,10 @@ import Base from '../layouts/Base.astro';
                 Email <span class="opt">(only used to recover your edit link)</span>
                 <input type="email" name="email" value="${escapeHtml(ev.email || '')}" />
               </label>
+              <label>
+                Event date <span class="opt">(raffle auto-closes after this date)</span>
+                <input type="date" name="event_date" value="${escapeHtml(ev.event_date || '')}" />
+              </label>
               <div class="row">
                 <button type="submit" id="save-btn">Save changes</button>
                 <span id="save-status" role="status" aria-live="polite"></span>
@@ -395,30 +399,6 @@ import Base from '../layouts/Base.astro';
                 Website
                 <input type="url" name="organizer_website" value="${escapeHtml(ev.organizer_website || '')}" placeholder="https://example.com" />
               </label>
-
-              <h3 class="social-h">Social</h3>
-              <div class="grid-2">
-                <label>
-                  Instagram <span class="opt">(handle or URL)</span>
-                  <input name="social_instagram" value="${escapeHtml(ev.social_instagram || '')}" placeholder="@yourhandle" />
-                </label>
-                <label>
-                  Facebook
-                  <input name="social_facebook" value="${escapeHtml(ev.social_facebook || '')}" placeholder="@yourhandle" />
-                </label>
-                <label>
-                  TikTok
-                  <input name="social_tiktok" value="${escapeHtml(ev.social_tiktok || '')}" placeholder="@yourhandle" />
-                </label>
-                <label>
-                  YouTube
-                  <input name="social_youtube" value="${escapeHtml(ev.social_youtube || '')}" placeholder="@yourhandle" />
-                </label>
-                <label>
-                  LinkedIn
-                  <input name="social_linkedin" value="${escapeHtml(ev.social_linkedin || '')}" placeholder="username" />
-                </label>
-              </div>
               <div class="row">
                 <button type="submit" id="organizer-save">Save organizer info</button>
                 <span id="organizer-save-status" role="status" aria-live="polite"></span>
@@ -538,6 +518,7 @@ import Base from '../layouts/Base.astro';
               host_line: fd.get('host_line') || null,
               accent_color: fd.get('accent_color'),
               email: fd.get('email') || null,
+              event_date: fd.get('event_date') || null,
             });
             status.textContent = 'Saved ✓';
             status.className = 'ok';
@@ -565,7 +546,6 @@ import Base from '../layouts/Base.astro';
           const fd = new FormData(organizerForm);
           const fields = [
             'organizer_name', 'organizer_email', 'organizer_phone', 'organizer_website', 'organizer_bio',
-            'social_instagram', 'social_facebook', 'social_tiktok', 'social_youtube', 'social_linkedin',
           ];
           const payload: Record<string, unknown> = { slug, edit_token: key };
           for (const f of fields) payload[f] = (fd.get(f) || null);

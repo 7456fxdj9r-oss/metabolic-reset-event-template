@@ -105,10 +105,17 @@ Deno.serve(async (req) => {
 
   const { data: ev } = await supabase
     .from('events')
-    .select('id, raffle_status')
+    .select('id, raffle_status, event_date')
     .eq('slug', slug).maybeSingle();
   if (!ev) return errResp(404, 'event not found');
   if (ev.raffle_status !== 'open') return errResp(403, 'raffle is not open');
+  // Auto-close after the event date. event_date is YYYY-MM-DD; we compare
+  // against today in UTC. Anyone trying to enter after the event date —
+  // including the event-day's tail end in late timezones — gets rejected.
+  if (ev.event_date) {
+    const today = new Date().toISOString().slice(0, 10);
+    if (today > ev.event_date) return errResp(403, 'raffle is closed (event has ended)');
+  }
 
   const { data: dupe } = await supabase
     .from('raffle_entries').select('id, entry_token')
