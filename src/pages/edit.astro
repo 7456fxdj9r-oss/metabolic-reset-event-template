@@ -450,6 +450,11 @@ import Base from '../layouts/Base.astro';
               </div>
             </form>
 
+            <div class="wheel-links">
+              <a class="wheel-link host" href="${base}wheel?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}" target="_blank" rel="noopener">🎡 Open the wheel (host)</a>
+              <a class="wheel-link viewer" href="${base}wheel?slug=${encodeURIComponent(slug)}" target="_blank" rel="noopener">👀 Audience view</a>
+            </div>
+
             <h3 class="raffle-entries-h">
               Entries <span class="entry-count" id="entry-count">—</span>
               <button type="button" id="draw-btn" class="draw-btn" disabled>🎲 Draw winner</button>
@@ -1914,6 +1919,21 @@ import Base from '../layouts/Base.astro';
   }
   .entry-drawn {
     font-size: 13px; color: #2ecc71; font-weight: 700;
+  }
+
+  /* Wheel links inside Raffle card */
+  .wheel-links { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  a.wheel-link {
+    display: inline-block; padding: 10px 14px;
+    border-radius: 8px; text-decoration: none;
+    font-size: 13px; font-weight: 700;
+  }
+  a.wheel-link.host {
+    background: var(--accent, #f39c12); color: #1a252f;
+  }
+  a.wheel-link.viewer {
+    background: rgba(255,255,255,0.06); color: #ecf0f1;
+    border: 1px solid rgba(255,255,255,0.15);
   }
 
   /* Speaker photo slot — circular preview */

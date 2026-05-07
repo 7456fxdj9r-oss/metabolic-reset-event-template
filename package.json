@@ -13,6 +13,7 @@
     "astro": "astro"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.105.3",
     "astro": "^6.2.2",
     "qrcode": "^1.5.4"
   }

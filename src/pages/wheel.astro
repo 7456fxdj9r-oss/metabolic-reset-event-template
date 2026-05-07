@@ -1,0 +1,471 @@
+---
+import Base from '../layouts/Base.astro';
+---
+<Base title="Raffle wheel">
+  <main class="wheel-main" id="wheel-root">
+    <p class="loading">Loading the wheel…</p>
+  </main>
+</Base>
+
+<script>
+  // The wheel page is a single bundle in two modes:
+  //   /wheel?slug=…              — viewer (audience). Subscribes to the
+  //     Realtime channel raffle:<slug> and animates whenever the host
+  //     broadcasts a spin. No spin button.
+  //   /wheel?slug=…&key=…        — controller (host). Same as viewer plus
+  //     a Spin button that (a) calls manage-raffle action='draw' to mark
+  //     a real winner server-side, (b) broadcasts the winner_id + spin
+  //     duration so every connected phone animates in sync.
+  //
+  // Sync model: each client starts the local animation the moment it
+  // receives the broadcast. Network drift is ~50–200ms in a single room,
+  // imperceptible against a 7-second spin. v0.2 could send a server
+  // timestamp and have viewers fast-forward, but the simple version
+  // looks great in practice.
+  import { callFunction, getConfig } from '../lib/supabase.js';
+  import { createClient } from '@supabase/supabase-js';
+
+  type PoolEntry = { id: string; first_name: string };
+  type Winner = { id: string; first_name: string; prize_won: string | null };
+
+  const root = document.getElementById('wheel-root')!;
+  const base = import.meta.env.BASE_URL;
+  const params = new URLSearchParams(window.location.search);
+  const slug = params.get('slug');
+  const key = params.get('key');
+  const isHost = !!key;
+
+  function escapeHtml(s: unknown): string {
+    return String(s ?? '').replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
+    );
+  }
+
+  // Slice colors cycle through a small palette so adjacent slices contrast.
+  const SLICE_COLORS = ['#f39c12', '#e67e22', '#d35400', '#c0392b', '#8e44ad', '#2980b9', '#27ae60', '#16a085'];
+
+  const SPIN_DURATION_MS = 7000;
+  const EXTRA_FULL_TURNS = 6; // how many full rotations before settling
+
+  let pool: PoolEntry[] = [];
+  let winners: Winner[] = [];
+  let eventInfo: { name: string; accent_color: string | null; raffle_prize: string | null } = {
+    name: '',
+    accent_color: null,
+    raffle_prize: null,
+  };
+  let currentRotation = 0; // current canvas rotation in radians
+  let spinning = false;
+  let canvas: HTMLCanvasElement | null = null;
+  let ctx: CanvasRenderingContext2D | null = null;
+
+  if (!slug) {
+    root.innerHTML = '<p class="loading err">No event specified.</p>';
+  } else {
+    init();
+  }
+
+  async function init() {
+    try {
+      const data = await callFunction('get-raffle-pool', { slug });
+      pool = data.pool as PoolEntry[];
+      winners = data.winners as Winner[];
+      eventInfo = data.event;
+      const accent = eventInfo.accent_color || '#f39c12';
+      document.documentElement.style.setProperty('--accent', accent);
+      document.title = `Wheel — ${eventInfo.name}`;
+      render();
+      drawWheel();
+      subscribeRealtime();
+    } catch (err) {
+      root.innerHTML = `<p class="loading err">${escapeHtml((err as Error).message)}</p>`;
+    }
+  }
+
+  function render() {
+    const winnersBlock = winners.length
+      ? `<section class="winners-block">
+          <h2>Winners so far</h2>
+          <ul>${winners.map((w) =>
+            `<li>🏆 <strong>${escapeHtml(w.first_name)}</strong>${w.prize_won ? ` — ${escapeHtml(w.prize_won)}` : ''}</li>`
+          ).join('')}</ul>
+        </section>`
+      : '';
+    const spinControls = isHost
+      ? `<div class="controls">
+          <button id="spin-btn" type="button" ${pool.length === 0 ? 'disabled' : ''}>🎲 Spin the Wheel</button>
+          <p class="status" id="spin-status" role="status" aria-live="polite"></p>
+        </div>`
+      : '';
+    root.innerHTML = `
+      <header class="top">
+        <p class="eyebrow">Live Drawing</p>
+        <h1>${escapeHtml(eventInfo.name)}</h1>
+        ${eventInfo.raffle_prize
+          ? `<p class="prize">🎁 <strong>${escapeHtml(eventInfo.raffle_prize)}</strong></p>`
+          : ''}
+      </header>
+
+      <div class="wheel-stage">
+        <div class="pointer">▼</div>
+        <canvas id="wheel-canvas" width="600" height="600"></canvas>
+      </div>
+      <p class="entry-count">${pool.length} ${pool.length === 1 ? 'entry' : 'entries'} eligible</p>
+
+      ${spinControls}
+      ${winnersBlock}
+
+      <div class="footer-cta">
+        <a class="secondary" href="${base}event?slug=${encodeURIComponent(slug!)}">← Back to the event</a>
+      </div>
+    `;
+    canvas = document.getElementById('wheel-canvas') as HTMLCanvasElement;
+    ctx = canvas.getContext('2d');
+    if (isHost) {
+      document.getElementById('spin-btn')!.addEventListener('click', handleSpin);
+    }
+  }
+
+  function drawWheel() {
+    if (!canvas || !ctx) return;
+    const w = canvas.width;
+    const h = canvas.height;
+    const cx = w / 2;
+    const cy = h / 2;
+    const radius = Math.min(w, h) / 2 - 10;
+    ctx.clearRect(0, 0, w, h);
+
+    if (pool.length === 0) {
+      ctx.fillStyle = '#95a5a6';
+      ctx.font = '20px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('No eligible entries', cx, cy);
+      return;
+    }
+
+    const sliceAngle = (Math.PI * 2) / pool.length;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(currentRotation);
+    pool.forEach((entry, i) => {
+      const startAngle = i * sliceAngle - Math.PI / 2; // start at top
+      const endAngle = startAngle + sliceAngle;
+      ctx!.beginPath();
+      ctx!.moveTo(0, 0);
+      ctx!.arc(0, 0, radius, startAngle, endAngle);
+      ctx!.closePath();
+      ctx!.fillStyle = SLICE_COLORS[i % SLICE_COLORS.length];
+      ctx!.fill();
+      ctx!.strokeStyle = 'rgba(0,0,0,0.30)';
+      ctx!.lineWidth = 2;
+      ctx!.stroke();
+
+      // Label: rotated to slice middle, drawn radially outward.
+      ctx!.save();
+      ctx!.rotate(startAngle + sliceAngle / 2);
+      ctx!.textAlign = 'right';
+      ctx!.textBaseline = 'middle';
+      ctx!.fillStyle = '#1a252f';
+      const fontSize = pool.length > 24 ? 12 : pool.length > 14 ? 14 : 18;
+      ctx!.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
+      const label = entry.first_name.length > 14 ? entry.first_name.slice(0, 13) + '…' : entry.first_name;
+      ctx!.fillText(label, radius - 14, 0);
+      ctx!.restore();
+    });
+
+    // Center hub
+    ctx.beginPath();
+    ctx.arc(0, 0, 22, 0, Math.PI * 2);
+    ctx.fillStyle = '#1a252f';
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'var(--accent, #f39c12)';
+    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#f39c12';
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Spin to land winner index at the top (under the pointer).
+  // Cubic ease-out for the slow-down; same params on every client → same spin.
+  function animateSpin(winnerIndex: number, durationMs: number, onDone: () => void) {
+    if (!canvas || !ctx) return onDone();
+    if (pool.length === 0) return onDone();
+
+    spinning = true;
+    const sliceAngle = (Math.PI * 2) / pool.length;
+    // Where we want winner's center to end up: directly under pointer
+    // (which is at angle = -PI/2 in canvas coords). Solve for rotation.
+    const winnerCenter = winnerIndex * sliceAngle + sliceAngle / 2 - Math.PI / 2;
+    // Final rotation = some full turns + (-winnerCenter) so that point is at top.
+    const targetRotation = currentRotation
+      + EXTRA_FULL_TURNS * Math.PI * 2
+      + ((-winnerCenter - currentRotation) % (Math.PI * 2));
+    const startRotation = currentRotation;
+    const startTime = performance.now();
+
+    function frame(now: number) {
+      const elapsed = now - startTime;
+      const t = Math.min(1, elapsed / durationMs);
+      // Cubic ease-out: 1 - (1-t)^3
+      const eased = 1 - Math.pow(1 - t, 3);
+      currentRotation = startRotation + (targetRotation - startRotation) * eased;
+      drawWheel();
+      if (t < 1) {
+        requestAnimationFrame(frame);
+      } else {
+        currentRotation = targetRotation;
+        drawWheel();
+        spinning = false;
+        onDone();
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function showWinnerOverlay(winner: { first_name: string; prize_won?: string | null }) {
+    const overlay = document.createElement('div');
+    overlay.className = 'winner-overlay';
+    overlay.innerHTML = `
+      <div class="winner-card">
+        <p class="big">🎉 Winner!</p>
+        <p class="winner-name">${escapeHtml(winner.first_name)}</p>
+        ${winner.prize_won ? `<p class="winner-prize">${escapeHtml(winner.prize_won)}</p>` : ''}
+        <button type="button" class="winner-close">Close</button>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay.querySelector('.winner-close')!.addEventListener('click', () => overlay.remove());
+    setTimeout(() => overlay.remove(), 12000);
+  }
+
+  // Channel reused for both directions; viewers receive, hosts also send.
+  let channel: ReturnType<ReturnType<typeof createClient>['channel']> | null = null;
+  function subscribeRealtime() {
+    const cfg = getConfig();
+    if (!cfg.url || !cfg.anonKey) return;
+    const client = createClient(cfg.url, cfg.anonKey);
+    channel = client.channel(`raffle:${slug}`, { config: { broadcast: { self: false } } });
+    channel.on('broadcast', { event: 'spin' }, ({ payload }) => {
+      handleIncomingSpin(payload);
+    });
+    channel.subscribe();
+  }
+
+  async function handleSpin() {
+    if (spinning || !isHost) return;
+    const btn = document.getElementById('spin-btn') as HTMLButtonElement;
+    const status = document.getElementById('spin-status')!;
+    btn.disabled = true;
+    status.textContent = 'Drawing…';
+    try {
+      const res = await callFunction('manage-raffle', {
+        slug, edit_token: key, action: 'draw',
+      });
+      const winner = res.winner as { id: string; name: string; prize_won: string | null };
+      const winnerIndex = pool.findIndex((p) => p.id === winner.id);
+      if (winnerIndex < 0) {
+        // The winner isn't in the local pool (e.g., another host added an entry
+        // since we last loaded). Refresh and try to find them again.
+        const data = await callFunction('get-raffle-pool', { slug });
+        pool = data.pool as PoolEntry[];
+        drawWheel();
+        const i2 = pool.findIndex((p) => p.id === winner.id);
+        if (i2 < 0) {
+          status.textContent = 'Winner already removed from pool — wheel out of sync, reloading.';
+          location.reload();
+          return;
+        }
+        broadcastSpin(winner, i2);
+      } else {
+        broadcastSpin(winner, winnerIndex);
+      }
+      status.textContent = '';
+    } catch (err) {
+      status.textContent = (err as Error).message;
+      btn.disabled = false;
+    }
+  }
+
+  function broadcastSpin(
+    winner: { id: string; name: string; prize_won: string | null },
+    winnerIndex: number
+  ) {
+    const firstName = (winner.name || '').trim().split(/\s+/)[0] || 'Anon';
+    const payload = {
+      winner_id: winner.id,
+      winner_first_name: firstName,
+      winner_prize: winner.prize_won,
+      duration_ms: SPIN_DURATION_MS,
+    };
+    if (channel) {
+      channel.send({ type: 'broadcast', event: 'spin', payload });
+    }
+    // Run the animation locally too — broadcast self:false above doesn't
+    // round-trip our own message back, so we drive the local wheel here.
+    runSpin(payload, winnerIndex);
+  }
+
+  function handleIncomingSpin(payload: {
+    winner_id: string;
+    winner_first_name: string;
+    winner_prize: string | null;
+    duration_ms: number;
+  }) {
+    const winnerIndex = pool.findIndex((p) => p.id === payload.winner_id);
+    if (winnerIndex < 0) {
+      // Pool drift — refetch then animate based on the refreshed state.
+      callFunction('get-raffle-pool', { slug }).then((data) => {
+        pool = data.pool as PoolEntry[];
+        drawWheel();
+        const i2 = pool.findIndex((p) => p.id === payload.winner_id);
+        if (i2 >= 0) runSpin(payload, i2);
+      });
+      return;
+    }
+    runSpin(payload, winnerIndex);
+  }
+
+  function runSpin(
+    payload: { winner_first_name: string; winner_prize: string | null; duration_ms: number },
+    winnerIndex: number
+  ) {
+    animateSpin(winnerIndex, payload.duration_ms, async () => {
+      showWinnerOverlay({
+        first_name: payload.winner_first_name,
+        prize_won: payload.winner_prize,
+      });
+      // Refresh pool + winners after the spin so the next round renders
+      // with the winner removed and the winners-so-far list updated.
+      try {
+        const data = await callFunction('get-raffle-pool', { slug });
+        pool = data.pool as PoolEntry[];
+        winners = data.winners as Winner[];
+        currentRotation = 0;
+        render();
+        drawWheel();
+      } catch {
+        /* non-fatal */
+      }
+    });
+  }
+</script>
+
+<style is:global>
+  :root { --accent: #f39c12; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: #1a252f; color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  }
+  body { padding: 18px 12px 40px; line-height: 1.45; }
+  main.wheel-main { max-width: 640px; margin: 0 auto; text-align: center; }
+
+  .top .eyebrow {
+    font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; margin-bottom: 6px;
+  }
+  .top h1 { font-size: 24px; }
+  .top .prize {
+    margin-top: 8px;
+    font-size: 14px; color: #ecf0f1;
+  }
+  .top .prize strong { color: var(--accent); }
+
+  .wheel-stage {
+    position: relative;
+    margin: 16px auto 8px;
+    width: 100%;
+    max-width: 460px;
+  }
+  .wheel-stage canvas {
+    width: 100%; height: auto; display: block;
+    background: rgba(0,0,0,0.10);
+    border-radius: 50%;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+  }
+  .wheel-stage .pointer {
+    position: absolute;
+    top: -4px; left: 50%; transform: translateX(-50%);
+    color: var(--accent); font-size: 30px;
+    line-height: 1; pointer-events: none;
+    text-shadow: 0 2px 6px rgba(0,0,0,0.6);
+    z-index: 2;
+  }
+  p.entry-count { font-size: 13px; color: #95a5a6; margin: 4px 0 14px; }
+
+  .controls { margin: 14px 0 18px; }
+  .controls button {
+    padding: 14px 28px; font-size: 17px; font-weight: 800;
+    background: var(--accent); color: #1a252f; border: none;
+    border-radius: 10px; cursor: pointer;
+  }
+  .controls button:disabled { opacity: 0.45; cursor: not-allowed; }
+  .controls .status { font-size: 13px; color: #95a5a6; margin-top: 6px; min-height: 18px; }
+
+  .winners-block {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 14px 16px;
+    text-align: left;
+    margin-top: 16px;
+  }
+  .winners-block h2 {
+    font-size: 12px; color: var(--accent);
+    text-transform: uppercase; letter-spacing: 1.5px;
+    margin-bottom: 8px;
+  }
+  .winners-block ul { list-style: none; padding: 0; }
+  .winners-block li {
+    font-size: 14px; color: #ecf0f1;
+    padding: 4px 0;
+  }
+
+  .footer-cta { margin-top: 22px; }
+  .footer-cta a {
+    display: inline-block; padding: 10px 18px;
+    background: transparent; color: #ecf0f1;
+    border: 1px solid rgba(255,255,255,0.20);
+    border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 13px;
+  }
+
+  .winner-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.75);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100;
+    backdrop-filter: blur(6px);
+    animation: fadein 0.25s ease-out;
+  }
+  .winner-card {
+    background: #1a252f;
+    border: 2px solid var(--accent);
+    border-radius: 16px;
+    padding: 32px 28px;
+    text-align: center;
+    max-width: 90vw;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  }
+  .winner-card .big { font-size: 22px; color: var(--accent); font-weight: 800; margin-bottom: 12px; }
+  .winner-card .winner-name {
+    font-size: 42px; color: #fff; font-weight: 800;
+    margin: 8px 0; letter-spacing: -1px;
+  }
+  .winner-card .winner-prize {
+    font-size: 16px; color: #ecf0f1; margin-bottom: 18px;
+  }
+  .winner-card button {
+    margin-top: 8px;
+    padding: 10px 22px;
+    background: var(--accent); color: #1a252f;
+    border: none; border-radius: 8px;
+    font-weight: 700; font-size: 14px; cursor: pointer;
+  }
+  @keyframes fadein {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  .loading { color: #95a5a6; padding: 60px 0; font-size: 14px; }
+  .loading.err { color: #e74c3c; }
+</style>
