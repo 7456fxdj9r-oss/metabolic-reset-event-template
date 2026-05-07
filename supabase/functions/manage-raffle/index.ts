@@ -56,7 +56,12 @@ Deno.serve(async (req) => {
   const { data: ev } = await supabase
     .from('events').select('id, edit_token, raffle_prize').eq('slug', slug).maybeSingle();
   if (!ev) return errResp(404, 'event not found');
-  if (!timingSafeEqual(ev.edit_token, edit_token)) return errResp(403, 'invalid edit token');
+  if (!timingSafeEqual(ev.edit_token, edit_token)) {
+    const { data: cohost } = await supabase
+      .from('hosts').select('id')
+      .eq('event_id', ev.id).eq('host_token', edit_token).maybeSingle();
+    if (!cohost) return errResp(403, 'invalid edit token');
+  }
 
   if (action === 'list') {
     const { data: entries, error } = await supabase

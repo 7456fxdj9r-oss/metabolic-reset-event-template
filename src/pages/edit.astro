@@ -477,6 +477,18 @@ import Base from '../layouts/Base.astro';
           </section>
 
           <section class="card">
+            <h2>Co-hosts</h2>
+            <p class="hosts-blurb">
+              Add other people who should be able to edit this event. Each co-host gets
+              their own private edit URL. Only you (the original host) can add or remove.
+            </p>
+            <div id="hosts-add-host" class="hosts-add-section"></div>
+            <ul id="hosts-list" class="hosts-list">
+              <li class="hosts-loading">Loading co-hosts…</li>
+            </ul>
+          </section>
+
+          <section class="card">
             <h2>Share &amp; save your links</h2>
             <p class="link-blurb">
               Bookmark the edit URL — it's the only way back into this admin page.
@@ -1140,6 +1152,147 @@ import Base from '../layouts/Base.astro';
           }
         });
 
+        // ---------- Co-hosts ----------
+        type Host = {
+          id: string;
+          name: string | null;
+          email: string | null;
+          host_token: string | null; // null when the viewer isn't the master
+          created_at: string;
+        };
+        const hostsList = document.getElementById('hosts-list')!;
+        const hostsAddSection = document.getElementById('hosts-add-host')!;
+        let isMaster = false;
+
+        function hostUrl(token: string): string {
+          const params = new URLSearchParams({ slug: slug!, key: token });
+          return `${window.location.origin}${base}edit?${params.toString()}`;
+        }
+
+        function renderHosts(hosts: Host[]) {
+          if (isMaster) {
+            hostsAddSection.innerHTML = `
+              <form id="add-host-form" class="add-host-form" novalidate>
+                <div class="grid-2">
+                  <label>
+                    Co-host name
+                    <input name="name" maxlength="120" placeholder="Coach Sam" />
+                  </label>
+                  <label>
+                    Email <span class="opt">(optional)</span>
+                    <input type="email" name="email" />
+                  </label>
+                </div>
+                <div class="row">
+                  <button type="submit">+ Generate co-host link</button>
+                  <span id="add-host-status" role="status" aria-live="polite"></span>
+                </div>
+              </form>`;
+            const addForm = document.getElementById('add-host-form') as HTMLFormElement;
+            addForm.addEventListener('submit', handleAddHost);
+          } else {
+            hostsAddSection.innerHTML =
+              '<p class="hosts-blurb" style="font-style:italic;">You are a co-host on this event. Only the original host can add or remove other co-hosts.</p>';
+          }
+
+          if (hosts.length === 0) {
+            hostsList.innerHTML = '<li class="hosts-empty">No co-hosts yet.</li>';
+            return;
+          }
+          hostsList.innerHTML = hosts.map((h) => {
+            const created = new Date(h.created_at);
+            const createdTxt = isNaN(created.getTime())
+              ? h.created_at
+              : created.toLocaleDateString();
+            return `
+              <li class="host-item" data-id="${h.id}">
+                <div class="host-info">
+                  <strong>${escapeHtml(h.name || 'Unnamed co-host')}</strong>
+                  ${h.email ? `<span class="host-meta">${escapeHtml(h.email)}</span>` : ''}
+                  <span class="host-meta">added ${escapeHtml(createdTxt)}</span>
+                </div>
+                ${h.host_token
+                  ? `<div class="host-link">
+                      <input type="text" readonly value="${escapeHtml(hostUrl(h.host_token))}" />
+                      <button type="button" class="copy-host" data-url="${escapeHtml(hostUrl(h.host_token))}">Copy</button>
+                    </div>`
+                  : ''}
+                ${isMaster
+                  ? `<button type="button" class="remove-host" data-id="${h.id}" data-name="${escapeHtml(h.name || 'this co-host')}">Remove</button>`
+                  : ''}
+              </li>`;
+          }).join('');
+        }
+
+        async function loadHosts() {
+          try {
+            const res = await callFunction('manage-hosts', {
+              slug,
+              edit_token: key,
+              action: 'list',
+            });
+            isMaster = !!res.you_are_master;
+            renderHosts(res.hosts as Host[]);
+          } catch (err) {
+            hostsList.innerHTML =
+              `<li class="hosts-empty err">Could not load co-hosts: ${escapeHtml((err as Error).message)}</li>`;
+          }
+        }
+
+        async function handleAddHost(submitEv: Event) {
+          submitEv.preventDefault();
+          const formEl = submitEv.target as HTMLFormElement;
+          const fd = new FormData(formEl);
+          const statusEl = document.getElementById('add-host-status')!;
+          const submitBtn = formEl.querySelector('button[type=submit]') as HTMLButtonElement;
+          submitBtn.disabled = true;
+          statusEl.textContent = 'Adding…';
+          statusEl.className = '';
+          try {
+            await callFunction('manage-hosts', {
+              slug,
+              edit_token: key,
+              action: 'add',
+              name: fd.get('name') || null,
+              email: fd.get('email') || null,
+            });
+            statusEl.textContent = 'Added ✓';
+            statusEl.className = 'ok';
+            formEl.reset();
+            await loadHosts();
+          } catch (err) {
+            statusEl.textContent = (err as Error).message;
+            statusEl.className = 'err';
+          } finally {
+            submitBtn.disabled = false;
+          }
+        }
+
+        hostsList.addEventListener('click', async (ev) => {
+          const target = ev.target as HTMLElement;
+          if (target.classList.contains('remove-host')) {
+            const id = target.getAttribute('data-id')!;
+            const name = target.getAttribute('data-name')!;
+            if (!confirm(`Remove ${name}? Their edit link will stop working immediately.`)) return;
+            try {
+              await callFunction('manage-hosts', {
+                slug, edit_token: key, action: 'remove', host_id: id,
+              });
+              await loadHosts();
+            } catch (err) {
+              alert('Could not remove: ' + (err as Error).message);
+            }
+          } else if (target.classList.contains('copy-host')) {
+            const url = target.getAttribute('data-url')!;
+            await navigator.clipboard.writeText(url);
+            const orig = target.textContent;
+            target.textContent = 'Copied!';
+            setTimeout(() => (target.textContent = orig), 1200);
+          }
+        });
+
+        loadHosts();
+
         // ---------- Share & save links section ----------
         const origin = window.location.origin;
         const publicUrl = `${origin}${base}event?slug=${encodeURIComponent(slug)}`;
@@ -1271,13 +1424,13 @@ import Base from '../layouts/Base.astro';
     border: 1px solid rgba(255,255,255,0.2); font-weight: 600;
   }
 
-  #save-status, .t-status, #organizer-save-status, #raffle-save-status {
+  #save-status, .t-status, #organizer-save-status, #raffle-save-status, #add-host-status {
     font-size: 13px; color: #95a5a6;
   }
-  #save-status.ok, .t-status.ok, #organizer-save-status.ok, #raffle-save-status.ok {
+  #save-status.ok, .t-status.ok, #organizer-save-status.ok, #raffle-save-status.ok, #add-host-status.ok {
     color: #2ecc71; font-weight: 700;
   }
-  #save-status.err, .t-status.err, #organizer-save-status.err, #raffle-save-status.err {
+  #save-status.err, .t-status.err, #organizer-save-status.err, #raffle-save-status.err, #add-host-status.err {
     color: #e74c3c; font-weight: 600;
   }
   h3.social-h {
@@ -1542,6 +1695,44 @@ import Base from '../layouts/Base.astro';
   }
   .entry-drawn {
     font-size: 13px; color: #2ecc71; font-weight: 700;
+  }
+
+  /* Co-hosts section */
+  .hosts-blurb { font-size: 13px; color: #95a5a6; line-height: 1.5; margin-bottom: 14px; }
+  .hosts-add-section { margin-bottom: 14px; }
+  form.add-host-form {
+    background: rgba(0,0,0,0.2);
+    border: 1px solid rgba(243,156,18,0.4);
+    border-radius: 10px; padding: 12px;
+  }
+  ul.hosts-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+  .hosts-loading, .hosts-empty {
+    color: #95a5a6; font-size: 13px; font-style: italic; padding: 8px 0;
+  }
+  .hosts-empty.err { color: #e74c3c; font-style: normal; }
+  .host-item {
+    background: rgba(0,0,0,0.2);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px; padding: 10px 12px;
+    display: grid; gap: 8px;
+  }
+  .host-info { display: grid; gap: 2px; }
+  .host-info strong { font-size: 14px; color: #fff; }
+  .host-meta { font-size: 11px; color: #95a5a6; }
+  .host-link { display: flex; gap: 6px; }
+  .host-link input {
+    flex: 1; min-width: 0;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #fff; padding: 8px 10px; border-radius: 6px;
+    font-size: 11px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  button.copy-host { padding: 8px 12px; font-size: 12px; }
+  button.remove-host {
+    padding: 6px 12px; font-size: 12px; font-weight: 700;
+    background: rgba(231,76,60,0.18); color: #e74c3c;
+    align-self: start; justify-self: start;
   }
 
   /* Share & save links section */
