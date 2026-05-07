@@ -1,0 +1,126 @@
+---
+import Base from '../layouts/Base.astro';
+---
+<Base title="Speakers">
+  <main class="speakers" id="speakers-root">
+    <p class="loading">Loading…</p>
+  </main>
+</Base>
+
+<script>
+  import { fetchEventBySlug, fetchSpeakers } from '../lib/supabase.js';
+
+  const root = document.getElementById('speakers-root')!;
+  const base = import.meta.env.BASE_URL;
+  const params = new URLSearchParams(window.location.search);
+  const slug = params.get('slug');
+
+  function escapeHtml(s: unknown): string {
+    return String(s ?? '').replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
+    );
+  }
+
+  if (!slug) {
+    root.innerHTML = '<p class="loading err">No event specified.</p>';
+  } else {
+    (async () => {
+      try {
+        const event = await fetchEventBySlug(slug);
+        if (!event) {
+          root.innerHTML = '<p class="loading err">Event not found.</p>';
+          return;
+        }
+        document.title = `Speakers — ${event.name}`;
+        const accent = event.accent_color || '#f39c12';
+        document.documentElement.style.setProperty('--accent', accent);
+
+        const speakers = await fetchSpeakers(event.id);
+
+        const cards = speakers.map((s: { name: string; bio: string | null; photo_url: string | null }) => `
+          <article class="speaker">
+            ${s.photo_url
+              ? `<img class="speaker-photo" src="${escapeHtml(s.photo_url)}" alt="${escapeHtml(s.name)}" />`
+              : '<div class="speaker-photo placeholder"></div>'}
+            <div class="speaker-body">
+              <h2>${escapeHtml(s.name)}</h2>
+              ${s.bio ? `<p>${escapeHtml(s.bio)}</p>` : ''}
+            </div>
+          </article>
+        `).join('');
+
+        root.innerHTML = `
+          <header class="top">
+            <p class="eyebrow">Speakers</p>
+            <h1>${escapeHtml(event.name)}</h1>
+          </header>
+          ${speakers.length
+            ? `<section class="speaker-list">${cards}</section>`
+            : '<p class="empty">No speaker bios added yet.</p>'}
+          <div class="footer-cta">
+            <a class="secondary" href="${base}event?slug=${encodeURIComponent(slug)}">← Back to the event</a>
+          </div>
+        `;
+      } catch (err) {
+        root.innerHTML = `<p class="loading err">${escapeHtml((err as Error).message)}</p>`;
+      }
+    })();
+  }
+</script>
+
+<style is:global>
+  :root { --accent: #f39c12; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: #1a252f; color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  }
+  body { padding: 26px 14px 50px; line-height: 1.5; }
+  main.speakers { max-width: 540px; margin: 0 auto; }
+
+  .top { text-align: center; margin-bottom: 22px; }
+  .top .eyebrow {
+    font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; margin-bottom: 6px;
+  }
+  .top h1 { font-size: 28px; line-height: 1.2; }
+
+  .speaker-list { display: grid; gap: 16px; }
+  .speaker {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 18px;
+    display: grid;
+    grid-template-columns: 90px 1fr;
+    gap: 14px;
+    align-items: start;
+  }
+  .speaker-photo {
+    width: 90px; height: 90px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: rgba(0,0,0,0.4);
+  }
+  .speaker-photo.placeholder { border: 1px dashed rgba(255,255,255,0.14); }
+  .speaker-body h2 {
+    font-size: 17px; color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .speaker-body p {
+    font-size: 14px; color: #ecf0f1; line-height: 1.55;
+    white-space: pre-wrap;
+  }
+
+  .empty { color: #95a5a6; font-style: italic; text-align: center; padding: 30px 0; }
+  .loading { color: #95a5a6; text-align: center; padding: 40px 0; font-size: 14px; }
+  .loading.err { color: #e74c3c; }
+
+  .footer-cta { display: grid; gap: 10px; margin-top: 22px; }
+  .footer-cta a {
+    display: block; text-align: center; padding: 12px;
+    background: transparent; color: #ecf0f1;
+    border: 1px solid rgba(255,255,255,0.2); border-radius: 8px;
+    text-decoration: none; font-weight: 600; font-size: 14px;
+  }
+</style>

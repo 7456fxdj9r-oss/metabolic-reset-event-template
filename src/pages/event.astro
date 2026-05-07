@@ -8,7 +8,8 @@ import Base from '../layouts/Base.astro';
 </Base>
 
 <script>
-  import { fetchEventBySlug, fetchTransformations } from '../lib/supabase.js';
+  import { fetchEventBySlug, fetchTransformations, fetchSpeakers } from '../lib/supabase.js';
+  import QRCode from 'qrcode';
 
   const root = document.getElementById('event-root')!;
   const base = import.meta.env.BASE_URL;
@@ -33,37 +34,41 @@ import Base from '../layouts/Base.astro';
         }
         document.title = event.name;
         const accent = event.accent_color || '#f39c12';
-        root.style.setProperty('--accent', accent);
+        document.documentElement.style.setProperty('--accent', accent);
 
-        const transformations = await fetchTransformations(event.id);
+        const [transformations, speakers] = await Promise.all([
+          fetchTransformations(event.id),
+          fetchSpeakers(event.id),
+        ]);
 
-        const cards = transformations.map((t: any) => {
-          const tHref = `${base}t?slug=${encodeURIComponent(slug)}&t=${encodeURIComponent(t.slug)}`;
-          const photo = t.before_photo_url || t.after_photo_url || '';
-          return `
-            <a class="card" href="${tHref}">
-              ${photo ? `<img src="${escapeHtml(photo)}" alt="" />` : '<div class="card-placeholder"></div>'}
-              <div class="card-body">
-                <h3>${escapeHtml(t.name)}</h3>
-                ${t.headline_lb_loss != null
-                  ? `<p class="stat">${escapeHtml(t.headline_lb_loss)} lb lost</p>`
-                  : ''}
-              </div>
-            </a>`;
-        }).join('');
-
-        const scienceCta = `<a class="cta-btn science" href="${base}science?slug=${encodeURIComponent(slug)}">The Science →</a>`;
         // Auto-close: even if raffle_status is 'open', hide the CTA after
-        // the event date (compared as YYYY-MM-DD, today vs event_date).
+        // the event date.
         const today = new Date().toISOString().slice(0, 10);
         const raffleAutoClosed = event.event_date && today > event.event_date;
         const raffleOpen = event.raffle_status === 'open' && !raffleAutoClosed;
-        const raffleCta = raffleOpen
-          ? `<a class="cta-btn raffle" href="${base}raffle?slug=${encodeURIComponent(slug)}">🎟️ Enter the Raffle${event.raffle_prize ? ` — ${escapeHtml(event.raffle_prize)}` : ''}</a>`
-          : '';
 
-        // Organizer-contact panel: each row only shows if its field has a
-        // value, whole panel hides if everything is empty.
+        // Button stack mirrors the Spokane reference index layout: each
+        // entity becomes a single full-width button, not a card.
+        const buttons: string[] = [];
+        if (raffleOpen) {
+          buttons.push(
+            `<a class="event-btn raffle" href="${base}raffle?slug=${encodeURIComponent(slug)}">🎟️ Enter the Raffle${event.raffle_prize ? ` — ${escapeHtml(event.raffle_prize)}` : ''}</a>`
+          );
+        }
+        for (const t of transformations) {
+          const tHref = `${base}t?slug=${encodeURIComponent(slug)}&t=${encodeURIComponent(t.slug)}`;
+          buttons.push(`<a class="event-btn story" href="${tHref}">📊 ${escapeHtml(t.name)}'s Story</a>`);
+        }
+        if (speakers.length > 0) {
+          buttons.push(
+            `<a class="event-btn speakers" href="${base}speakers?slug=${encodeURIComponent(slug)}">🎤 Speaker Bios</a>`
+          );
+        }
+        buttons.push(
+          `<a class="event-btn science" href="${base}science?slug=${encodeURIComponent(slug)}">🧠 Why It Works (the science)</a>`
+        );
+
+        // Organizer panel: only renders when at least one field has a value.
         const hasContact = event.organizer_name || event.organizer_email
           || event.organizer_phone || event.organizer_website
           || event.organizer_bio;
@@ -85,15 +90,21 @@ import Base from '../layouts/Base.astro';
             <h1>${escapeHtml(event.name)}</h1>
             ${event.host_line ? `<p class="host">${escapeHtml(event.host_line)}</p>` : ''}
           </header>
-          <section class="cards">
-            ${cards || '<p class="empty">No transformations added yet.</p>'}
-          </section>
-          <div class="cta-stack">
-            ${raffleCta}
-            ${scienceCta}
+          <div class="qr-block">
+            <canvas id="event-qr"></canvas>
+            <p class="qr-caption">Scan to share this with a friend</p>
+          </div>
+          <div class="event-buttons">
+            ${buttons.join('')}
           </div>
           ${organizerPanel}
         `;
+
+        const canvas = document.getElementById('event-qr') as HTMLCanvasElement;
+        QRCode.toCanvas(canvas, window.location.href, {
+          width: 200, margin: 1,
+          color: { dark: '#ffffff', light: '#1a252f' },
+        }).catch(() => {});
       } catch (err) {
         root.innerHTML = `<p class="loading err">${escapeHtml((err as Error).message)}</p>`;
       }
@@ -110,49 +121,43 @@ import Base from '../layouts/Base.astro';
   }
   body { padding: 26px 14px 50px; line-height: 1.45; }
   main.event { max-width: 540px; margin: 0 auto; }
-  .top { text-align: center; margin-bottom: 22px; }
-  .top h1 { font-size: 28px; }
-  .top .host { color: #bdc3c7; font-style: italic; margin-top: 4px; font-size: 14px; }
 
-  .cards { display: grid; gap: 12px; }
-  .card {
-    display: grid; grid-template-columns: 110px 1fr; gap: 12px;
+  .top { text-align: center; margin-bottom: 18px; }
+  .top h1 { font-size: 28px; color: var(--accent); }
+  .top .host { color: #bdc3c7; font-style: italic; margin-top: 6px; font-size: 14px; }
+
+  .qr-block { text-align: center; margin: 14px 0 22px; }
+  .qr-block canvas {
+    background: #1a252f;
+    padding: 6px;
+    border-radius: 8px;
+  }
+  .qr-block .qr-caption {
+    margin-top: 4px;
+    font-size: 12px; color: #95a5a6; font-style: italic;
+  }
+
+  .event-buttons { display: grid; gap: 10px; }
+  a.event-btn {
+    display: block; padding: 16px 14px;
+    text-align: center; text-decoration: none;
+    border-radius: 10px;
+    font-weight: 700; font-size: 15px;
     background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 12px; overflow: hidden; text-decoration: none; color: inherit;
+    border: 1px solid rgba(255,255,255,0.10);
+    color: #ecf0f1;
   }
-  .card img, .card-placeholder {
-    width: 110px; height: 130px; object-fit: cover; background: #000;
+  a.event-btn:hover { background: rgba(255,255,255,0.08); }
+  a.event-btn.raffle {
+    background: var(--accent); color: #1a252f;
+    border-color: var(--accent);
+    font-weight: 800;
   }
-  .card-body { padding: 12px 12px 12px 0; align-self: center; }
-  .card-body h3 { font-size: 16px; color: #ecf0f1; }
-  .card-body .stat {
-    font-size: 12px; font-weight: 700; color: var(--accent);
-    margin-top: 4px; letter-spacing: 0.5px;
-  }
+  a.event-btn.raffle:hover { filter: brightness(1.07); background: var(--accent); }
+
   .empty { color: #95a5a6; font-style: italic; text-align: center; padding: 30px 0; }
   .loading { color: #95a5a6; text-align: center; padding: 40px 0; font-size: 14px; }
   .loading.err { color: #e74c3c; }
-
-  .cta-stack { display: grid; gap: 10px; margin-top: 22px; }
-  a.cta-btn {
-    display: block; padding: 14px;
-    text-align: center; text-decoration: none;
-    border-radius: 10px;
-    font-weight: 800; font-size: 14px;
-    letter-spacing: 1.5px; text-transform: uppercase;
-  }
-  a.cta-btn.raffle {
-    background: var(--accent); color: #1a252f;
-    border: 1px solid var(--accent);
-  }
-  a.cta-btn.raffle:hover { filter: brightness(1.07); }
-  a.cta-btn.science {
-    background: rgba(243,156,18,0.10);
-    border: 1px solid var(--accent);
-    color: var(--accent);
-  }
-  a.cta-btn.science:hover { background: rgba(243,156,18,0.18); }
 
   section.organizer {
     margin-top: 28px;
@@ -174,7 +179,7 @@ import Base from '../layouts/Base.astro';
     font-size: 13px; color: #bdc3c7; line-height: 1.55;
     margin-bottom: 14px;
   }
-  section.organizer .org-contact, section.organizer .org-social {
+  section.organizer .org-contact {
     display: flex; flex-wrap: wrap; gap: 6px;
     margin-top: 6px;
   }
