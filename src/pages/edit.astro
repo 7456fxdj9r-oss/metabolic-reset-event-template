@@ -10,6 +10,39 @@ import Base from '../layouts/Base.astro';
 <script>
   import { fetchEventBySlug, fetchTransformations, callFunction } from '../lib/supabase.js';
 
+  // Inline canvas-based image compressor. Reads the file, scales the longest
+  // edge to maxDim, encodes JPEG at the given quality. Returns a Blob.
+  // Avoids the browser-image-compression npm package and its web-worker setup.
+  async function compressImage(file: File, maxDim = 1200, quality = 0.82): Promise<Blob> {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result as string);
+      r.onerror = () => reject(new Error('Could not read file'));
+      r.readAsDataURL(file);
+    });
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new Error('Could not decode image'));
+      i.src = dataUrl;
+    });
+    const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+    const w = Math.round(img.width * scale);
+    const h = Math.round(img.height * scale);
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(img, 0, 0, w, h);
+    return new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (blob) => (blob ? resolve(blob) : reject(new Error('Compression failed'))),
+        'image/jpeg',
+        quality
+      );
+    });
+  }
+
   type Transformation = {
     id: string;
     slug: string;
@@ -38,14 +71,34 @@ import Base from '../layouts/Base.astro';
   }
 
   function fmtDate(s: string | null): string {
-    if (!s) return '—';
-    return s; // ISO date yyyy-mm-dd is already short
+    return s || '—';
+  }
+
+  function photoSlotHtml(slot: 'before' | 'after', label: string, url: string | null): string {
+    return `
+      <div class="photo-slot" data-slot="${slot}">
+        <span class="slot-label">${label}</span>
+        <div class="photo-preview">
+          ${url ? `<img src="${escapeHtml(url)}" alt="" />` : '<div class="empty">No photo</div>'}
+        </div>
+        <label class="upload-btn">
+          <input type="file" accept="image/jpeg,image/png,image/webp" data-slot="${slot}" hidden />
+          <span class="upload-label">${url ? 'Replace photo' : 'Upload photo'}</span>
+        </label>
+        <span class="upload-status" data-slot="${slot}"></span>
+      </div>
+    `;
   }
 
   function transformationFormHtml(t?: Transformation): string {
     const v = t || ({} as Partial<Transformation>);
     const mode = t ? 'edit' : 'add';
     const idAttr = t ? `data-id="${t.id}"` : '';
+    const photos = t ? `
+        <div class="photos-grid">
+          ${photoSlotHtml('before', 'Before photo', t.before_photo_url)}
+          ${photoSlotHtml('after', 'After photo', t.after_photo_url)}
+        </div>` : '';
     return `
       <form class="t-form" data-mode="${mode}" ${idAttr} novalidate>
         <h3>${t ? 'Edit transformation' : 'New transformation'}</h3>
@@ -81,9 +134,10 @@ import Base from '../layouts/Base.astro';
           Takeaway <span class="opt">(short paragraph shown beneath the chart)</span>
           <textarea name="takeaway_text" rows="3" placeholder="Most weight-loss attempts melt fat and muscle…">${escapeHtml(v.takeaway_text || '')}</textarea>
         </label>
+        ${photos}
         <div class="row">
           <button type="submit">${t ? 'Save changes' : 'Create'}</button>
-          <button type="button" class="cancel">Cancel</button>
+          <button type="button" class="cancel">${t ? 'Done' : 'Cancel'}</button>
           <span class="t-status" role="status" aria-live="polite"></span>
         </div>
       </form>
@@ -95,8 +149,10 @@ import Base from '../layouts/Base.astro';
     if (t.headline_lb_loss != null) stats.push(`−${t.headline_lb_loss} lb`);
     if (t.headline_lean_kept_pct != null) stats.push(`${t.headline_lean_kept_pct}% lean`);
     if (t.headline_bf_delta_pts != null) stats.push(`−${t.headline_bf_delta_pts} BF`);
+    const thumb = t.before_photo_url || t.after_photo_url;
     return `
       <li class="t-row" data-id="${t.id}">
+        ${thumb ? `<img class="t-thumb" src="${escapeHtml(thumb)}" alt="" />` : '<div class="t-thumb empty"></div>'}
         <div class="t-info">
           <strong>${escapeHtml(t.name)}</strong>
           <span class="t-meta">${fmtDate(t.before_date)} → ${fmtDate(t.after_date)}</span>
@@ -220,7 +276,13 @@ import Base from '../layouts/Base.astro';
           const newForm = formHost.querySelector('form.t-form') as HTMLFormElement;
           newForm.addEventListener('submit', (e) => handleSubmit(e, t));
           newForm.querySelector('button.cancel')!.addEventListener('click', hideForm);
-          (newForm.querySelector('input[name=name]') as HTMLInputElement).focus();
+          if (t) {
+            newForm.querySelectorAll('input[type=file][data-slot]').forEach((input) => {
+              input.addEventListener('change', (e) => handlePhotoUpload(e as Event, t));
+            });
+          } else {
+            (newForm.querySelector('input[name=name]') as HTMLInputElement).focus();
+          }
         }
 
         function hideForm() {
@@ -263,12 +325,85 @@ import Base from '../layouts/Base.astro';
               transformations = [...transformations, saved];
             }
             renderList();
-            hideForm();
+
+            if (editing) {
+              tStatus.textContent = 'Saved ✓';
+              tStatus.className = 't-status ok';
+              submit.disabled = false;
+            } else {
+              // Re-show the form in edit mode so the user can immediately add photos.
+              showForm(saved);
+              const reopenStatus = formHost.querySelector('.t-status') as HTMLSpanElement;
+              if (reopenStatus) {
+                reopenStatus.textContent = 'Created ✓ — add photos below';
+                reopenStatus.className = 't-status ok';
+              }
+            }
           } catch (err) {
             const msg = (err as Error).message;
             tStatus.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
             tStatus.className = 't-status err';
             submit.disabled = false;
+          }
+        }
+
+        async function handlePhotoUpload(changeEv: Event, t: Transformation) {
+          const input = changeEv.target as HTMLInputElement;
+          const file = input.files?.[0];
+          if (!file) return;
+          const slot = (input.dataset.slot as 'before' | 'after');
+          const slotEl = input.closest('.photo-slot') as HTMLElement;
+          const statusEl = slotEl.querySelector('.upload-status') as HTMLElement;
+          const previewEl = slotEl.querySelector('.photo-preview') as HTMLElement;
+          const labelEl = slotEl.querySelector('.upload-label') as HTMLElement;
+
+          statusEl.textContent = 'Compressing…';
+          statusEl.className = 'upload-status';
+
+          try {
+            const compressed = await compressImage(file, 1200, 0.82);
+
+            statusEl.textContent = 'Uploading…';
+
+            const data_b64 = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => {
+                const result = reader.result as string;
+                resolve(result.split(',')[1] || result);
+              };
+              reader.onerror = () => reject(new Error('Failed to read file'));
+              reader.readAsDataURL(compressed);
+            });
+
+            // compressImage always emits JPEG, so the extension is fixed.
+            const res = await callFunction('upload-photo', {
+              slug,
+              edit_token: key,
+              transformation_id: t.id,
+              slot,
+              filename: 'photo.jpg',
+              data: data_b64,
+            });
+
+            const url = res.url as string;
+            transformations = transformations.map((x) =>
+              x.id === t.id
+                ? { ...x, [slot === 'before' ? 'before_photo_url' : 'after_photo_url']: url }
+                : x
+            );
+            if (slot === 'before') (t as Transformation).before_photo_url = url;
+            else (t as Transformation).after_photo_url = url;
+
+            previewEl.innerHTML = `<img src="${escapeHtml(url)}" alt="" />`;
+            labelEl.textContent = 'Replace photo';
+            statusEl.textContent = 'Uploaded ✓';
+            statusEl.className = 'upload-status ok';
+            input.value = '';
+            renderList();
+          } catch (err) {
+            const msg = (err as Error).message;
+            statusEl.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+            statusEl.className = 'upload-status err';
           }
         }
 
@@ -312,7 +447,10 @@ import Base from '../layouts/Base.astro';
   }
 </script>
 
-<style>
+<style is:global>
+  /* Most of this page is rendered into root.innerHTML at runtime, so the
+     stylesheet has to be global — Astro's default scoping would hash the
+     class selectors and miss the dynamically inserted DOM. */
   * { box-sizing: border-box; }
   html, body {
     background: #1a252f; color: #fff;
@@ -395,14 +533,54 @@ import Base from '../layouts/Base.astro';
   .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
   @media (max-width: 460px) { .grid-3 { grid-template-columns: 1fr; } }
 
+  /* Photo slots */
+  .photos-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    margin-top: 4px;
+  }
+  .photo-slot { display: grid; gap: 6px; }
+  .slot-label {
+    font-size: 11px; color: #95a5a6;
+    text-transform: uppercase; letter-spacing: 1px; font-weight: 600;
+  }
+  .photo-preview {
+    aspect-ratio: 3/4;
+    background: rgba(0,0,0,0.3);
+    border: 1px dashed rgba(255,255,255,0.15);
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .photo-preview img { width: 100%; height: 100%; object-fit: cover; }
+  .photo-preview .empty { color: #555; font-size: 11px; }
+  .upload-btn {
+    display: block; padding: 8px 12px; text-align: center;
+    background: rgba(255,255,255,0.08); color: #ecf0f1;
+    border-radius: 6px; cursor: pointer;
+    font-size: 12px; font-weight: 700;
+  }
+  .upload-btn:hover { background: rgba(255,255,255,0.14); }
+  .upload-status {
+    font-size: 11px; color: #95a5a6;
+    min-height: 14px;
+  }
+  .upload-status.ok { color: #2ecc71; font-weight: 700; }
+  .upload-status.err { color: #e74c3c; font-weight: 600; }
+
+  /* Transformation list */
   ul.t-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
   .t-row {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 10px; padding: 10px 12px;
+    display: grid; grid-template-columns: 56px 1fr auto;
+    align-items: center; gap: 10px; padding: 10px 12px;
     background: rgba(0,0,0,0.2);
     border: 1px solid rgba(255,255,255,0.08);
     border-radius: 8px;
   }
+  .t-thumb {
+    width: 56px; height: 72px; object-fit: cover;
+    border-radius: 4px; background: rgba(0,0,0,0.4);
+  }
+  .t-thumb.empty { border: 1px dashed rgba(255,255,255,0.12); }
   .t-info { display: grid; gap: 2px; min-width: 0; }
   .t-info strong { font-size: 14px; color: #fff; }
   .t-meta { font-size: 11px; color: #95a5a6; }
