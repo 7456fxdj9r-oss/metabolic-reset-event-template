@@ -57,6 +57,46 @@ import Base from '../layouts/Base.astro';
           ? `<a class="cta-btn raffle" href="${base}raffle?slug=${encodeURIComponent(slug)}">🎟️ Enter the Raffle${event.raffle_prize ? ` — ${escapeHtml(event.raffle_prize)}` : ''}</a>`
           : '';
 
+        // Organizer-contact panel: each row only shows if its field has a
+        // value, the whole panel hides if everything is empty. Lets the host
+        // turn this on incrementally without weird placeholder rows.
+        const socialHandle = (raw: string | null | undefined, urlBuilder: (h: string) => string): string | null => {
+          if (!raw) return null;
+          const t = raw.trim();
+          if (!t) return null;
+          if (/^https?:\/\//i.test(t)) return t;
+          return urlBuilder(t.replace(/^@/, ''));
+        };
+        const socials: Array<[string, string, string]> = [
+          ['Instagram', socialHandle(event.social_instagram, (h) => `https://instagram.com/${h}`) || '', '📷'],
+          ['Facebook', socialHandle(event.social_facebook, (h) => `https://facebook.com/${h}`) || '', '👤'],
+          ['TikTok', socialHandle(event.social_tiktok, (h) => `https://tiktok.com/@${h}`) || '', '🎵'],
+          ['YouTube', socialHandle(event.social_youtube, (h) => `https://youtube.com/@${h}`) || '', '▶️'],
+          ['LinkedIn', socialHandle(event.social_linkedin, (h) => `https://linkedin.com/in/${h}`) || '', '💼'],
+        ].filter((row) => row[1]);
+
+        const hasContact = event.organizer_name || event.organizer_email
+          || event.organizer_phone || event.organizer_website
+          || event.organizer_bio || socials.length > 0;
+
+        const organizerPanel = hasContact ? `
+          <section class="organizer">
+            <h2>Connect with the host</h2>
+            ${event.organizer_name ? `<p class="org-name">${escapeHtml(event.organizer_name)}</p>` : ''}
+            ${event.organizer_bio ? `<p class="org-bio">${escapeHtml(event.organizer_bio)}</p>` : ''}
+            <div class="org-contact">
+              ${event.organizer_email ? `<a href="mailto:${escapeHtml(event.organizer_email)}">✉️ ${escapeHtml(event.organizer_email)}</a>` : ''}
+              ${event.organizer_phone ? `<a href="tel:${escapeHtml(event.organizer_phone)}">📞 ${escapeHtml(event.organizer_phone)}</a>` : ''}
+              ${event.organizer_website ? `<a href="${escapeHtml(event.organizer_website)}" target="_blank" rel="noopener">🌐 Website</a>` : ''}
+            </div>
+            ${socials.length ? `
+              <div class="org-social">
+                ${socials.map(([label, url, icon]) =>
+                  `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" title="${label}">${icon} ${label}</a>`
+                ).join('')}
+              </div>` : ''}
+          </section>` : '';
+
         root.innerHTML = `
           <header class="top">
             <h1>${escapeHtml(event.name)}</h1>
@@ -69,6 +109,7 @@ import Base from '../layouts/Base.astro';
             ${raffleCta}
             ${scienceCta}
           </div>
+          ${organizerPanel}
         `;
       } catch (err) {
         root.innerHTML = `<p class="loading err">${escapeHtml((err as Error).message)}</p>`;
@@ -129,4 +170,39 @@ import Base from '../layouts/Base.astro';
     color: var(--accent);
   }
   a.cta-btn.science:hover { background: rgba(243,156,18,0.18); }
+
+  section.organizer {
+    margin-top: 28px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 18px;
+  }
+  section.organizer h2 {
+    font-size: 12px; color: var(--accent);
+    text-transform: uppercase; letter-spacing: 1.5px;
+    margin-bottom: 12px;
+  }
+  section.organizer .org-name {
+    font-size: 17px; color: #fff; font-weight: 700;
+    margin-bottom: 4px;
+  }
+  section.organizer .org-bio {
+    font-size: 13px; color: #bdc3c7; line-height: 1.55;
+    margin-bottom: 14px;
+  }
+  section.organizer .org-contact, section.organizer .org-social {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-top: 6px;
+  }
+  section.organizer a {
+    display: inline-block;
+    padding: 8px 12px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 8px;
+    color: #ecf0f1; text-decoration: none;
+    font-size: 12px; font-weight: 600;
+  }
+  section.organizer a:hover { background: rgba(255,255,255,0.10); }
 </style>

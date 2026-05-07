@@ -64,6 +64,12 @@ Deno.serve(async (req) => {
   }
   if ('raffle_prize' in body) patch.raffle_prize = body.raffle_prize || null;
   if ('raffle_prize_photo_url' in body) patch.raffle_prize_photo_url = body.raffle_prize_photo_url || null;
+  for (const k of [
+    'organizer_name', 'organizer_email', 'organizer_phone', 'organizer_website', 'organizer_bio',
+    'social_instagram', 'social_facebook', 'social_tiktok', 'social_youtube', 'social_linkedin',
+  ]) {
+    if (k in body) patch[k] = body[k] || null;
+  }
 
   if (Object.keys(patch).length === 0) return errResp(400, 'no fields to update');
 

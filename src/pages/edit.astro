@@ -367,6 +367,66 @@ import Base from '../layouts/Base.astro';
           </section>
 
           <section class="card">
+            <h2>Connect with the host</h2>
+            <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;">
+              Shows up at the bottom of your public event page. Every field is
+              optional; only filled-in fields render.
+            </p>
+            <form id="organizer-form" novalidate>
+              <label>
+                Host / organizer name
+                <input name="organizer_name" maxlength="120" value="${escapeHtml(ev.organizer_name || '')}" />
+              </label>
+              <label>
+                Short bio <span class="opt">(2–3 sentences)</span>
+                <textarea name="organizer_bio" rows="3" maxlength="500">${escapeHtml(ev.organizer_bio || '')}</textarea>
+              </label>
+              <div class="grid-2">
+                <label>
+                  Email
+                  <input type="email" name="organizer_email" value="${escapeHtml(ev.organizer_email || '')}" />
+                </label>
+                <label>
+                  Phone
+                  <input type="tel" name="organizer_phone" value="${escapeHtml(ev.organizer_phone || '')}" />
+                </label>
+              </div>
+              <label>
+                Website
+                <input type="url" name="organizer_website" value="${escapeHtml(ev.organizer_website || '')}" placeholder="https://example.com" />
+              </label>
+
+              <h3 class="social-h">Social</h3>
+              <div class="grid-2">
+                <label>
+                  Instagram <span class="opt">(handle or URL)</span>
+                  <input name="social_instagram" value="${escapeHtml(ev.social_instagram || '')}" placeholder="@yourhandle" />
+                </label>
+                <label>
+                  Facebook
+                  <input name="social_facebook" value="${escapeHtml(ev.social_facebook || '')}" placeholder="@yourhandle" />
+                </label>
+                <label>
+                  TikTok
+                  <input name="social_tiktok" value="${escapeHtml(ev.social_tiktok || '')}" placeholder="@yourhandle" />
+                </label>
+                <label>
+                  YouTube
+                  <input name="social_youtube" value="${escapeHtml(ev.social_youtube || '')}" placeholder="@yourhandle" />
+                </label>
+                <label>
+                  LinkedIn
+                  <input name="social_linkedin" value="${escapeHtml(ev.social_linkedin || '')}" placeholder="username" />
+                </label>
+              </div>
+              <div class="row">
+                <button type="submit" id="organizer-save">Save organizer info</button>
+                <span id="organizer-save-status" role="status" aria-live="polite"></span>
+              </div>
+            </form>
+          </section>
+
+          <section class="card">
             <h2>Transformations</h2>
             <button id="add-t-btn" type="button" class="add-btn">+ Add transformation</button>
             <div id="t-form-host"></div>
@@ -477,6 +537,36 @@ import Base from '../layouts/Base.astro';
             status.className = 'err';
           } finally {
             saveBtn.disabled = false;
+          }
+        });
+
+        // ---------- Organizer info ----------
+        const organizerForm = document.getElementById('organizer-form') as HTMLFormElement;
+        const organizerSaveBtn = document.getElementById('organizer-save') as HTMLButtonElement;
+        const organizerSaveStatus = document.getElementById('organizer-save-status')!;
+
+        organizerForm.addEventListener('submit', async (submitEv) => {
+          submitEv.preventDefault();
+          organizerSaveBtn.disabled = true;
+          organizerSaveStatus.textContent = 'Saving…';
+          organizerSaveStatus.className = '';
+          const fd = new FormData(organizerForm);
+          const fields = [
+            'organizer_name', 'organizer_email', 'organizer_phone', 'organizer_website', 'organizer_bio',
+            'social_instagram', 'social_facebook', 'social_tiktok', 'social_youtube', 'social_linkedin',
+          ];
+          const payload: Record<string, unknown> = { slug, edit_token: key };
+          for (const f of fields) payload[f] = (fd.get(f) || null);
+          try {
+            await callFunction('update-event', payload);
+            organizerSaveStatus.textContent = 'Saved ✓';
+            organizerSaveStatus.className = 'ok';
+          } catch (err) {
+            const msg = (err as Error).message;
+            organizerSaveStatus.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+            organizerSaveStatus.className = 'err';
+          } finally {
+            organizerSaveBtn.disabled = false;
           }
         });
 
@@ -1181,9 +1271,20 @@ import Base from '../layouts/Base.astro';
     border: 1px solid rgba(255,255,255,0.2); font-weight: 600;
   }
 
-  #save-status, .t-status { font-size: 13px; color: #95a5a6; }
-  #save-status.ok, .t-status.ok { color: #2ecc71; font-weight: 700; }
-  #save-status.err, .t-status.err { color: #e74c3c; font-weight: 600; }
+  #save-status, .t-status, #organizer-save-status, #raffle-save-status {
+    font-size: 13px; color: #95a5a6;
+  }
+  #save-status.ok, .t-status.ok, #organizer-save-status.ok, #raffle-save-status.ok {
+    color: #2ecc71; font-weight: 700;
+  }
+  #save-status.err, .t-status.err, #organizer-save-status.err, #raffle-save-status.err {
+    color: #e74c3c; font-weight: 600;
+  }
+  h3.social-h {
+    margin-top: 14px; margin-bottom: 4px;
+    font-size: 12px; color: #ecf0f1;
+    text-transform: uppercase; letter-spacing: 1.5px;
+  }
 
   /* Transformations section */
   button.add-btn {
