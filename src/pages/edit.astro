@@ -8,7 +8,97 @@ import Base from '../layouts/Base.astro';
 </Base>
 
 <script>
-  import { fetchEventBySlug, fetchTransformations, callFunction } from '../lib/supabase.js';
+  import { fetchEventBySlug, fetchTransformations, fetchDataPoints, callFunction } from '../lib/supabase.js';
+  import { drawMultiChart } from '../lib/chart.js';
+
+  type DataPoint = { metric: 'weight' | 'bf' | 'lean'; date: string; value: number };
+
+  // Parse a pasted CSV/TSV blob into structured data points.
+  // Format expected:
+  //   First row: column headers (must include "date" plus at least one of
+  //   weight/bf/lean — synonyms accepted).
+  //   Following rows: date in the date column, numeric values in the metric
+  //   columns. Empty cells are skipped (a row may report only weight, etc.).
+  function parsePastedData(text: string): { points: DataPoint[]; errors: string[] } {
+    const errors: string[] = [];
+    const points: DataPoint[] = [];
+    const rawLines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (rawLines.length === 0) return { points, errors };
+
+    const sep = rawLines[0].includes('\t') ? '\t' : ',';
+    const headers = rawLines[0].split(sep).map((h) => h.trim().toLowerCase());
+    const dateIdx = headers.findIndex((h) => h === 'date' || h === 'day');
+    if (dateIdx < 0) {
+      errors.push('First row must include a "date" column header.');
+      return { points, errors };
+    }
+
+    const metricCols: Array<{ metric: 'weight' | 'bf' | 'lean'; idx: number }> = [];
+    headers.forEach((h, i) => {
+      const norm = h.replace(/[\s%_-]/g, '');
+      if (norm === 'weight' || norm === 'wt' || norm === 'lb' || norm === 'lbs') {
+        metricCols.push({ metric: 'weight', idx: i });
+      } else if (norm === 'bf' || norm === 'bodyfat' || norm === 'fat' || norm === 'bfpct') {
+        metricCols.push({ metric: 'bf', idx: i });
+      } else if (norm === 'lean' || norm === 'leanmass' || norm === 'lbm') {
+        metricCols.push({ metric: 'lean', idx: i });
+      }
+    });
+    if (metricCols.length === 0) {
+      errors.push('No metric column found. Add at least one of: weight, bf, lean.');
+      return { points, errors };
+    }
+
+    for (let i = 1; i < rawLines.length; i++) {
+      const cols = rawLines[i].split(sep).map((c) => c.trim());
+      const dateStr = cols[dateIdx] || '';
+      const date = parseDate(dateStr);
+      if (!date) {
+        errors.push(`Row ${i + 1}: invalid date "${dateStr}"`);
+        continue;
+      }
+      for (const { metric, idx } of metricCols) {
+        const raw = cols[idx];
+        if (!raw) continue;
+        const num = Number(raw.replace('%', '').replace(/,/g, ''));
+        if (!Number.isFinite(num)) {
+          errors.push(`Row ${i + 1}, ${metric}: invalid number "${raw}"`);
+          continue;
+        }
+        points.push({ metric, date, value: num });
+      }
+    }
+    return { points, errors };
+  }
+
+  function parseDate(s: string): string | null {
+    let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    let y: number, mo: number, d: number;
+    if (m) {
+      y = +m[1]; mo = +m[2]; d = +m[3];
+    } else if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/))) {
+      mo = +m[1]; d = +m[2]; y = +m[3];
+      if (y < 100) y += 2000;
+    } else {
+      return null;
+    }
+    if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+    return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  }
+
+  function pointsToCsv(points: DataPoint[]): string {
+    if (points.length === 0) return 'date,weight,bf,lean\n';
+    const dates = Array.from(new Set(points.map((p) => p.date))).sort();
+    const lookup = new Map<string, Record<string, number>>();
+    for (const d of dates) lookup.set(d, {});
+    for (const p of points) lookup.get(p.date)![p.metric] = p.value;
+    const lines = ['date,weight,bf,lean'];
+    for (const d of dates) {
+      const row = lookup.get(d)!;
+      lines.push([d, row.weight ?? '', row.bf ?? '', row.lean ?? ''].join(','));
+    }
+    return lines.join('\n') + '\n';
+  }
 
   // Inline canvas-based image compressor. Reads the file, scales the longest
   // edge to maxDim, encodes JPEG at the given quality. Returns a Blob.
@@ -99,6 +189,22 @@ import Base from '../layouts/Base.astro';
           ${photoSlotHtml('before', 'Before photo', t.before_photo_url)}
           ${photoSlotHtml('after', 'After photo', t.after_photo_url)}
         </div>` : '';
+    const biometrics = t ? `
+        <div class="biometrics">
+          <span class="slot-label">Biometric data</span>
+          <p class="bio-hint">
+            Paste from a spreadsheet. First row = headers (date, weight, bf, lean — at least one metric).
+            Tab- or comma-separated. Date format: YYYY-MM-DD or M/D/YYYY.
+          </p>
+          <textarea class="bio-textarea" rows="8" placeholder="date,weight,bf,lean&#10;2025-08-17,217,,&#10;2025-10-13,212,52,101.4"></textarea>
+          <div class="bio-status"></div>
+          <svg class="bio-chart" preserveAspectRatio="none"></svg>
+          <div class="row">
+            <button type="button" class="bio-save">Save data points</button>
+            <button type="button" class="bio-clear">Clear</button>
+            <span class="bio-result" role="status" aria-live="polite"></span>
+          </div>
+        </div>` : '';
     return `
       <form class="t-form" data-mode="${mode}" ${idAttr} novalidate>
         <h3>${t ? 'Edit transformation' : 'New transformation'}</h3>
@@ -135,6 +241,7 @@ import Base from '../layouts/Base.astro';
           <textarea name="takeaway_text" rows="3" placeholder="Most weight-loss attempts melt fat and muscle…">${escapeHtml(v.takeaway_text || '')}</textarea>
         </label>
         ${photos}
+        ${biometrics}
         <div class="row">
           <button type="submit">${t ? 'Save changes' : 'Create'}</button>
           <button type="button" class="cancel">${t ? 'Done' : 'Cancel'}</button>
@@ -280,9 +387,103 @@ import Base from '../layouts/Base.astro';
             newForm.querySelectorAll('input[type=file][data-slot]').forEach((input) => {
               input.addEventListener('change', (e) => handlePhotoUpload(e as Event, t));
             });
+            setupBiometrics(newForm, t);
           } else {
             (newForm.querySelector('input[name=name]') as HTMLInputElement).focus();
           }
+        }
+
+        async function setupBiometrics(formEl: HTMLFormElement, t: Transformation) {
+          const textarea = formEl.querySelector('textarea.bio-textarea') as HTMLTextAreaElement;
+          const statusEl = formEl.querySelector('.bio-status') as HTMLElement;
+          const svg = formEl.querySelector('svg.bio-chart') as unknown as SVGSVGElement;
+          const saveBtn = formEl.querySelector('button.bio-save') as HTMLButtonElement;
+          const clearBtn = formEl.querySelector('button.bio-clear') as HTMLButtonElement;
+          const resultEl = formEl.querySelector('.bio-result') as HTMLElement;
+
+          function renderPreview() {
+            const text = textarea.value.trim();
+            while (svg.firstChild) svg.removeChild(svg.firstChild);
+            if (!text) {
+              statusEl.textContent = '';
+              statusEl.className = 'bio-status';
+              return;
+            }
+            const { points, errors } = parsePastedData(text);
+            if (errors.length > 0) {
+              statusEl.textContent = errors.slice(0, 3).join(' · ');
+              statusEl.className = 'bio-status err';
+            } else {
+              const counts = {
+                weight: points.filter((p) => p.metric === 'weight').length,
+                bf: points.filter((p) => p.metric === 'bf').length,
+                lean: points.filter((p) => p.metric === 'lean').length,
+              };
+              statusEl.textContent = `${points.length} points · ${counts.weight} weight, ${counts.bf} BF, ${counts.lean} lean`;
+              statusEl.className = 'bio-status ok';
+            }
+            const byMetric: Record<string, Array<[string, number]>> = { weight: [], bf: [], lean: [] };
+            for (const p of points) byMetric[p.metric].push([p.date, p.value]);
+            const series: Array<{ name: string; color: string; suffix: string; axis: 'left' | 'right'; data: Array<[string, number]> }> = [];
+            if (byMetric.weight.length) series.push({ name: 'Weight', color: '#f39c12', suffix: ' lb', axis: 'left',  data: byMetric.weight });
+            if (byMetric.lean.length)   series.push({ name: 'Lean',   color: '#2ecc71', suffix: ' lb', axis: 'left',  data: byMetric.lean });
+            if (byMetric.bf.length)     series.push({ name: 'BF',     color: '#e74c3c', suffix: '%',   axis: 'right', data: byMetric.bf });
+            if (series.length) drawMultiChart(svg, series);
+          }
+
+          try {
+            const existing = await fetchDataPoints(t.id);
+            if (existing.length > 0) {
+              const dp: DataPoint[] = existing.map((p: { metric: 'weight'|'bf'|'lean'; date: string; value: number | string }) => ({
+                metric: p.metric,
+                date: p.date,
+                value: Number(p.value),
+              }));
+              textarea.value = pointsToCsv(dp);
+            } else {
+              textarea.value = 'date,weight,bf,lean\n';
+            }
+            requestAnimationFrame(renderPreview);
+          } catch (err) {
+            statusEl.textContent = 'Could not load existing data: ' + (err as Error).message;
+            statusEl.className = 'bio-status err';
+          }
+
+          textarea.addEventListener('input', renderPreview);
+
+          saveBtn.addEventListener('click', async () => {
+            const text = textarea.value.trim();
+            const { points, errors } = parsePastedData(text);
+            if (errors.length > 0) {
+              resultEl.textContent = errors[0];
+              resultEl.className = 'bio-result err';
+              return;
+            }
+            saveBtn.disabled = true;
+            resultEl.textContent = 'Saving…';
+            resultEl.className = 'bio-result';
+            try {
+              const res = await callFunction('set-data-points', {
+                slug,
+                edit_token: key,
+                transformation_id: t.id,
+                points,
+              });
+              resultEl.textContent = `Saved ${res.count} points ✓`;
+              resultEl.className = 'bio-result ok';
+            } catch (err) {
+              const msg = (err as Error).message;
+              resultEl.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+              resultEl.className = 'bio-result err';
+            } finally {
+              saveBtn.disabled = false;
+            }
+          });
+
+          clearBtn.addEventListener('click', () => {
+            textarea.value = 'date,weight,bf,lean\n';
+            renderPreview();
+          });
         }
 
         function hideForm() {
@@ -482,14 +683,15 @@ import Base from '../layouts/Base.astro';
     margin-bottom: 14px;
   }
 
-  form { display: grid; gap: 14px; }
-  label { display: grid; gap: 6px; font-size: 13px; color: #ecf0f1; font-weight: 600; }
+  form { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+  label { display: grid; gap: 6px; font-size: 13px; color: #ecf0f1; font-weight: 600; min-width: 0; }
   label .opt { color: #95a5a6; font-weight: 400; font-size: 12px; }
   input, textarea {
     background: rgba(255,255,255,0.06);
     border: 1px solid rgba(255,255,255,0.15);
     border-radius: 6px; padding: 10px 12px;
     color: #fff; font-size: 15px; font-family: inherit;
+    width: 100%; min-width: 0;
   }
   textarea { resize: vertical; min-height: 64px; }
   input[type="color"] { padding: 4px; height: 40px; width: 64px; }
@@ -566,6 +768,30 @@ import Base from '../layouts/Base.astro';
   }
   .upload-status.ok { color: #2ecc71; font-weight: 700; }
   .upload-status.err { color: #e74c3c; font-weight: 600; }
+
+  /* Biometric data section */
+  .biometrics { display: grid; gap: 8px; margin-top: 4px; }
+  .bio-hint { font-size: 12px; color: #95a5a6; line-height: 1.4; }
+  textarea.bio-textarea {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px; min-height: 130px; white-space: pre;
+    background: rgba(0,0,0,0.3);
+  }
+  .bio-status { font-size: 12px; color: #95a5a6; min-height: 14px; }
+  .bio-status.ok { color: #2ecc71; font-weight: 700; }
+  .bio-status.err { color: #e74c3c; font-weight: 600; }
+  svg.bio-chart {
+    width: 100%; height: 200px;
+    background: rgba(0,0,0,0.25); border-radius: 8px;
+  }
+  button.bio-save { background: #2ecc71; color: #1a252f; }
+  button.bio-clear {
+    background: transparent; color: #ecf0f1;
+    border: 1px solid rgba(255,255,255,0.2); font-weight: 600;
+  }
+  .bio-result { font-size: 13px; color: #95a5a6; }
+  .bio-result.ok { color: #2ecc71; font-weight: 700; }
+  .bio-result.err { color: #e74c3c; font-weight: 600; }
 
   /* Transformation list */
   ul.t-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
