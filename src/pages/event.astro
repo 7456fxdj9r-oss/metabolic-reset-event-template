@@ -191,46 +191,51 @@ import Base from '../layouts/Base.astro';
     text-transform: uppercase; letter-spacing: 1.5px;
     margin-bottom: 14px;
   }
-  ul.team-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+  ul.team-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
   .host-card {
     background: rgba(0,0,0,0.20);
     border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 8px;
-    padding: 10px 12px;
-    display: grid; gap: 6px;
-  }
-  .host-head {
+    border-radius: 6px;
+    padding: 6px 10px;
     display: flex; align-items: center; gap: 8px;
     flex-wrap: wrap;
   }
-  .host-head strong { font-size: 14px; color: #fff; }
-  .host-tag {
-    font-size: 9px; padding: 1px 6px; border-radius: 8px;
-    background: rgba(243,156,18,0.20); color: var(--accent);
-    text-transform: uppercase; letter-spacing: 1px; font-weight: 700;
+  .host-head {
+    display: flex; align-items: center; gap: 6px;
+    flex-wrap: wrap;
   }
-  .host-bio { font-size: 12px; color: #bdc3c7; line-height: 1.45; }
+  .host-head strong { font-size: 12px; color: #fff; }
+  .host-tag {
+    font-size: 8px; padding: 1px 5px; border-radius: 6px;
+    background: rgba(243,156,18,0.20); color: var(--accent);
+    text-transform: uppercase; letter-spacing: 0.8px; font-weight: 700;
+  }
+  .host-bio {
+    font-size: 11px; color: #bdc3c7; line-height: 1.4;
+    flex-basis: 100%;
+  }
   .host-phone {
     display: inline-block;
-    padding: 6px 12px;
+    padding: 3px 8px;
     background: rgba(243,156,18,0.18); color: var(--accent);
     border: 1px solid rgba(243,156,18,0.5);
-    border-radius: 6px; text-decoration: none;
-    font-weight: 700; font-size: 12px;
-    align-self: flex-start;
+    border-radius: 4px; text-decoration: none;
+    font-weight: 700; font-size: 11px;
+    margin-left: auto;
   }
   .host-phone:hover { background: rgba(243,156,18,0.28); }
   .host-extras {
     display: flex; flex-wrap: wrap; gap: 4px;
+    flex-basis: 100%;
   }
   .host-extras a {
     display: inline-block;
-    padding: 5px 10px;
+    padding: 3px 7px;
     background: rgba(255,255,255,0.06);
     border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 6px;
+    border-radius: 4px;
     color: #ecf0f1; text-decoration: none;
-    font-size: 11px; font-weight: 600;
+    font-size: 10px; font-weight: 600;
   }
   .host-extras a:hover { background: rgba(255,255,255,0.10); }
 </style>
