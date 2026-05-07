@@ -22,3 +22,7 @@ pnpm-debug.log*
 
 # jetbrains setting folder
 .idea/
+
+# supabase CLI scratch dir (project-ref cache, not the function source)
+supabase/.temp/
+supabase/.branches/
