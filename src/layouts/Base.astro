@@ -13,6 +13,17 @@ const { title, themeColor = '#1a252f' } = Astro.props;
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content={themeColor} />
     <link rel="icon" type="image/svg+xml" href={`${import.meta.env.BASE_URL}favicon.svg`} />
+
+    <!-- PWA — Add to Home Screen support. iOS Safari ignores most of the
+         manifest and reads these apple-* meta tags instead, so both stay.
+         The /event page swaps in a per-event manifest + apple-* title at
+         runtime so the home-screen icon shows the actual event name. -->
+    <link rel="manifest" href={`${import.meta.env.BASE_URL}manifest.webmanifest`} id="manifest-link" />
+    <link rel="apple-touch-icon" href={`${import.meta.env.BASE_URL}apple-touch-icon.png`} />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="MR Event" id="apple-app-title" />
+
     <title>{title}</title>
   </head>
   <body>

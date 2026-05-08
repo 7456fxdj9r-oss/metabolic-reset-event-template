@@ -132,6 +132,66 @@ import Base from '../layouts/Base.astro';
           width: 200, margin: 1,
           color: { dark: '#ffffff', light: '#1a252f' },
         }).catch(() => {});
+
+        // ----- PWA: per-event manifest + iOS Add-to-Home-Screen hint -----
+        // Each event gets its own short-lived manifest blob so the home-
+        // screen install picks up the event's name + accent color instead
+        // of the template default. iOS Safari mostly ignores manifests but
+        // reads the apple-mobile-web-app-title meta tag, so we update both.
+        try {
+          const accent = event.accent_color || '#f39c12';
+          const startUrl = `${window.location.origin}${base}event/${encodeURIComponent(slug!)}`;
+          const iconBase = `${window.location.origin}${base}`;
+          const eventManifest = {
+            name: event.name || 'Metabolic Reset Event',
+            short_name: (event.name || 'MR Event').slice(0, 12),
+            description: event.host_line || 'Metabolic Reset Event',
+            start_url: startUrl,
+            scope: startUrl,
+            display: 'standalone',
+            orientation: 'portrait',
+            background_color: '#1a252f',
+            theme_color: accent,
+            icons: [
+              { src: iconBase + 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+              { src: iconBase + 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+            ],
+          };
+          const blob = new Blob([JSON.stringify(eventManifest)], { type: 'application/manifest+json' });
+          const blobUrl = URL.createObjectURL(blob);
+          const link = document.getElementById('manifest-link') as HTMLLinkElement | null;
+          if (link) link.href = blobUrl;
+          const titleMeta = document.getElementById('apple-app-title') as HTMLMetaElement | null;
+          if (titleMeta) titleMeta.setAttribute('content', eventManifest.short_name);
+          const themeMeta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
+          if (themeMeta) themeMeta.setAttribute('content', accent);
+        } catch { /* non-fatal */ }
+
+        // Add-to-Home-Screen hint, iOS Safari only (Chrome shows its own
+        // install prompt; other iOS browsers don't support installing).
+        // Dismissed-by-user state is per-slug in localStorage.
+        try {
+          const ua = navigator.userAgent;
+          const isIOS = /iPhone|iPad|iPod/.test(ua) && !(/CriOS|FxiOS|EdgiOS/.test(ua));
+          const isStandalone = (window.navigator as { standalone?: boolean }).standalone === true
+            || window.matchMedia('(display-mode: standalone)').matches;
+          const dismissKey = `a2hs-dismissed:${slug}`;
+          const alreadyDismissed = localStorage.getItem(dismissKey) === '1';
+          if (isIOS && !isStandalone && !alreadyDismissed) {
+            const banner = document.createElement('aside');
+            banner.className = 'a2hs-banner';
+            banner.innerHTML = `
+              <button type="button" class="a2hs-close" aria-label="Dismiss">×</button>
+              <p class="a2hs-line">📲 <strong>Save this to your phone</strong></p>
+              <p class="a2hs-detail">Tap the <strong>Share</strong> button below, then <strong>Add to Home Screen</strong> — keeps the event one tap away.</p>
+            `;
+            document.body.appendChild(banner);
+            banner.querySelector('.a2hs-close')!.addEventListener('click', () => {
+              localStorage.setItem(dismissKey, '1');
+              banner.remove();
+            });
+          }
+        } catch { /* non-fatal */ }
       } catch (err) {
         root.innerHTML = `<p class="loading err">${escapeHtml((err as Error).message)}</p>`;
       }
@@ -249,4 +309,37 @@ import Base from '../layouts/Base.astro';
     overflow-wrap: anywhere; word-break: break-all;
   }
   .host-extras a:hover { background: rgba(255,255,255,0.10); }
+
+  /* Add to Home Screen hint — iOS Safari only, dismissable */
+  .a2hs-banner {
+    position: fixed;
+    left: 12px; right: 12px; bottom: 14px;
+    background: #1a252f;
+    border: 1px solid var(--accent, #f39c12);
+    border-radius: 12px;
+    padding: 14px 36px 14px 16px;
+    color: #ecf0f1;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.55);
+    z-index: 50;
+    max-width: 540px; margin: 0 auto;
+  }
+  .a2hs-banner .a2hs-line {
+    font-size: 14px; margin-bottom: 4px;
+  }
+  .a2hs-banner .a2hs-line strong { color: var(--accent, #f39c12); }
+  .a2hs-banner .a2hs-detail {
+    font-size: 12px; color: #bdc3c7; line-height: 1.45;
+  }
+  .a2hs-banner .a2hs-detail strong { color: #fff; font-weight: 700; }
+  .a2hs-banner .a2hs-close {
+    position: absolute;
+    top: 6px; right: 8px;
+    width: 28px; height: 28px;
+    background: transparent; color: #95a5a6;
+    border: none; border-radius: 14px;
+    font-size: 22px; line-height: 1;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .a2hs-banner .a2hs-close:hover { background: rgba(255,255,255,0.06); color: #fff; }
 </style>
