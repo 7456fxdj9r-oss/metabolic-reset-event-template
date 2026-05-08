@@ -68,7 +68,7 @@ Deno.serve(async (req) => {
 
   if (action === 'list') {
     const { data: rows, error } = await supabase
-      .from('speakers').select('id, name, photo_url, bio, display_order, created_at')
+      .from('speakers').select('id, name, photo_url, bio, phone, email, display_order, created_at')
       .eq('event_id', ev.id)
       .order('display_order', { ascending: true });
     if (error) return errResp(500, error.message);
@@ -97,6 +97,8 @@ Deno.serve(async (req) => {
       event_id: ev.id,
       name,
       bio: sp.bio || null,
+      phone: sp.phone || null,
+      email: sp.email || null,
       display_order: (maxOrder?.display_order ?? -1) + 1,
     };
     const { data: ins, error: insErr } = await supabase
@@ -121,6 +123,8 @@ Deno.serve(async (req) => {
       patch.name = name;
     }
     if ('bio' in sp) patch.bio = sp.bio || null;
+    if ('phone' in sp) patch.phone = sp.phone || null;
+    if ('email' in sp) patch.email = sp.email || null;
     if ('display_order' in sp) patch.display_order = numOrNull(sp.display_order) ?? 0;
     if ('photo_url' in sp) patch.photo_url = sp.photo_url || null;
 

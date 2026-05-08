@@ -1309,6 +1309,8 @@ import Base from '../layouts/Base.astro';
           name: string;
           photo_url: string | null;
           bio: string | null;
+          phone: string | null;
+          email: string | null;
           display_order: number;
         };
         let speakers: Speaker[] = await fetchSpeakers(ev.id);
@@ -1345,6 +1347,16 @@ import Base from '../layouts/Base.astro';
                 Bio
                 <textarea name="bio" rows="4" maxlength="2000" placeholder="A few sentences about this speaker">${escapeHtml(v.bio || '')}</textarea>
               </label>
+              <div class="grid-2">
+                <label>
+                  Phone <span class="opt">(optional, public)</span>
+                  <input type="tel" name="phone" value="${escapeHtml(v.phone || '')}" placeholder="555-123-4567" />
+                </label>
+                <label>
+                  Email <span class="opt">(optional, public)</span>
+                  <input type="email" name="email" value="${escapeHtml(v.email || '')}" />
+                </label>
+              </div>
               ${photoBlock}
               <div class="row">
                 <button type="submit">${sp ? 'Save changes' : 'Create'}</button>
@@ -1355,6 +1367,9 @@ import Base from '../layouts/Base.astro';
         }
 
         function speakerRowHtml(sp: Speaker): string {
+          const contactBits: string[] = [];
+          if (sp.phone) contactBits.push(`📞 ${escapeHtml(sp.phone)}`);
+          if (sp.email) contactBits.push(`✉️ ${escapeHtml(sp.email)}`);
           return `
             <li class="t-row" data-id="${sp.id}">
               ${sp.photo_url
@@ -1362,7 +1377,8 @@ import Base from '../layouts/Base.astro';
                 : '<div class="t-thumb empty" style="border-radius:50%;width:56px;height:56px;"></div>'}
               <div class="t-info">
                 <strong>${escapeHtml(sp.name)}</strong>
-                ${sp.bio ? `<span class="t-meta">${escapeHtml(sp.bio.slice(0, 80))}${sp.bio.length > 80 ? '…' : ''}</span>` : ''}
+                ${contactBits.length ? `<span class="t-meta">${contactBits.join(' · ')}</span>` : ''}
+                ${sp.bio ? `<span class="t-meta">${escapeHtml(sp.bio.slice(0, 60))}${sp.bio.length > 60 ? '…' : ''}</span>` : ''}
               </div>
               <div class="t-actions">
                 <button class="edit" data-id="${sp.id}">Edit</button>
@@ -1491,6 +1507,8 @@ import Base from '../layouts/Base.astro';
           const speaker: Record<string, unknown> = {
             name: fd.get('name'),
             bio: fd.get('bio') || null,
+            phone: fd.get('phone') || null,
+            email: fd.get('email') || null,
           };
           if (editing) speaker.id = editing.id;
 
