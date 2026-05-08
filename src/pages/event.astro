@@ -198,51 +198,55 @@ import Base from '../layouts/Base.astro';
     text-transform: uppercase; letter-spacing: 1.5px;
     margin-bottom: 14px;
   }
-  ul.team-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+  ul.team-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
   .host-card {
     background: rgba(0,0,0,0.20);
     border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 6px;
-    padding: 6px 10px;
+    border-radius: 8px;
+    padding: 8px 12px;
     display: flex; align-items: center; gap: 8px;
     flex-wrap: wrap;
   }
   .host-head {
     display: flex; align-items: center; gap: 6px;
-    flex-wrap: wrap;
+    flex-wrap: wrap; min-width: 0;
   }
-  .host-head strong { font-size: 12px; color: #fff; }
+  .host-head strong { font-size: 14px; color: #fff; }
   .host-tag {
-    font-size: 8px; padding: 1px 5px; border-radius: 6px;
+    font-size: 10px; padding: 1px 6px; border-radius: 8px;
     background: rgba(243,156,18,0.20); color: var(--accent);
-    text-transform: uppercase; letter-spacing: 0.8px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1px; font-weight: 700;
   }
   .host-bio {
-    font-size: 11px; color: #bdc3c7; line-height: 1.4;
+    font-size: 13px; color: #bdc3c7; line-height: 1.45;
     flex-basis: 100%;
   }
   .host-phone {
-    display: inline-block;
-    padding: 3px 8px;
+    display: inline-flex; align-items: center;
+    padding: 8px 14px;
+    min-height: 40px;
     background: rgba(243,156,18,0.18); color: var(--accent);
     border: 1px solid rgba(243,156,18,0.5);
-    border-radius: 4px; text-decoration: none;
-    font-weight: 700; font-size: 11px;
+    border-radius: 8px; text-decoration: none;
+    font-weight: 700; font-size: 13px;
     margin-left: auto;
+    overflow-wrap: anywhere;
   }
   .host-phone:hover { background: rgba(243,156,18,0.28); }
   .host-extras {
-    display: flex; flex-wrap: wrap; gap: 4px;
+    display: flex; flex-wrap: wrap; gap: 6px;
     flex-basis: 100%;
   }
   .host-extras a {
-    display: inline-block;
-    padding: 3px 7px;
+    display: inline-flex; align-items: center;
+    padding: 6px 12px;
+    min-height: 36px;
     background: rgba(255,255,255,0.06);
     border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 4px;
+    border-radius: 6px;
     color: #ecf0f1; text-decoration: none;
-    font-size: 10px; font-weight: 600;
+    font-size: 12px; font-weight: 600;
+    overflow-wrap: anywhere; word-break: break-all;
   }
   .host-extras a:hover { background: rgba(255,255,255,0.10); }
 </style>

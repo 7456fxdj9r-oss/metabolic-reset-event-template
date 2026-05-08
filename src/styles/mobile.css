@@ -1,0 +1,28 @@
+/* Global mobile-friendly defaults. Imported by Base.astro so every route
+   inherits these. Each page's own <style is:global> may override later;
+   these are the floor. */
+
+/* iOS Safari auto-zooms on inputs with computed font-size < 16px. Setting
+   the floor at 16px globally eliminates the zoom-on-focus papercut across
+   every form in the app without rewriting per-page CSS. Designs that want
+   a smaller-looking input should reduce padding, not font-size. */
+input, textarea, select {
+  font-size: 16px;
+}
+
+/* Apple HIG minimum is 44×44pt. Setting min-height as the floor doesn't
+   force taller pixel buttons (line-height + padding still rule the look)
+   but guarantees the hit-testing rect is at least tappable. Buttons on
+   pages that need tighter density already declare their own padding +
+   font-size; this rule just bumps anything below the floor. */
+button, a.cta-btn, a.event-btn {
+  min-height: 40px;
+}
+
+/* Long URLs / emails / slugs that hosts paste in shouldn't blow out a
+   card. Anything inside .word-safe (or the existing share-link inputs)
+   wraps mid-word as a last resort. */
+.word-safe {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}

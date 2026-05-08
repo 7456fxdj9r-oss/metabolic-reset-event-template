@@ -92,24 +92,24 @@ import Base from '../layouts/Base.astro';
     border-radius: 8px;
     padding: 8px;
     display: grid;
-    grid-template-columns: 36px 1fr;
-    gap: 10px;
+    grid-template-columns: 48px 1fr;
+    gap: 12px;
     align-items: center;
   }
   .speaker-photo {
-    width: 36px; height: 36px;
+    width: 48px; height: 48px;
     border-radius: 50%;
     object-fit: cover;
     background: rgba(0,0,0,0.4);
   }
   .speaker-photo.placeholder { border: 1px dashed rgba(255,255,255,0.14); }
   .speaker-body h2 {
-    font-size: 12px; color: var(--accent);
-    margin-bottom: 2px;
+    font-size: 14px; color: var(--accent);
+    margin-bottom: 4px;
   }
   .speaker-body p {
-    font-size: 11px; color: #ecf0f1; line-height: 1.4;
-    white-space: pre-wrap;
+    font-size: 13px; color: #ecf0f1; line-height: 1.5;
+    white-space: pre-wrap; overflow-wrap: anywhere;
   }
 
   .empty { color: #95a5a6; font-style: italic; text-align: center; padding: 30px 0; }

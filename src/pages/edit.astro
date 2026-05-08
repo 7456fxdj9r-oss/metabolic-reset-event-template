@@ -2072,7 +2072,7 @@ import Base from '../layouts/Base.astro';
   .t-meta.accent { color: #f39c12; font-weight: 700; }
   .t-actions { display: flex; gap: 6px; }
   .t-actions button {
-    padding: 6px 12px; font-size: 12px; font-weight: 700;
+    padding: 8px 14px; font-size: 13px; font-weight: 700; min-height: 36px;
   }
   .t-actions button.edit { background: rgba(255,255,255,0.08); color: #ecf0f1; }
   .t-actions button.del  { background: rgba(231,76,60,0.18); color: #e74c3c; }
@@ -2091,6 +2091,7 @@ import Base from '../layouts/Base.astro';
     font-size: 12px; color: #ecf0f1;
     text-transform: uppercase; letter-spacing: 1.5px;
     display: flex; align-items: center; gap: 8px;
+    flex-wrap: wrap;
   }
   h3.raffle-entries-h .entry-count {
     background: rgba(243,156,18,0.18);
@@ -2099,18 +2100,18 @@ import Base from '../layouts/Base.astro';
   }
   button.draw-btn {
     margin-left: auto;
-    padding: 6px 12px; font-size: 12px;
+    padding: 8px 14px; font-size: 13px; min-height: 36px;
     background: #2ecc71; color: #1a252f;
   }
   button.draw-btn:disabled { opacity: 0.4; }
   button.clear-btn {
-    padding: 6px 12px; font-size: 12px;
+    padding: 8px 14px; font-size: 13px; min-height: 36px;
     background: rgba(231,76,60,0.18); color: #e74c3c;
     border: 1px solid rgba(231,76,60,0.4);
   }
   button.clear-btn:disabled { opacity: 0.35; cursor: not-allowed; }
   button.export-btn {
-    padding: 6px 12px; font-size: 12px;
+    padding: 8px 14px; font-size: 13px; min-height: 36px;
     background: rgba(255,255,255,0.08); color: #ecf0f1;
     border: 1px solid rgba(255,255,255,0.15);
   }
@@ -2130,7 +2131,8 @@ import Base from '../layouts/Base.astro';
     background: rgba(255,255,255,0.08);
     padding: 1px 5px; border-radius: 3px;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-style: normal; font-size: 11px;
+    font-style: normal; font-size: 12px;
+    overflow-wrap: anywhere; word-break: break-all;
   }
   ul.entry-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
   .entry-item {
@@ -2142,33 +2144,33 @@ import Base from '../layouts/Base.astro';
   }
   .entry-head {
     display: flex; justify-content: space-between; align-items: center;
-    gap: 10px;
+    gap: 10px; flex-wrap: wrap;
   }
-  .entry-head strong { font-size: 14px; color: #fff; }
+  .entry-head strong { font-size: 14px; color: #fff; min-width: 0; overflow-wrap: anywhere; }
   .entry-score {
     font-size: 11px; font-weight: 800; color: #f39c12;
     background: rgba(243,156,18,0.15);
     padding: 2px 10px; border-radius: 12px;
   }
   .entry-meta {
-    font-size: 11px; color: #95a5a6;
-    word-break: break-word;
+    font-size: 12px; color: #95a5a6;
+    overflow-wrap: anywhere; word-break: break-word;
   }
   .entry-flags, .entry-ratings, .entry-optins { display: flex; flex-wrap: wrap; gap: 4px; }
   .flag {
-    font-size: 10px; padding: 2px 8px;
+    font-size: 11px; padding: 3px 9px;
     background: rgba(231,76,60,0.18); color: #e74c3c;
     border-radius: 10px; font-weight: 700;
     text-transform: uppercase; letter-spacing: 0.5px;
   }
   .rate {
-    font-size: 10px; padding: 2px 8px;
+    font-size: 11px; padding: 3px 9px;
     background: rgba(255,255,255,0.06); color: #ecf0f1;
     border-radius: 10px; font-weight: 700;
     letter-spacing: 0.3px;
   }
   .optin {
-    font-size: 10px; padding: 2px 8px;
+    font-size: 11px; padding: 3px 9px;
     background: rgba(46,204,113,0.15); color: #2ecc71;
     border-radius: 10px; font-weight: 700;
     text-transform: uppercase; letter-spacing: 0.5px;
@@ -2346,11 +2348,14 @@ import Base from '../layouts/Base.astro';
   }
   .crop-actions {
     display: flex; gap: 8px; justify-content: flex-end;
+    flex-wrap: wrap;
   }
   .crop-actions button {
     padding: 12px 18px; font-size: 14px; font-weight: 700;
     border-radius: 8px; cursor: pointer;
+    flex: 1 1 auto; min-height: 44px;
   }
+  .crop-modal-inner { overflow-y: auto; }
   button.crop-cancel {
     background: transparent; color: #ecf0f1;
     border: 1px solid rgba(255,255,255,0.20);
