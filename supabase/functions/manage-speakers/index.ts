@@ -80,6 +80,15 @@ Deno.serve(async (req) => {
     const name = String(sp.name || '').trim();
     if (!name) return errResp(400, 'speaker.name is required');
 
+    const MAX_SPEAKERS = 15;
+    const { count } = await supabase
+      .from('speakers')
+      .select('id', { count: 'exact', head: true })
+      .eq('event_id', ev.id);
+    if ((count || 0) >= MAX_SPEAKERS) {
+      return errResp(409, `event already has the maximum ${MAX_SPEAKERS} speakers`);
+    }
+
     const { data: maxOrder } = await supabase
       .from('speakers').select('display_order')
       .eq('event_id', ev.id).order('display_order', { ascending: false }).limit(1).maybeSingle();

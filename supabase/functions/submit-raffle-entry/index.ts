@@ -124,6 +124,18 @@ Deno.serve(async (req) => {
     return ok({ entry_token: dupe.entry_token, already_entered: true });
   }
 
+  // Hard cap on entries per event as a safety net against accidental or
+  // malicious flooding. 1000 is way more than any single in-person event
+  // would ever pull in.
+  const MAX_RAFFLE_ENTRIES = 1000;
+  const { count } = await supabase
+    .from('raffle_entries')
+    .select('id', { count: 'exact', head: true })
+    .eq('event_id', ev.id);
+  if ((count || 0) >= MAX_RAFFLE_ENTRIES) {
+    return errResp(409, 'this raffle has reached its entry limit');
+  }
+
   const entry_token = randomToken(32);
   const { error: insErr } = await supabase.from('raffle_entries').insert({
     event_id: ev.id,

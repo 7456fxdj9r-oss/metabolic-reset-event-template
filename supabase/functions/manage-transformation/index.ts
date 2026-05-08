@@ -123,6 +123,18 @@ Deno.serve(async (req) => {
     const name = String(t.name || '').trim();
     if (!name) return errResp(400, 'transformation.name is required');
 
+    // Per-event cap as a safety net. Generous — most real events have
+    // 1-5 transformations. Set higher (or remove) if a coach legitimately
+    // needs more.
+    const MAX_TRANSFORMATIONS = 20;
+    const { count } = await supabase
+      .from('transformations')
+      .select('id', { count: 'exact', head: true })
+      .eq('event_id', ev.id);
+    if ((count || 0) >= MAX_TRANSFORMATIONS) {
+      return errResp(409, `event already has the maximum ${MAX_TRANSFORMATIONS} transformations`);
+    }
+
     const baseSlug = slugify(name);
     let tslug = baseSlug;
     for (let i = 0; i < 6; i++) {
