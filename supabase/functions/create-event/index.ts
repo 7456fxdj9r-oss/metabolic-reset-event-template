@@ -1,5 +1,8 @@
 // Generates a unique slug + secret edit_token, then inserts a new event row.
-// Deployed via: supabase functions deploy create-event --no-verify-jwt
+// Optionally verifies a Cloudflare Turnstile token to keep bots out of the
+// Build form — set TURNSTILE_SECRET_KEY in the Edge Function env to turn
+// it on. Without that env, the function happily accepts requests with no
+// token (good for local dev / before Turnstile is wired up).
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
@@ -25,6 +28,26 @@ function slugify(name: string): string {
     .slice(0, 40) || 'event';
 }
 
+async function verifyTurnstile(token: string, ip: string | null): Promise<boolean> {
+  const secret = Deno.env.get('TURNSTILE_SECRET_KEY');
+  if (!secret) return true; // Turnstile disabled — accept everything
+  if (!token) return false;
+  try {
+    const form = new FormData();
+    form.set('secret', secret);
+    form.set('response', token);
+    if (ip) form.set('remoteip', ip);
+    const res = await fetch(
+      'https://challenges.cloudflare.com/turnstile/v0/siteverify',
+      { method: 'POST', body: form },
+    );
+    const data = await res.json();
+    return Boolean(data && data.success);
+  } catch {
+    return false;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 });
@@ -34,6 +57,15 @@ Deno.serve(async (req) => {
   if (!name) {
     return new Response(JSON.stringify({ error: 'name is required' }), {
       status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+    || req.headers.get('cf-connecting-ip') || null;
+  const passed = await verifyTurnstile(String(body.turnstile_token || ''), ip);
+  if (!passed) {
+    return new Response(JSON.stringify({ error: 'captcha verification failed' }), {
+      status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 
@@ -58,7 +90,6 @@ Deno.serve(async (req) => {
     name,
     host_line: body.host_line || null,
     accent_color: body.accent_color || '#f39c12',
-    email: body.email || null,
   });
   if (error) {
     return new Response(JSON.stringify({ error: error.message }), {

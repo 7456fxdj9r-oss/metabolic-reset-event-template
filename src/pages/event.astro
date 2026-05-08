@@ -9,6 +9,7 @@ import Base from '../layouts/Base.astro';
 
 <script>
   import { fetchEventBySlug, fetchTransformations, fetchSpeakers, callFunction } from '../lib/supabase.js';
+  import { cleanUrl } from '../lib/urls.js';
   import QRCode from 'qrcode';
 
   const root = document.getElementById('event-root')!;
@@ -121,7 +122,10 @@ import Base from '../layouts/Base.astro';
         `;
 
         const canvas = document.getElementById('event-qr') as HTMLCanvasElement;
-        QRCode.toCanvas(canvas, window.location.href, {
+        // QR encodes the clean form (/event/<slug>) so it reads cleanly
+        // off a poster. The 404.html SPA-redirect handles the dispatch.
+        const cleanShareUrl = cleanUrl(base, 'event', slug!);
+        QRCode.toCanvas(canvas, cleanShareUrl, {
           width: 200, margin: 1,
           color: { dark: '#ffffff', light: '#1a252f' },
         }).catch(() => {});

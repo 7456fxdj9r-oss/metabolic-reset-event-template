@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Loading…</title>
+  <meta name="theme-color" content="#1a252f">
+  <style>
+    body {
+      background: #1a252f; color: #95a5a6;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, sans-serif;
+      padding: 60px 20px; text-align: center;
+      margin: 0;
+    }
+  </style>
+</head>
+<body>
+  <p>Loading…</p>
+  <script>
+    // Clean-URL → query-string redirect for static GitHub Pages hosting.
+    //
+    // GitHub Pages serves /metabolic-reset-event-template/event/mike → 404
+    // → this page. We parse the path, detect that "event" is one of our
+    // pages and "mike" is a slug, then redirect to
+    // /metabolic-reset-event-template/event/?slug=mike. Same for raffle,
+    // science, speakers, poster, live, wheel.
+    //
+    // Net effect: hosts can hand out https://…/event/mike on a poster /
+    // QR and it Just Works.
+    (function () {
+      var l = window.location;
+      var parts = l.pathname.split('/').filter(Boolean);
+      var pages = ['event', 'raffle', 'science', 'speakers', 'poster', 'live', 'wheel'];
+
+      // The path looks like [...basePath, page, slug] OR
+      // [...basePath, page, slug, sub] for /t/<slug>/<tslug> in the future.
+      // For now we only handle the single-slug form.
+      if (parts.length >= 2) {
+        var page = parts[parts.length - 2];
+        var slug = parts[parts.length - 1];
+        if (pages.indexOf(page) >= 0) {
+          var basePath = '/' + parts.slice(0, -2).join('/');
+          if (basePath !== '/' && basePath.charAt(basePath.length - 1) !== '/') basePath += '/';
+          if (basePath === '//') basePath = '/';
+          var existing = l.search ? l.search.substring(1) + '&' : '';
+          var newUrl = basePath + page + '/?' + existing
+            + 'slug=' + encodeURIComponent(slug) + l.hash;
+          l.replace(newUrl);
+          return;
+        }
+      }
+
+      // Couldn't parse — go home.
+      var fallback = '/' + parts.slice(0, -1).join('/');
+      if (fallback === '/' || fallback === '') {
+        l.replace('/');
+      } else {
+        if (fallback.charAt(fallback.length - 1) !== '/') fallback += '/';
+        l.replace(fallback);
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -19,6 +19,7 @@ import Base from '../layouts/Base.astro';
 
 <script>
   import { fetchEventBySlug, callFunction } from '../lib/supabase.js';
+  import { cleanUrl } from '../lib/urls.js';
   import QRCode from 'qrcode';
 
   const root = document.getElementById('poster-root')!;
@@ -71,7 +72,7 @@ import Base from '../layouts/Base.astro';
           if (primaryHost) primary = { name: primaryHost.name, phone: primaryHost.phone };
         } catch { /* non-fatal */ }
 
-        const eventUrl = `${window.location.origin}${base}event?slug=${encodeURIComponent(slug)}`;
+        const eventUrl = cleanUrl(base, 'event', slug);
         const datePretty = fmtEventDate(event.event_date);
         const today = new Date().toISOString().slice(0, 10);
         const raffleAutoClosed = event.event_date && today > event.event_date;

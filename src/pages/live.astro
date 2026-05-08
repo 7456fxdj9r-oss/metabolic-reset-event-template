@@ -16,6 +16,7 @@ import Base from '../layouts/Base.astro';
   // accepts the token (master edit_token or a co-host's host_token).
   import { fetchEventBySlug, callFunction } from '../lib/supabase.js';
   import { buildRaffleEntriesCsv, downloadCsv } from '../lib/csv.js';
+  import { cleanUrl } from '../lib/urls.js';
   import QRCode from 'qrcode';
 
   type Entry = {
@@ -69,9 +70,12 @@ import Base from '../layouts/Base.astro';
       document.title = `Live · ${event.name}`;
 
       const origin = window.location.origin;
-      raffleUrl = `${origin}${base}raffle?slug=${encodeURIComponent(slug!)}`;
+      // Public URLs use the clean /raffle/<slug>, /wheel/<slug> form so
+      // they read cleanly when projected on a screen at the event.
+      // Internal admin URLs keep ?slug=&key= since they carry secrets.
+      raffleUrl = cleanUrl(base, 'raffle', slug!);
+      wheelViewerUrl = cleanUrl(base, 'wheel', slug!);
       wheelHostUrl = `${origin}${base}wheel?slug=${encodeURIComponent(slug!)}&key=${encodeURIComponent(key!)}`;
-      wheelViewerUrl = `${origin}${base}wheel?slug=${encodeURIComponent(slug!)}`;
       editUrl = `${origin}${base}edit?slug=${encodeURIComponent(slug!)}&key=${encodeURIComponent(key!)}`;
 
       renderShell(event);

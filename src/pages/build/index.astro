@@ -1,5 +1,6 @@
 ---
 import Base from '../../layouts/Base.astro';
+const turnstileSiteKey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY || '';
 ---
 <Base title="Build your event">
   <main class="build">
@@ -25,15 +26,20 @@ import Base from '../../layouts/Base.astro';
         <input type="color" name="accent_color" value="#f39c12" />
       </label>
 
-      <label>
-        Email <span class="opt">(optional — only used to recover your edit link)</span>
-        <input type="email" name="email" placeholder="you@example.com" />
-      </label>
+      {turnstileSiteKey && (
+        <div class="turnstile-wrap">
+          <div class="cf-turnstile" data-sitekey={turnstileSiteKey} data-theme="dark"></div>
+        </div>
+      )}
 
       <button type="submit" id="submit-btn">Build my event</button>
       <p id="status" role="status" aria-live="polite"></p>
     </form>
   </main>
+
+  {turnstileSiteKey && (
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+  )}
 </Base>
 
 <script>
@@ -56,12 +62,18 @@ import Base from '../../layouts/Base.astro';
     btn.disabled = true;
     status.textContent = 'Building…';
     const fd = new FormData(form);
+
+    // If the Turnstile widget rendered, grab the token. The widget
+    // injects an <input name="cf-turnstile-response"> so it shows up
+    // in FormData automatically; we relay it as turnstile_token.
+    const turnstileToken = fd.get('cf-turnstile-response') || '';
+
     try {
       const { slug, edit_token } = await callFunction('create-event', {
         name: fd.get('name'),
         host_line: fd.get('host_line'),
         accent_color: fd.get('accent_color'),
-        email: fd.get('email') || null,
+        turnstile_token: turnstileToken,
       });
       const params = new URLSearchParams({ slug, key: edit_token });
       window.location.href = `${base}build/success?${params.toString()}`;
@@ -96,6 +108,7 @@ import Base from '../../layouts/Base.astro';
   }
   input[type="color"] { padding: 4px; height: 40px; width: 64px; }
   input:focus { outline: 2px solid #f39c12; outline-offset: 1px; }
+  .turnstile-wrap { margin: 4px 0; min-height: 65px; }
   button {
     margin-top: 6px; padding: 14px; background: #f39c12; color: #1a252f;
     border: none; border-radius: 8px; font-weight: 800; font-size: 16px;

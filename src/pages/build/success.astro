@@ -72,6 +72,7 @@ import Base from '../../layouts/Base.astro';
 
 <script>
   import QRCode from 'qrcode';
+  import { cleanUrl } from '../../lib/urls.js';
 
   const params = new URLSearchParams(window.location.search);
   const slug = params.get('slug');
@@ -83,7 +84,10 @@ import Base from '../../layouts/Base.astro';
       '<p>Missing slug or key in the URL. Was the event created successfully?</p>';
   } else {
     const origin = window.location.origin;
-    const publicUrl = `${origin}${base}event?slug=${encodeURIComponent(slug)}`;
+    // Public URL is the clean form (resolves via 404 SPA-redirect on
+    // GitHub Pages). Edit URL stays in ?slug=&key= form so the host
+    // token is reliably preserved as a query param.
+    const publicUrl = cleanUrl(base, 'event', slug);
     const editUrl = `${origin}${base}edit?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}`;
     (document.getElementById('public-url') as HTMLInputElement).value = publicUrl;
     (document.getElementById('edit-url') as HTMLInputElement).value = editUrl;

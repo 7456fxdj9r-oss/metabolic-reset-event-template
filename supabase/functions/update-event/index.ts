@@ -58,8 +58,6 @@ Deno.serve(async (req) => {
   }
   if ('host_line' in body) patch.host_line = body.host_line || null;
   if ('accent_color' in body) patch.accent_color = body.accent_color || '#f39c12';
-  if ('email' in body) patch.email = body.email || null;
-  if ('science_url' in body) patch.science_url = body.science_url || null;
   if ('event_date' in body) patch.event_date = body.event_date || null;
   if ('raffle_status' in body) {
     const s = String(body.raffle_status || 'closed');
@@ -72,7 +70,6 @@ Deno.serve(async (req) => {
   if ('raffle_prize_photo_url' in body) patch.raffle_prize_photo_url = body.raffle_prize_photo_url || null;
   for (const k of [
     'organizer_name', 'organizer_email', 'organizer_phone', 'organizer_website', 'organizer_bio',
-    'social_instagram', 'social_facebook', 'social_tiktok', 'social_youtube', 'social_linkedin',
   ]) {
     if (k in body) patch[k] = body[k] || null;
   }
