@@ -80,6 +80,12 @@ export async function fetchSpeakers(eventId) {
   );
 }
 
+export async function fetchAgendaItems(eventId) {
+  return request(
+    `/rest/v1/agenda_items?event_id=eq.${eventId}&select=*&order=display_order.asc`
+  );
+}
+
 // Calls a Supabase Edge Function (writes go here so the function can verify
 // the edit_token). See docs/SUPABASE_SETUP.md for the function templates.
 export async function callFunction(name, body) {

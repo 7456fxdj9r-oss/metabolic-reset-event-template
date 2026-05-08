@@ -1,0 +1,259 @@
+---
+// Print-optimized run-of-show cue sheet for the host. Letter landscape,
+// dense type, accent stripe at top — fits the agenda on one page for a
+// typical event. Browser's "Save as PDF" handles the file output.
+import Base from '../layouts/Base.astro';
+---
+<Base title="Cue sheet">
+  <div class="page-controls" id="page-controls">
+    <a class="back" id="back-link" href="#">← Back</a>
+    <button id="print-btn" type="button">🖨 Print or Save as PDF</button>
+    <p class="hint">Tip: pick <strong>Landscape</strong> orientation, set <strong>Background graphics</strong> ON, choose <strong>Save as PDF</strong> as destination if you want a file.</p>
+  </div>
+
+  <main class="cue" id="cue-root">
+    <p class="loading">Loading cue sheet…</p>
+  </main>
+</Base>
+
+<script>
+  import { fetchEventBySlug, fetchAgendaItems } from '../lib/supabase.js';
+
+  const root = document.getElementById('cue-root')!;
+  const base = import.meta.env.BASE_URL;
+  const params = new URLSearchParams(window.location.search);
+  const slug = params.get('slug');
+  const key = params.get('key');
+
+  function escapeHtml(s: unknown): string {
+    return String(s ?? '').replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
+    );
+  }
+
+  function fmtEventDate(d: string | null): string {
+    if (!d) return '';
+    const dt = new Date(d + 'T00:00:00');
+    if (isNaN(dt.getTime())) return d;
+    return dt.toLocaleDateString(undefined, {
+      weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+    });
+  }
+
+  if (!slug) {
+    root.innerHTML = '<p class="loading err">No event specified.</p>';
+  } else {
+    (async () => {
+      try {
+        const event = await fetchEventBySlug(slug);
+        if (!event) {
+          root.innerHTML = '<p class="loading err">Event not found.</p>';
+          return;
+        }
+        document.title = `Cue sheet — ${event.name}`;
+        const accent = event.accent_color || '#f39c12';
+        document.documentElement.style.setProperty('--accent', accent);
+
+        const back = document.getElementById('back-link') as HTMLAnchorElement;
+        back.href = key
+          ? `${base}edit?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}`
+          : `${base}event?slug=${encodeURIComponent(slug)}`;
+        back.textContent = key ? '← Back to edit page' : '← Back to event';
+
+        const items = await fetchAgendaItems(event.id);
+
+        const datePretty = fmtEventDate(event.event_date);
+        const rows = items.map((it: {
+          time_label: string; segment: string; speaker: string | null; details: string | null;
+        }) => `
+          <tr>
+            <td class="time">${escapeHtml(it.time_label)}</td>
+            <td class="segment">${escapeHtml(it.segment)}</td>
+            <td class="speaker">${escapeHtml(it.speaker || '—')}</td>
+            <td class="details">${escapeHtml(it.details || '')}</td>
+          </tr>
+        `).join('');
+
+        root.innerHTML = `
+          <article class="sheet">
+            <header class="sheet-top">
+              <div>
+                <p class="kicker">Run of Show — Cue Sheet</p>
+                <h1>${escapeHtml(event.name)}</h1>
+                ${event.host_line ? `<p class="loc">📍 ${escapeHtml(event.host_line)}</p>` : ''}
+              </div>
+              <div class="meta">
+                ${datePretty ? `<p class="date">${escapeHtml(datePretty)}</p>` : ''}
+                <p class="printed">Printed ${escapeHtml(new Date().toLocaleString())}</p>
+              </div>
+            </header>
+
+            ${items.length === 0
+              ? '<p class="empty">No agenda items yet — add some on the edit page.</p>'
+              : `<table class="schedule">
+                  <thead>
+                    <tr>
+                      <th class="time">Time</th>
+                      <th class="segment">Segment</th>
+                      <th class="speaker">Speaker / Lead</th>
+                      <th class="details">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${rows}
+                  </tbody>
+                </table>`}
+
+            <footer class="sheet-bottom">
+              <span>Public URL: ${escapeHtml(window.location.origin + base + 'event?slug=' + encodeURIComponent(slug))}</span>
+            </footer>
+          </article>
+        `;
+
+        document.getElementById('print-btn')!.addEventListener('click', () => window.print());
+      } catch (err) {
+        root.innerHTML = `<p class="loading err">${escapeHtml((err as Error).message)}</p>`;
+      }
+    })();
+  }
+</script>
+
+<style is:global>
+  :root { --accent: #f39c12; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: #2c3e50; color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  }
+  body { padding: 20px 14px 60px; line-height: 1.4; }
+
+  .page-controls {
+    max-width: 11in; margin: 0 auto 16px;
+    background: rgba(0,0,0,0.30);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 10px; padding: 14px 16px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  }
+  .page-controls .back {
+    color: #ecf0f1; text-decoration: none;
+    padding: 8px 14px; font-size: 13px; font-weight: 600;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.15); border-radius: 6px;
+  }
+  .page-controls #print-btn {
+    padding: 10px 18px; font-size: 14px; font-weight: 800;
+    background: var(--accent); color: #1a252f;
+    border: none; border-radius: 8px; cursor: pointer;
+  }
+  .page-controls .hint {
+    flex-basis: 100%;
+    font-size: 12px; color: #95a5a6; line-height: 1.5;
+  }
+  .page-controls .hint strong { color: #ecf0f1; }
+
+  /* Letter landscape sheet */
+  main.cue { display: flex; justify-content: center; }
+  .sheet {
+    width: 11in;
+    min-height: 8.5in;
+    background: #ffffff;
+    color: #1a252f;
+    padding: 0.4in 0.45in 0.4in;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.35);
+    display: flex; flex-direction: column;
+    position: relative;
+    overflow: hidden;
+  }
+  .sheet::before {
+    content: ""; position: absolute;
+    top: 0; left: 0; right: 0; height: 8px;
+    background: var(--accent);
+  }
+
+  .sheet-top {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    border-bottom: 2px solid var(--accent);
+    padding: 6px 0 8px;
+    margin-bottom: 10px;
+  }
+  .kicker {
+    font-size: 9pt; letter-spacing: 3px;
+    text-transform: uppercase; font-weight: 800;
+    color: var(--accent); margin-bottom: 4px;
+  }
+  .sheet h1 {
+    font-size: 18pt; line-height: 1.05;
+    color: #1a252f; font-weight: 800;
+    margin-bottom: 2px;
+  }
+  .sheet .loc { font-size: 9pt; color: #34495e; font-weight: 600; }
+  .sheet-top .meta { text-align: right; }
+  .sheet-top .date { font-size: 10pt; color: #1a252f; font-weight: 700; }
+  .sheet-top .printed { font-size: 7.5pt; color: #95a5a6; font-style: italic; margin-top: 2px; }
+
+  /* The schedule table */
+  table.schedule {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 8.5pt;
+    line-height: 1.32;
+  }
+  table.schedule thead th {
+    background: var(--accent);
+    color: #1a252f;
+    text-align: left;
+    padding: 5px 7px;
+    font-size: 8pt;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    border-bottom: 2px solid #1a252f;
+  }
+  table.schedule tbody td {
+    padding: 6px 7px;
+    border-bottom: 1px solid #d8dde1;
+    vertical-align: top;
+  }
+  table.schedule tbody tr:nth-child(even) td { background: #fef8ee; }
+  table.schedule td.time {
+    font-weight: 800; color: var(--accent);
+    white-space: nowrap; width: 0.7in;
+  }
+  table.schedule td.segment {
+    font-weight: 700; color: #1a252f;
+    width: 1.9in;
+  }
+  table.schedule td.speaker {
+    color: #34495e; font-style: italic;
+    width: 1.3in;
+  }
+  table.schedule td.details {
+    color: #1a252f;
+  }
+
+  .sheet-bottom {
+    margin-top: auto; padding-top: 10px;
+    border-top: 1px solid #ecf0f1;
+    font-size: 7.5pt; color: #95a5a6;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .empty {
+    padding: 60px 20px; text-align: center;
+    color: #7f8c8d; font-style: italic;
+  }
+
+  .loading { color: #95a5a6; text-align: center; padding: 60px 0; font-size: 14px; }
+  .loading.err { color: #e74c3c; }
+
+  @media print {
+    @page { size: letter landscape; margin: 0; }
+    html, body { background: #ffffff; padding: 0; margin: 0; }
+    .page-controls { display: none !important; }
+    .sheet {
+      box-shadow: none;
+      width: 100%;
+      min-height: 100vh;
+      page-break-inside: avoid;
+    }
+  }
+</style>

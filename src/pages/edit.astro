@@ -22,7 +22,7 @@ import Base from '../layouts/Base.astro';
 </Base>
 
 <script>
-  import { fetchEventBySlug, fetchTransformations, fetchDataPoints, fetchSpeakers, callFunction } from '../lib/supabase.js';
+  import { fetchEventBySlug, fetchTransformations, fetchDataPoints, fetchSpeakers, fetchAgendaItems, callFunction } from '../lib/supabase.js';
   import { drawMultiChart } from '../lib/chart.js';
   import { buildRaffleEntriesCsv, downloadCsv } from '../lib/csv.js';
   import QRCode from 'qrcode';
@@ -519,6 +519,18 @@ import Base from '../layouts/Base.astro';
           </section>
 
           <section class="card">
+            <h2>Agenda / Run of Show</h2>
+            <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;">
+              Used by the printable cue sheet (host's run-of-show). Each row gets a time, a
+              segment name, an optional speaker/lead, and free-form details. Empty agenda
+              hides the cue sheet button.
+            </p>
+            <button id="add-a-btn" type="button" class="add-btn">+ Add agenda item</button>
+            <div id="a-form-host"></div>
+            <ul id="a-list" class="t-list"></ul>
+          </section>
+
+          <section class="card">
             <h2>Raffle</h2>
             <form id="raffle-form" novalidate>
               <label>
@@ -556,6 +568,7 @@ import Base from '../layouts/Base.astro';
               <a class="wheel-link host" href="${base}wheel?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}" target="_blank" rel="noopener">🎡 Open the wheel (host)</a>
               <a class="wheel-link viewer" href="${base}wheel?slug=${encodeURIComponent(slug)}" target="_blank" rel="noopener">👀 Audience view</a>
               <a class="wheel-link poster" href="${base}poster?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}" target="_blank" rel="noopener">🖨 Print poster</a>
+              <a class="wheel-link poster" href="${base}cue?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}" target="_blank" rel="noopener">📋 Print cue sheet</a>
             </div>
 
             <h3 class="raffle-entries-h">
@@ -1743,6 +1756,153 @@ import Base from '../layouts/Base.astro';
         });
 
         loadHosts();
+
+        // ---------- Agenda / cue sheet ----------
+        type AgendaItem = {
+          id: string;
+          time_label: string;
+          segment: string;
+          speaker: string | null;
+          details: string | null;
+          display_order: number;
+        };
+        let agenda: AgendaItem[] = await fetchAgendaItems(ev.id);
+
+        const aList = document.getElementById('a-list')!;
+        const aFormHost = document.getElementById('a-form-host')!;
+        const addABtn = document.getElementById('add-a-btn') as HTMLButtonElement;
+
+        function agendaFormHtml(it?: AgendaItem): string {
+          const v = it || ({} as Partial<AgendaItem>);
+          return `
+            <form class="t-form" ${it ? `data-id="${it.id}"` : ''} novalidate>
+              <h3>${it ? 'Edit agenda item' : 'New agenda item'}</h3>
+              <div class="grid-2">
+                <label>
+                  Time
+                  <input name="time_label" required maxlength="40" value="${escapeHtml(v.time_label || '')}" placeholder="9:00 AM" />
+                </label>
+                <label>
+                  Speaker / Lead
+                  <input name="speaker" maxlength="120" value="${escapeHtml(v.speaker || '')}" placeholder="Matt" />
+                </label>
+              </div>
+              <label>
+                Segment
+                <input name="segment" required maxlength="200" value="${escapeHtml(v.segment || '')}" placeholder="Welcome & MC Kickoff" />
+              </label>
+              <label>
+                Details
+                <textarea name="details" rows="3" maxlength="2000" placeholder="What happens during this segment.">${escapeHtml(v.details || '')}</textarea>
+              </label>
+              <div class="row">
+                <button type="submit">${it ? 'Save changes' : 'Create'}</button>
+                <button type="button" class="cancel">${it ? 'Done' : 'Cancel'}</button>
+                <span class="t-status" role="status" aria-live="polite"></span>
+              </div>
+            </form>`;
+        }
+
+        function agendaRowHtml(it: AgendaItem): string {
+          return `
+            <li class="t-row" data-id="${it.id}">
+              <div class="t-thumb empty" style="background:rgba(243,156,18,0.18);color:var(--accent,#f39c12);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;border-radius:6px;width:56px;height:auto;min-height:44px;padding:4px;text-align:center;line-height:1.1;border:none;">${escapeHtml(it.time_label)}</div>
+              <div class="t-info">
+                <strong>${escapeHtml(it.segment)}</strong>
+                ${it.speaker ? `<span class="t-meta">${escapeHtml(it.speaker)}</span>` : ''}
+                ${it.details ? `<span class="t-meta">${escapeHtml(it.details.slice(0, 90))}${it.details.length > 90 ? '…' : ''}</span>` : ''}
+              </div>
+              <div class="t-actions">
+                <button class="edit" data-id="${it.id}">Edit</button>
+                <button class="del" data-id="${it.id}">Delete</button>
+              </div>
+            </li>`;
+        }
+
+        function renderAgendaList() {
+          aList.innerHTML = agenda.length === 0
+            ? '<li class="t-empty">No agenda items yet — print cue sheet stays hidden until you add some.</li>'
+            : agenda.map(agendaRowHtml).join('');
+        }
+
+        function showAgendaForm(it?: AgendaItem) {
+          aFormHost.innerHTML = agendaFormHtml(it);
+          addABtn.style.display = 'none';
+          const f = aFormHost.querySelector('form.t-form') as HTMLFormElement;
+          f.addEventListener('submit', (e) => handleAgendaSubmit(e, it));
+          f.querySelector('button.cancel')!.addEventListener('click', hideAgendaForm);
+          if (!it) (f.querySelector('input[name=time_label]') as HTMLInputElement).focus();
+        }
+        function hideAgendaForm() {
+          aFormHost.innerHTML = '';
+          addABtn.style.display = '';
+        }
+
+        async function handleAgendaSubmit(submitEv: Event, editing?: AgendaItem) {
+          submitEv.preventDefault();
+          const formEl = submitEv.target as HTMLFormElement;
+          const fd = new FormData(formEl);
+          const tStatus = formEl.querySelector('.t-status') as HTMLSpanElement;
+          const submit = formEl.querySelector('button[type=submit]') as HTMLButtonElement;
+          submit.disabled = true;
+          tStatus.textContent = 'Saving…';
+          tStatus.className = 't-status';
+          const item: Record<string, unknown> = {
+            time_label: fd.get('time_label'),
+            segment: fd.get('segment'),
+            speaker: fd.get('speaker') || null,
+            details: fd.get('details') || null,
+          };
+          if (editing) item.id = editing.id;
+          try {
+            const res = await callFunction('manage-agenda', {
+              action: editing ? 'update' : 'add',
+              slug, edit_token: key, item,
+            });
+            const saved = res.item as AgendaItem;
+            agenda = editing
+              ? agenda.map((x) => (x.id === saved.id ? saved : x))
+              : [...agenda, saved];
+            agenda.sort((a, b) => a.display_order - b.display_order);
+            renderAgendaList();
+            hideAgendaForm();
+          } catch (err) {
+            const msg = (err as Error).message;
+            tStatus.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+            tStatus.className = 't-status err';
+            submit.disabled = false;
+          }
+        }
+
+        async function handleAgendaDelete(id: string) {
+          const it = agenda.find((x) => x.id === id);
+          if (!it) return;
+          if (!confirm(`Delete the "${it.segment}" agenda item?`)) return;
+          try {
+            await callFunction('manage-agenda', {
+              action: 'delete', slug, edit_token: key, item_id: id,
+            });
+            agenda = agenda.filter((x) => x.id !== id);
+            renderAgendaList();
+          } catch (err) {
+            alert('Could not delete: ' + (err as Error).message);
+          }
+        }
+
+        addABtn.addEventListener('click', () => showAgendaForm());
+        aList.addEventListener('click', (clickEv) => {
+          const target = clickEv.target as HTMLElement;
+          if (target.tagName !== 'BUTTON') return;
+          const id = target.getAttribute('data-id');
+          if (!id) return;
+          if (target.classList.contains('edit')) {
+            const it = agenda.find((x) => x.id === id);
+            if (it) showAgendaForm(it);
+          } else if (target.classList.contains('del')) {
+            handleAgendaDelete(id);
+          }
+        });
+        renderAgendaList();
 
         // ---------- Share & save links section ----------
         const origin = window.location.origin;
