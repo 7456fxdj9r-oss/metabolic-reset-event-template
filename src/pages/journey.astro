@@ -1,0 +1,316 @@
+---
+// "Reset · Refine · Renew" — the OPTAVIA-style metabolic-health journey
+// framing. Three phone-first accordion buttons; tap one to expand the
+// full phase content. Optional ?slug= so the back link returns to the
+// event the visitor came from.
+import Base from '../layouts/Base.astro';
+---
+<Base title="The Journey — Reset · Refine · Renew">
+  <div class="wrap">
+    <div class="top-back" id="top-back-host"></div>
+
+    <header class="top">
+      <p class="eyebrow">Reset · Refine · Renew</p>
+      <h1>The Journey</h1>
+      <p class="lede">From metabolic dysfunction to a life renewed.</p>
+    </header>
+
+    <section class="phases">
+      <article class="phase phase-reset" data-open="false">
+        <button type="button" class="phase-head" aria-expanded="false" aria-controls="phase-reset-body">
+          <span class="phase-num">1</span>
+          <span class="phase-titles">
+            <span class="phase-name">Reset</span>
+            <span class="phase-sub">Heal and rebalance your metabolism</span>
+          </span>
+          <span class="phase-chev" aria-hidden="true">▼</span>
+        </button>
+        <div class="phase-body" id="phase-reset-body" hidden>
+          <p class="phase-tag">The Targeted Reset™ phase</p>
+          <p>Reverse metabolic dysfunction through structured nutrition and targeted fat loss.</p>
+          <h3>Focus</h3>
+          <ul>
+            <li>Reducing visceral fat (the "bad fat")</li>
+            <li>Balancing blood sugar and hunger hormones</li>
+            <li>Preserving lean muscle</li>
+            <li>Improving energy, sleep, inflammation, and cravings</li>
+            <li>Creating structure and consistency</li>
+          </ul>
+          <p class="pull-quote">"Strong, targeted fat burn — moving from metabolic dysfunction into synchronization."</p>
+          <p class="connected">
+            Connected to: <strong>the 5&nbsp;&amp;&nbsp;1 Plan®</strong>, fat loss, body composition change,
+            clinical science around visceral fat reduction and lean mass preservation.
+          </p>
+        </div>
+      </article>
+
+      <article class="phase phase-refine" data-open="false">
+        <button type="button" class="phase-head" aria-expanded="false" aria-controls="phase-refine-body">
+          <span class="phase-num">2</span>
+          <span class="phase-titles">
+            <span class="phase-name">Refine</span>
+            <span class="phase-sub">Strengthen and optimize your health</span>
+          </span>
+          <span class="phase-chev" aria-hidden="true">▼</span>
+        </button>
+        <div class="phase-body" id="phase-refine-body" hidden>
+          <p class="phase-tag">The optimization phase</p>
+          <p>Fine-tune health, habits, body composition, and lifestyle after the initial reset.</p>
+          <h3>Focus</h3>
+          <ul>
+            <li>Refining habits</li>
+            <li>Strengthening metabolism</li>
+            <li>Building muscle and improving body composition</li>
+            <li>Learning flexibility without losing results</li>
+            <li>Improving performance, confidence, and sustainability</li>
+          </ul>
+          <p class="pull-quote">"Dialing in your health — building a lifestyle, not just losing weight."</p>
+          <p class="connected">
+            This is where people <strong>increase healthy whole foods strategically</strong>, build
+            movement and strength training, learn long-term metabolic habits, and transition toward
+            optimization plans and maintenance support.
+          </p>
+        </div>
+      </article>
+
+      <article class="phase phase-renew" data-open="false">
+        <button type="button" class="phase-head" aria-expanded="false" aria-controls="phase-renew-body">
+          <span class="phase-num">3</span>
+          <span class="phase-titles">
+            <span class="phase-name">Renew</span>
+            <span class="phase-sub">Live fully energized and transformed</span>
+          </span>
+          <span class="phase-chev" aria-hidden="true">▼</span>
+        </button>
+        <div class="phase-body" id="phase-renew-body" hidden>
+          <p class="phase-tag">The longevity and lifestyle phase</p>
+          <p>Living fully renewed — physically, mentally, emotionally, and energetically.</p>
+          <h3>Focus</h3>
+          <ul>
+            <li>Lifelong health</li>
+            <li>Sustainable habits</li>
+            <li>Purpose-driven living</li>
+            <li>Showing up as your best self</li>
+            <li>Leading your family and community well</li>
+          </ul>
+          <p class="pull-quote">"Thriving, not just surviving — energy, purpose, longevity."</p>
+          <p class="connected">
+            This is where clients become <strong>examples for their families</strong>, leaders in
+            their homes, mentors and coaches to others — focused on vitality, aging well, and impact.
+          </p>
+        </div>
+      </article>
+    </section>
+
+    <section class="tagline">
+      <p><strong>Reset</strong> your metabolism.</p>
+      <p><strong>Refine</strong> your habits.</p>
+      <p><strong>Renew</strong> your life.</p>
+    </section>
+
+    <div class="footer-cta" id="footer-cta">
+      <a href={import.meta.env.BASE_URL} class="secondary">← Home</a>
+    </div>
+  </div>
+</Base>
+
+<script>
+  // Accordion: tapping a phase header opens it and closes the others so
+  // the page stays compact on a phone. Tapping the same header again
+  // closes it (no always-one-open requirement).
+  const params = new URLSearchParams(window.location.search);
+  const slug = params.get('slug');
+  const base = import.meta.env.BASE_URL;
+  const backHref = slug ? `${base}event?slug=${encodeURIComponent(slug)}` : base;
+  const backLabel = slug ? '← Back to the event' : '← Home';
+  document.getElementById('top-back-host')!.innerHTML =
+    `<a href="${backHref}" class="back-link">${backLabel}</a>`;
+  if (slug) {
+    document.getElementById('footer-cta')!.innerHTML =
+      `<a href="${backHref}" class="secondary">${backLabel}</a>`;
+  }
+
+  document.querySelectorAll<HTMLElement>('article.phase').forEach((card) => {
+    const head = card.querySelector('.phase-head') as HTMLButtonElement;
+    const body = card.querySelector('.phase-body') as HTMLElement;
+    head.addEventListener('click', () => {
+      const willOpen = card.dataset.open !== 'true';
+      // Close all others
+      document.querySelectorAll<HTMLElement>('article.phase').forEach((other) => {
+        other.dataset.open = 'false';
+        const ohead = other.querySelector('.phase-head') as HTMLButtonElement;
+        const obody = other.querySelector('.phase-body') as HTMLElement;
+        ohead.setAttribute('aria-expanded', 'false');
+        obody.hidden = true;
+      });
+      // Open this one if it was closed
+      if (willOpen) {
+        card.dataset.open = 'true';
+        head.setAttribute('aria-expanded', 'true');
+        body.hidden = false;
+        // Scroll the opened card into view on small screens
+        setTimeout(() => head.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+      }
+    });
+  });
+</script>
+
+<style is:global>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: #1a252f; color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  body { padding: 20px 14px 40px; line-height: 1.5; }
+  .wrap { max-width: 540px; margin: 0 auto; }
+
+  .top-back { margin-bottom: 14px; }
+  .top-back a.back-link {
+    display: inline-block;
+    padding: 8px 12px;
+    color: #ecf0f1; text-decoration: none;
+    font-size: 13px; font-weight: 600;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+  }
+
+  .top { text-align: center; margin-bottom: 22px; }
+  .eyebrow {
+    font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
+    color: #f39c12; font-weight: 700; margin-bottom: 6px;
+  }
+  h1 {
+    color: #fff; font-size: 30px;
+    margin: 0 0 8px; letter-spacing: 0.5px; line-height: 1.15;
+  }
+  .lede { font-size: 15px; color: #bdc3c7; font-style: italic; }
+
+  .phases { display: grid; gap: 12px; }
+  .phase {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    overflow: hidden;
+    transition: border-color 0.2s ease, background 0.2s ease;
+  }
+  .phase[data-open="true"] {
+    background: rgba(243,156,18,0.06);
+    border-color: rgba(243,156,18,0.45);
+  }
+  .phase-head {
+    width: 100%;
+    background: transparent; border: none; cursor: pointer;
+    padding: 18px 16px;
+    display: grid;
+    grid-template-columns: 44px 1fr 24px;
+    gap: 12px; align-items: center;
+    color: #fff; font-family: inherit; text-align: left;
+  }
+  .phase-num {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.06);
+    color: #ecf0f1;
+    font-weight: 800; font-size: 18px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .phase[data-open="true"] .phase-num {
+    background: #f39c12; color: #1a252f;
+  }
+  .phase-titles { display: grid; gap: 2px; min-width: 0; }
+  .phase-name {
+    font-size: 22px; font-weight: 800; color: #fff;
+    letter-spacing: 0.5px; text-transform: uppercase;
+  }
+  .phase[data-open="true"] .phase-name { color: #f39c12; }
+  .phase-sub { font-size: 13px; color: #bdc3c7; }
+  .phase-chev {
+    color: #95a5a6;
+    transition: transform 0.2s ease;
+    text-align: center;
+  }
+  .phase[data-open="true"] .phase-chev {
+    transform: rotate(180deg);
+    color: #f39c12;
+  }
+  .phase-body {
+    padding: 0 18px 18px 18px;
+    color: #ecf0f1;
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  .phase-body p { margin-bottom: 10px; }
+  .phase-tag {
+    display: inline-block;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    background: rgba(243,156,18,0.18);
+    color: #f39c12;
+    padding: 4px 10px;
+    border-radius: 8px;
+    font-weight: 800;
+    margin-bottom: 12px !important;
+  }
+  .phase-body h3 {
+    color: #ecf0f1; font-size: 12px;
+    text-transform: uppercase; letter-spacing: 1.5px;
+    margin: 14px 0 8px;
+  }
+  .phase-body ul {
+    list-style: none; padding: 0; margin: 0 0 12px;
+    display: grid; gap: 4px;
+  }
+  .phase-body ul li {
+    padding: 6px 10px;
+    background: rgba(0,0,0,0.20);
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  .phase-body .pull-quote {
+    border-left: 3px solid #f39c12;
+    background: rgba(243,156,18,0.08);
+    padding: 10px 14px;
+    margin: 12px 0 !important;
+    font-size: 14px;
+    color: #ecf0f1;
+    border-radius: 0 8px 8px 0;
+    font-style: italic;
+  }
+  .phase-body .connected {
+    font-size: 13px;
+    color: #bdc3c7;
+  }
+  .phase-body .connected strong { color: #f39c12; }
+
+  .tagline {
+    text-align: center;
+    margin-top: 28px;
+    padding: 22px 16px;
+    background: rgba(243,156,18,0.06);
+    border: 1px solid rgba(243,156,18,0.30);
+    border-radius: 12px;
+  }
+  .tagline p {
+    font-size: 17px;
+    color: #ecf0f1;
+    margin: 4px 0;
+    line-height: 1.5;
+  }
+  .tagline strong {
+    color: #f39c12; font-weight: 800;
+    letter-spacing: 0.5px;
+  }
+
+  .footer-cta { display: grid; gap: 10px; margin-top: 22px; }
+  .footer-cta a {
+    display: block; padding: 12px;
+    color: #ecf0f1; text-align: center; text-decoration: none;
+    font-weight: 600; font-size: 14px;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.20);
+    border-radius: 8px;
+  }
+</style>
