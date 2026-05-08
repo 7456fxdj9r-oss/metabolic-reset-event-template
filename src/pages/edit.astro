@@ -572,10 +572,7 @@ import Base from '../layouts/Base.astro';
 
           <section class="card">
             <h2>Co-hosts</h2>
-            <p class="hosts-blurb">
-              Add other people who should be able to edit this event. Each co-host gets
-              their own private edit URL. Only you (the original host) can add or remove.
-            </p>
+            <p class="hosts-blurb" id="hosts-blurb"></p>
             <div id="hosts-add-host" class="hosts-add-section"></div>
             <ul id="hosts-list" class="hosts-list">
               <li class="hosts-loading">Loading co-hosts…</li>
@@ -1598,6 +1595,7 @@ import Base from '../layouts/Base.astro';
         };
         const hostsList = document.getElementById('hosts-list')!;
         const hostsAddSection = document.getElementById('hosts-add-host')!;
+        const hostsBlurb = document.getElementById('hosts-blurb')!;
         let isMaster = false;
 
         function hostUrl(token: string): string {
@@ -1606,6 +1604,17 @@ import Base from '../layouts/Base.astro';
         }
 
         function renderHosts(hosts: Host[]) {
+          // Role-correct blurb. Master sees the "add other people" pitch
+          // and the form. Co-hosts see a clear "you can't manage hosts"
+          // explainer instead — and no form. The misleading master-only
+          // copy used to render for everyone.
+          if (isMaster) {
+            hostsBlurb.textContent = 'Add other people who should be able to edit this event. Each co-host gets their own private edit URL. Only you (the original host) can add or remove.';
+            hostsBlurb.style.fontStyle = '';
+          } else {
+            hostsBlurb.textContent = 'You are a co-host on this event. You can edit everything else, but only the original host can add or remove co-hosts.';
+            hostsBlurb.style.fontStyle = 'italic';
+          }
           if (isMaster) {
             hostsAddSection.innerHTML = `
               <form id="add-host-form" class="add-host-form" novalidate>
@@ -1631,8 +1640,8 @@ import Base from '../layouts/Base.astro';
             const addForm = document.getElementById('add-host-form') as HTMLFormElement;
             addForm.addEventListener('submit', handleAddHost);
           } else {
-            hostsAddSection.innerHTML =
-              '<p class="hosts-blurb" style="font-style:italic;">You are a co-host on this event. Only the original host can add or remove other co-hosts.</p>';
+            // Co-host: no add form. The blurb above already says why.
+            hostsAddSection.innerHTML = '';
           }
 
           if (hosts.length === 0) {
