@@ -530,6 +530,22 @@ import Base from '../layouts/Base.astro';
             <ul id="a-list" class="t-list"></ul>
           </section>
 
+          <section class="card day-of-card">
+            <h2>Day-of toolkit</h2>
+            <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;">
+              Everything you'll open the morning of your event. Live dashboard
+              tracks entries; the wheel is for drawings; print materials go on
+              the wall and at the host table.
+            </p>
+            <div class="wheel-links">
+              <a class="wheel-link live" href="${base}live?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}" target="_blank" rel="noopener">📊 Live event dashboard</a>
+              <a class="wheel-link host" href="${base}wheel?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}" target="_blank" rel="noopener">🎡 Open the wheel (host)</a>
+              <a class="wheel-link viewer" href="${base}wheel?slug=${encodeURIComponent(slug)}" target="_blank" rel="noopener">👀 Audience view</a>
+              <a class="wheel-link poster" href="${base}poster?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}" target="_blank" rel="noopener">🖨 Print poster</a>
+              <a class="wheel-link poster" href="${base}cue?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}" target="_blank" rel="noopener">📋 Print cue sheet</a>
+            </div>
+          </section>
+
           <section class="card">
             <h2>Raffle</h2>
             <form id="raffle-form" novalidate>
@@ -562,14 +578,6 @@ import Base from '../layouts/Base.astro';
                 <span id="raffle-save-status" role="status" aria-live="polite"></span>
               </div>
             </form>
-
-            <div class="wheel-links">
-              <a class="wheel-link live" href="${base}live?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}" target="_blank" rel="noopener">📊 Live event dashboard</a>
-              <a class="wheel-link host" href="${base}wheel?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}" target="_blank" rel="noopener">🎡 Open the wheel (host)</a>
-              <a class="wheel-link viewer" href="${base}wheel?slug=${encodeURIComponent(slug)}" target="_blank" rel="noopener">👀 Audience view</a>
-              <a class="wheel-link poster" href="${base}poster?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}" target="_blank" rel="noopener">🖨 Print poster</a>
-              <a class="wheel-link poster" href="${base}cue?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}" target="_blank" rel="noopener">📋 Print cue sheet</a>
-            </div>
 
             <h3 class="raffle-entries-h">
               Entries <span class="entry-count" id="entry-count">—</span>

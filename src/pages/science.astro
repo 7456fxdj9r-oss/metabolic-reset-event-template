@@ -116,9 +116,10 @@ import Base from '../layouts/Base.astro';
 
 <script>
   // If the visitor came from an event page, swap the generic "Home" link
-  // for a link back to that event so they can keep browsing transformations.
-  // Also drop a matching back link at the very top of the page so a long
-  // scroll isn't required to escape.
+  // for a link back to that event AND adopt the event's accent color so
+  // every screen they touch shares the same branding.
+  import { fetchEventBySlug } from '../lib/supabase.js';
+
   const params = new URLSearchParams(window.location.search);
   const slug = params.get('slug');
   const base = import.meta.env.BASE_URL;
@@ -133,6 +134,14 @@ import Base from '../layouts/Base.astro';
   if (slug) {
     document.getElementById('footer-cta')!.innerHTML =
       `<a href="${backHref}" class="secondary">${backLabel}</a>`;
+    // Adopt the event's accent color (non-fatal if the fetch fails)
+    fetchEventBySlug(slug)
+      .then((ev) => {
+        if (ev?.accent_color) {
+          document.documentElement.style.setProperty('--accent', ev.accent_color);
+        }
+      })
+      .catch(() => {});
   }
 </script>
 
@@ -161,7 +170,7 @@ import Base from '../layouts/Base.astro';
   .top { text-align: center; margin-bottom: 24px; }
   .eyebrow {
     font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
-    color: #f39c12; font-weight: 700; margin-bottom: 6px;
+    color: var(--accent); font-weight: 700; margin-bottom: 6px;
   }
   h1 {
     color: #fff; font-size: 30px;
@@ -177,7 +186,7 @@ import Base from '../layouts/Base.astro';
     margin: 18px 0 28px;
   }
   .hook .big-num {
-    display: block; color: #f39c12;
+    display: block; color: var(--accent);
     font-weight: 800; font-size: 56px; line-height: 1;
     letter-spacing: -1px;
   }
@@ -185,7 +194,7 @@ import Base from '../layouts/Base.astro';
     display: block; color: #ecf0f1;
     font-size: 16px; margin-top: 12px; line-height: 1.4;
   }
-  .hook .big-label strong { color: #f39c12; }
+  .hook .big-label strong { color: var(--accent); }
 
   section.block {
     background: rgba(255,255,255,0.04);
@@ -193,7 +202,7 @@ import Base from '../layouts/Base.astro';
     border-radius: 12px;
     padding: 18px; margin: 16px 0;
   }
-  section.block h2 { color: #f39c12; font-size: 20px; margin: 0 0 12px; }
+  section.block h2 { color: var(--accent); font-size: 20px; margin: 0 0 12px; }
   section.block h3 {
     color: #ecf0f1; font-size: 15px;
     margin: 14px 0 6px; font-weight: 700;
@@ -201,11 +210,11 @@ import Base from '../layouts/Base.astro';
   section.block p { color: #ecf0f1; font-size: 15px; margin: 8px 0; }
   section.block ul { margin: 8px 0 8px 20px; color: #ecf0f1; font-size: 14px; }
   section.block ul li { margin: 4px 0; }
-  section.block strong { color: #f39c12; }
+  section.block strong { color: var(--accent); }
   section.block em { color: #bdc3c7; }
 
   .pull-quote {
-    border-left: 3px solid #f39c12;
+    border-left: 3px solid var(--accent);
     background: rgba(243,156,18,0.08);
     padding: 12px 14px; margin: 14px 0;
     font-size: 15px; color: #ecf0f1;
@@ -219,7 +228,7 @@ import Base from '../layouts/Base.astro';
     border-radius: 8px; display: flex; align-items: flex-start; gap: 10px;
   }
   .face .icon { font-size: 22px; flex-shrink: 0; }
-  .face strong { display: block; color: #f39c12; font-size: 14px; margin-bottom: 2px; }
+  .face strong { display: block; color: var(--accent); font-size: 14px; margin-bottom: 2px; }
   .face span.body { color: #ecf0f1; font-size: 13px; line-height: 1.4; }
 
   .stat-row {
@@ -232,7 +241,7 @@ import Base from '../layouts/Base.astro';
     padding: 10px 6px; text-align: center;
   }
   .stat-row .stat .num {
-    display: block; color: #f39c12;
+    display: block; color: var(--accent);
     font-weight: 800; font-size: 22px; line-height: 1.1;
   }
   .stat-row .stat .label {
@@ -247,7 +256,7 @@ import Base from '../layouts/Base.astro';
     padding: 12px 10px; border-radius: 8px; text-align: center;
   }
   .compare .col .name {
-    color: #f39c12; font-weight: 700;
+    color: var(--accent); font-weight: 700;
     font-size: 14px; margin-bottom: 6px;
   }
   .compare .col .cstat { color: #ecf0f1; font-size: 13px; margin: 3px 0; }

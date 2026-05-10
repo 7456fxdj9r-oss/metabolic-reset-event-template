@@ -126,6 +126,33 @@ import Base from '../../layouts/Base.astro';
 
     refresh();
     timer = window.setInterval(refresh, 10000);
+
+    // Add-to-Home-Screen hint, iOS Safari only. Highly relevant here:
+    // entrants want to keep coming back to check status, then later
+    // remember the host's contact. One-tap home-screen icon beats a
+    // long URL bookmark. Dismissed-state is per-token in localStorage.
+    try {
+      const ua = navigator.userAgent;
+      const isIOS = /iPhone|iPad|iPod/.test(ua) && !(/CriOS|FxiOS|EdgiOS/.test(ua));
+      const isStandalone = (window.navigator as { standalone?: boolean }).standalone === true
+        || window.matchMedia('(display-mode: standalone)').matches;
+      const dismissKey = `a2hs-dismissed:me:${token}`;
+      const alreadyDismissed = localStorage.getItem(dismissKey) === '1';
+      if (isIOS && !isStandalone && !alreadyDismissed) {
+        const banner = document.createElement('aside');
+        banner.className = 'a2hs-banner';
+        banner.innerHTML = `
+          <button type="button" class="a2hs-close" aria-label="Dismiss">×</button>
+          <p class="a2hs-line">📲 <strong>Save this to your phone</strong></p>
+          <p class="a2hs-detail">Tap the <strong>Share</strong> button below, then <strong>Add to Home Screen</strong> — keeps your raffle status and the host's contact info one tap away.</p>
+        `;
+        document.body.appendChild(banner);
+        banner.querySelector('.a2hs-close')!.addEventListener('click', () => {
+          localStorage.setItem(dismissKey, '1');
+          banner.remove();
+        });
+      }
+    } catch { /* non-fatal */ }
   }
 </script>
 
@@ -222,4 +249,32 @@ import Base from '../../layouts/Base.astro';
 
   .loading { color: #95a5a6; text-align: center; padding: 40px 0; font-size: 14px; }
   .loading.err { color: #e74c3c; }
+
+  /* Add to Home Screen hint — iOS Safari only, dismissable per token */
+  .a2hs-banner {
+    position: fixed;
+    left: 12px; right: 12px; bottom: 14px;
+    background: #1a252f;
+    border: 1px solid var(--accent, #f39c12);
+    border-radius: 12px;
+    padding: 14px 36px 14px 16px;
+    color: #ecf0f1;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.55);
+    z-index: 50;
+    max-width: 540px; margin: 0 auto;
+  }
+  .a2hs-banner .a2hs-line { font-size: 14px; margin-bottom: 4px; }
+  .a2hs-banner .a2hs-line strong { color: var(--accent, #f39c12); }
+  .a2hs-banner .a2hs-detail { font-size: 12px; color: #bdc3c7; line-height: 1.45; }
+  .a2hs-banner .a2hs-detail strong { color: #fff; font-weight: 700; }
+  .a2hs-banner .a2hs-close {
+    position: absolute; top: 6px; right: 8px;
+    width: 28px; height: 28px;
+    background: transparent; color: #95a5a6;
+    border: none; border-radius: 14px;
+    font-size: 22px; line-height: 1;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .a2hs-banner .a2hs-close:hover { background: rgba(255,255,255,0.06); color: #fff; }
 </style>
