@@ -101,7 +101,15 @@ Deno.serve(async (req) => {
     ordered.push({ ...c, primary: false });
   }
 
-  // Strip the internal flags before returning.
-  const clean = ordered.map(({ _id, _is_master, ...rest }) => rest);
+  // Surface internal identity hints in the response so the public page
+  // can render an inline organizer toggle when viewed with a host key:
+  //   id (cohost UUID, undefined for the master)
+  //   is_master (true only for the master entry)
+  // No tokens are returned. Names + contact info were already public.
+  const clean = ordered.map(({ _id, _is_master, ...rest }) => ({
+    ...rest,
+    id: _id,
+    is_master: !!_is_master,
+  }));
   return ok({ hosts: clean });
 });
