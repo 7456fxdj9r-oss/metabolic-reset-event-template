@@ -430,7 +430,7 @@ import Base from '../layouts/Base.astro';
             <p class="eyebrow">Event admin</p>
             <h1 id="page-title">${escapeHtml(ev.name)}</h1>
             <div class="status-bar">
-              <span class="stat-pill" id="pill-stories">📊 — stories</span>
+              <span class="stat-pill" id="pill-stories">🎯 — stories</span>
               <span class="stat-pill" id="pill-speakers">🎤 — speakers</span>
               <span class="stat-pill" id="pill-raffle">🎟️ raffle ${ev.raffle_status === 'open' ? '<span class="dot open"></span>open' : '<span class="dot closed"></span>closed'}</span>
               <span class="stat-pill" id="pill-entries">— entries</span>
@@ -688,7 +688,7 @@ import Base from '../layouts/Base.astro';
           const sPill = document.getElementById('pill-stories');
           if (sPill) {
             const n = transformations.length;
-            sPill.innerHTML = `📊 ${n} ${n === 1 ? 'story' : 'stories'}`;
+            sPill.innerHTML = `🎯 ${n} ${n === 1 ? 'story' : 'stories'}`;
             sPill.classList.toggle('filled', n > 0);
           }
           const spPill = document.getElementById('pill-speakers');

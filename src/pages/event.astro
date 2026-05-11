@@ -97,7 +97,7 @@ import Base from '../layouts/Base.astro';
         }
         for (const t of transformations) {
           const tHref = `${base}t?slug=${encodeURIComponent(slug)}&t=${encodeURIComponent(t.slug)}`;
-          buttons.push(`<a class="event-btn story" href="${tHref}">📊 ${escapeHtml(t.name)}'s Story</a>`);
+          buttons.push(`<a class="event-btn story" href="${tHref}">🎯 ${escapeHtml(t.name)}'s Story</a>`);
         }
         if (speakers.length > 0) {
           buttons.push(
