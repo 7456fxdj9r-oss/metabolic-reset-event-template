@@ -1,0 +1,264 @@
+---
+// Public "Connect with the hosts" page. Moved out of /event so the main
+// event hub stays compact (button stack only). Each host renders as a
+// card with name + bio + phone (tap-to-call) + email + website.
+//
+// When ?key= is supplied AND the key belongs to the master, the
+// ORGANIZER pill becomes interactive: master can pass the title or
+// take it back without going to the edit page.
+import Base from '../layouts/Base.astro';
+---
+<Base title="Connect with the hosts">
+  <main class="hosts-page" id="hosts-root">
+    <p class="loading">Loading…</p>
+  </main>
+</Base>
+
+<script>
+  import { fetchEventBySlug, callFunction } from '../lib/supabase.js';
+
+  type TeamHost = {
+    name: string | null; phone: string | null;
+    email?: string | null; website?: string | null; bio?: string | null;
+    primary?: boolean; is_master?: boolean; id?: string;
+  };
+
+  const root = document.getElementById('hosts-root')!;
+  const base = import.meta.env.BASE_URL;
+  const params = new URLSearchParams(window.location.search);
+  const slug = params.get('slug');
+  const adminKey = params.get('key');
+  let isMaster = false;
+
+  function escapeHtml(s: unknown): string {
+    return String(s ?? '').replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
+    );
+  }
+
+  function renderTeamList(hosts: TeamHost[], adminMode: boolean): string {
+    if (hosts.length === 0) {
+      return '<p class="empty">No host info has been added yet.</p>';
+    }
+    return `
+      <ul class="team-list">
+        ${hosts.map((h) => {
+          let badge = '';
+          if (h.primary) {
+            badge = adminMode
+              ? `<button type="button" class="host-tag toggle" data-org="clear" title="Tap to remove the organizer title">organizer ×</button>`
+              : '<span class="host-tag">organizer</span>';
+          } else if (adminMode) {
+            const idAttr = h.is_master ? 'data-org="master"' : `data-org="cohost" data-host-id="${escapeHtml(h.id || '')}"`;
+            badge = `<button type="button" class="host-tag toggle ghost" ${idAttr} title="Tap to make this person the organizer">+ organizer</button>`;
+          }
+          const phoneRow = h.phone
+            ? `<a class="host-phone" href="tel:${escapeHtml(h.phone)}">📞 ${escapeHtml(h.phone)}</a>`
+            : '';
+          const extras: string[] = [];
+          if (h.email) extras.push(`<a href="mailto:${escapeHtml(h.email)}">✉️ ${escapeHtml(h.email)}</a>`);
+          if (h.website) extras.push(`<a href="${escapeHtml(h.website)}" target="_blank" rel="noopener">🌐 Website</a>`);
+          return `
+            <li class="host-card">
+              <div class="host-head">
+                <strong>${escapeHtml(h.name || 'Co-host')}</strong>
+                ${badge}
+              </div>
+              ${h.bio ? `<p class="host-bio">${escapeHtml(h.bio)}</p>` : ''}
+              ${phoneRow}
+              ${extras.length ? `<div class="host-extras">${extras.join('')}</div>` : ''}
+            </li>`;
+        }).join('')}
+      </ul>
+      ${adminMode ? '<p class="team-admin-hint">You’re viewing this with your edit link. Tap a pill above to change which host wears the ORGANIZER title.</p>' : ''}`;
+  }
+
+  function reRenderTeam(hosts: TeamHost[]) {
+    const wrap = document.getElementById('team-wrap');
+    if (wrap) wrap.innerHTML = renderTeamList(hosts, isMaster);
+  }
+
+  if (!slug) {
+    root.innerHTML = '<p class="loading err">No event specified.</p>';
+  } else {
+    (async () => {
+      try {
+        const event = await fetchEventBySlug(slug);
+        if (!event) {
+          root.innerHTML = '<p class="loading err">Event not found.</p>';
+          return;
+        }
+        document.title = `Hosts — ${event.name}`;
+        const accent = event.accent_color || '#f39c12';
+        document.documentElement.style.setProperty('--accent', accent);
+
+        // If a key was supplied, see if it's the master's so we can offer
+        // the inline organizer toggle. Co-host keys come back you_are_master:false.
+        if (adminKey) {
+          try {
+            const r = await callFunction('manage-hosts', {
+              slug, edit_token: adminKey, action: 'list',
+            });
+            isMaster = !!r.you_are_master;
+          } catch { /* not authorized; stay read-only */ }
+        }
+
+        const teamRes = await callFunction('get-event-hosts', { slug });
+        const teamHosts = (teamRes.hosts || []) as TeamHost[];
+
+        const backHref = adminKey
+          ? `${base}edit?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(adminKey)}`
+          : `${base}event?slug=${encodeURIComponent(slug)}`;
+        const backLabel = adminKey ? '← Back to edit page' : '← Back to the event';
+
+        root.innerHTML = `
+          <a class="back-link" href="${backHref}">${backLabel}</a>
+          <header class="top">
+            <p class="eyebrow">Connect with the hosts</p>
+            <h1>${escapeHtml(event.name)}</h1>
+          </header>
+          <section class="team" id="team-wrap">${renderTeamList(teamHosts, isMaster)}</section>
+          <div class="footer-cta">
+            <a class="secondary" href="${backHref}">${backLabel}</a>
+          </div>
+        `;
+
+        if (isMaster) {
+          document.addEventListener('click', async (clickEv) => {
+            const target = clickEv.target as HTMLElement;
+            if (!target.classList.contains('toggle')) return;
+            const action = target.getAttribute('data-org');
+            if (!action) return;
+            target.setAttribute('disabled', 'true');
+            try {
+              let hostId: string | null = null;
+              if (action === 'cohost') hostId = target.getAttribute('data-host-id');
+              await callFunction('manage-hosts', {
+                slug, edit_token: adminKey, action: 'set_primary', host_id: hostId,
+              });
+              const r = await callFunction('get-event-hosts', { slug });
+              reRenderTeam((r.hosts || []) as TeamHost[]);
+            } catch (err) {
+              alert('Could not change organizer: ' + (err as Error).message);
+              target.removeAttribute('disabled');
+            }
+          });
+        }
+      } catch (err) {
+        root.innerHTML = `<p class="loading err">${escapeHtml((err as Error).message)}</p>`;
+      }
+    })();
+  }
+</script>
+
+<style is:global>
+  :root { --accent: #f39c12; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: #1a252f; color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  }
+  body { padding: 20px 14px 50px; line-height: 1.45; }
+  main.hosts-page { max-width: 540px; margin: 0 auto; }
+
+  a.back-link {
+    display: inline-block;
+    padding: 8px 12px;
+    color: #ecf0f1; text-decoration: none;
+    font-size: 13px; font-weight: 600;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    margin-bottom: 16px;
+  }
+
+  .top { text-align: center; margin-bottom: 18px; }
+  .eyebrow {
+    font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; margin-bottom: 6px;
+  }
+  h1 { font-size: 26px; line-height: 1.2; }
+
+  ul.team-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+  .host-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex; align-items: center; gap: 10px;
+    flex-wrap: wrap;
+  }
+  .host-head {
+    display: flex; align-items: center; gap: 6px;
+    flex-wrap: wrap; min-width: 0;
+  }
+  .host-head strong { font-size: 15px; color: #fff; }
+  .host-tag {
+    font-size: 10px; padding: 2px 8px; border-radius: 10px;
+    background: rgba(243,156,18,0.20); color: var(--accent);
+    text-transform: uppercase; letter-spacing: 1px; font-weight: 700;
+  }
+  button.host-tag {
+    border: 1px solid rgba(243,156,18,0.45);
+    cursor: pointer; font-family: inherit;
+  }
+  button.host-tag.toggle:hover { background: rgba(243,156,18,0.30); }
+  button.host-tag.toggle.ghost {
+    background: transparent;
+    color: rgba(243,156,18,0.7);
+    border: 1px dashed rgba(243,156,18,0.45);
+  }
+  button.host-tag.toggle.ghost:hover {
+    background: rgba(243,156,18,0.10);
+    color: var(--accent);
+    border-style: solid;
+  }
+  button.host-tag.toggle[disabled] { opacity: 0.4; cursor: wait; }
+  .host-bio {
+    font-size: 13px; color: #bdc3c7; line-height: 1.5;
+    flex-basis: 100%;
+  }
+  .host-phone {
+    display: inline-flex; align-items: center;
+    padding: 8px 14px; min-height: 40px;
+    background: rgba(243,156,18,0.18); color: var(--accent);
+    border: 1px solid rgba(243,156,18,0.5);
+    border-radius: 8px; text-decoration: none;
+    font-weight: 700; font-size: 13px;
+    margin-left: auto;
+    overflow-wrap: anywhere;
+  }
+  .host-phone:hover { background: rgba(243,156,18,0.28); }
+  .host-extras {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    flex-basis: 100%;
+  }
+  .host-extras a {
+    display: inline-flex; align-items: center;
+    padding: 6px 12px; min-height: 36px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 6px;
+    color: #ecf0f1; text-decoration: none;
+    font-size: 12px; font-weight: 600;
+    overflow-wrap: anywhere; word-break: break-all;
+  }
+  .host-extras a:hover { background: rgba(255,255,255,0.10); }
+
+  .team-admin-hint {
+    font-size: 11px; color: #95a5a6;
+    margin-top: 12px; font-style: italic; line-height: 1.45;
+  }
+
+  .empty { color: #95a5a6; font-style: italic; text-align: center; padding: 30px 0; }
+  .loading { color: #95a5a6; text-align: center; padding: 40px 0; font-size: 14px; }
+  .loading.err { color: #e74c3c; }
+
+  .footer-cta { display: grid; gap: 10px; margin-top: 22px; }
+  .footer-cta a {
+    display: block; text-align: center; padding: 12px;
+    background: transparent; color: #ecf0f1;
+    border: 1px solid rgba(255,255,255,0.20); border-radius: 8px;
+    text-decoration: none; font-weight: 600; font-size: 14px;
+  }
+</style>

@@ -17,7 +17,6 @@ import Base from '../layouts/Base.astro';
   const params = new URLSearchParams(window.location.search);
   const slug = params.get('slug');
   const adminKey = params.get('key'); // present when master visits via their edit token
-  let isMaster = false; // proven by manage-hosts list response below
 
   function escapeHtml(s: unknown): string {
     return String(s ?? '').replace(/[&<>"']/g, (c) =>
@@ -112,56 +111,16 @@ import Base from '../layouts/Base.astro';
         buttons.push(
           `<a class="event-btn science" href="${base}science?slug=${encodeURIComponent(slug)}">🧠 Why It Works (the science)</a>`
         );
-
-        // Connect-with-the-hosts panel. Master can pass the ORGANIZER
-        // title by tapping pills on this page when ?key= is in the URL —
-        // see renderTeamList + organizer-toggle click handler below.
-        type TeamHost = {
-          name: string | null; phone: string | null;
-          email?: string | null; website?: string | null; bio?: string | null;
-          primary?: boolean; is_master?: boolean; id?: string;
-        };
-        function renderTeamList(hosts: TeamHost[], adminMode: boolean): string {
-          if (hosts.length === 0) return '';
-          return `
-            <section class="team">
-              <h2>Connect with the hosts</h2>
-              <ul class="team-list">
-                ${hosts.map((h) => {
-                  // Badge: orange "organizer" pill on the primary, optional
-                  // ghost "+ organizer" placeholder on every non-primary when
-                  // in admin mode. Tap toggles via the inline-toggle handler.
-                  let badge = '';
-                  if (h.primary) {
-                    badge = adminMode
-                      ? `<button type="button" class="host-tag toggle" data-org="clear" title="Tap to remove the organizer title">organizer ×</button>`
-                      : '<span class="host-tag">organizer</span>';
-                  } else if (adminMode) {
-                    const idAttr = h.is_master ? 'data-org="master"' : `data-org="cohost" data-host-id="${escapeHtml(h.id || '')}"`;
-                    badge = `<button type="button" class="host-tag toggle ghost" ${idAttr} title="Tap to make this person the organizer">+ organizer</button>`;
-                  }
-                  const phoneRow = h.phone
-                    ? `<a class="host-phone" href="tel:${escapeHtml(h.phone)}">📞 ${escapeHtml(h.phone)}</a>`
-                    : '';
-                  const extras: string[] = [];
-                  if (h.email) extras.push(`<a href="mailto:${escapeHtml(h.email)}">✉️ ${escapeHtml(h.email)}</a>`);
-                  if (h.website) extras.push(`<a href="${escapeHtml(h.website)}" target="_blank" rel="noopener">🌐 Website</a>`);
-                  return `
-                    <li class="host-card">
-                      <div class="host-head">
-                        <strong>${escapeHtml(h.name || 'Co-host')}</strong>
-                        ${badge}
-                      </div>
-                      ${h.bio ? `<p class="host-bio">${escapeHtml(h.bio)}</p>` : ''}
-                      ${phoneRow}
-                      ${extras.length ? `<div class="host-extras">${extras.join('')}</div>` : ''}
-                    </li>`;
-                }).join('')}
-              </ul>
-              ${adminMode ? '<p class="team-admin-hint">You’re viewing this with your edit link. Tap a pill above to change which host wears the ORGANIZER title.</p>' : ''}
-            </section>`;
+        // Connect-with-the-hosts moved off the main event page into its own
+        // route so the hub stays clean. The button preserves the admin key
+        // when present so the master keeps the inline-toggle affordance on
+        // the next screen.
+        if (teamHosts.length > 0) {
+          const hostsHref = adminKey
+            ? `${base}hosts?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(adminKey)}`
+            : `${base}hosts?slug=${encodeURIComponent(slug)}`;
+          buttons.push(`<a class="event-btn hosts" href="${hostsHref}">📞 Connect with the hosts</a>`);
         }
-        const organizerPanel = renderTeamList(teamHosts as TeamHost[], false);
 
         root.innerHTML = `
           <header class="top">
@@ -175,7 +134,6 @@ import Base from '../layouts/Base.astro';
           <div class="event-buttons">
             ${buttons.join('')}
           </div>
-          ${organizerPanel}
         `;
 
         const canvas = document.getElementById('event-qr') as HTMLCanvasElement;
@@ -186,61 +144,6 @@ import Base from '../layouts/Base.astro';
           width: 200, margin: 1,
           color: { dark: '#ffffff', light: '#1a252f' },
         }).catch(() => {});
-
-        // ----- Inline organizer toggle on the public team panel -----
-        // When ?key= is in the URL AND the key belongs to the master,
-        // each host's organizer pill becomes interactive. Tapping the
-        // current organizer's "organizer ×" clears it (master takes it
-        // back); tapping a "+ organizer" ghost on a non-primary host
-        // sets that host as primary. Co-hosts viewing with their own
-        // token get 403 from manage-hosts and the controls stay hidden.
-        if (adminKey) {
-          (async () => {
-            try {
-              const res = await callFunction('manage-hosts', {
-                slug, edit_token: adminKey, action: 'list',
-              });
-              isMaster = !!res.you_are_master;
-              if (!isMaster) return; // co-host: keep static badges
-
-              // Re-render the team panel in admin mode + wire the click handler.
-              function reRenderTeam(hosts: TeamHost[]) {
-                const teamSection = document.querySelector('section.team');
-                if (!teamSection) return;
-                const wrapper = document.createElement('div');
-                wrapper.innerHTML = renderTeamList(hosts, true);
-                const next = wrapper.querySelector('section.team');
-                if (next) teamSection.replaceWith(next);
-              }
-              const refreshed = await callFunction('get-event-hosts', { slug });
-              reRenderTeam((refreshed.hosts || []) as TeamHost[]);
-
-              // Click delegate scoped to the document — the team section gets
-              // replaced on every toggle so a per-element listener would die.
-              document.addEventListener('click', async (clickEv) => {
-                const target = clickEv.target as HTMLElement;
-                if (!target.classList.contains('toggle')) return;
-                const action = target.getAttribute('data-org');
-                if (!action) return;
-                target.setAttribute('disabled', 'true');
-                try {
-                  let hostId: string | null = null;
-                  if (action === 'cohost') hostId = target.getAttribute('data-host-id');
-                  if (action === 'master') hostId = null;
-                  if (action === 'clear') hostId = null;
-                  await callFunction('manage-hosts', {
-                    slug, edit_token: adminKey, action: 'set_primary', host_id: hostId,
-                  });
-                  const r = await callFunction('get-event-hosts', { slug });
-                  reRenderTeam((r.hosts || []) as TeamHost[]);
-                } catch (err) {
-                  alert('Could not change organizer: ' + (err as Error).message);
-                  target.removeAttribute('disabled');
-                }
-              });
-            } catch { /* non-fatal: not a master, stay read-only */ }
-          })();
-        }
 
         // ----- PWA: per-event manifest + iOS Add-to-Home-Screen hint -----
         // Each event gets its own short-lived manifest blob so the home-
@@ -357,91 +260,6 @@ import Base from '../layouts/Base.astro';
   .empty { color: #95a5a6; font-style: italic; text-align: center; padding: 30px 0; }
   .loading { color: #95a5a6; text-align: center; padding: 40px 0; font-size: 14px; }
   .loading.err { color: #e74c3c; }
-
-  section.team {
-    margin-top: 28px;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 12px;
-    padding: 18px;
-  }
-  section.team h2 {
-    font-size: 12px; color: var(--accent);
-    text-transform: uppercase; letter-spacing: 1.5px;
-    margin-bottom: 14px;
-  }
-  ul.team-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
-  .host-card {
-    background: rgba(0,0,0,0.20);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 8px;
-    padding: 8px 12px;
-    display: flex; align-items: center; gap: 8px;
-    flex-wrap: wrap;
-  }
-  .host-head {
-    display: flex; align-items: center; gap: 6px;
-    flex-wrap: wrap; min-width: 0;
-  }
-  .host-head strong { font-size: 14px; color: #fff; }
-  .host-tag {
-    font-size: 10px; padding: 1px 6px; border-radius: 8px;
-    background: rgba(243,156,18,0.20); color: var(--accent);
-    text-transform: uppercase; letter-spacing: 1px; font-weight: 700;
-  }
-  button.host-tag {
-    border: 1px solid rgba(243,156,18,0.45);
-    cursor: pointer; font-family: inherit;
-  }
-  button.host-tag.toggle:hover { background: rgba(243,156,18,0.30); }
-  button.host-tag.toggle.ghost {
-    background: transparent;
-    color: rgba(243,156,18,0.7);
-    border: 1px dashed rgba(243,156,18,0.45);
-  }
-  button.host-tag.toggle.ghost:hover {
-    background: rgba(243,156,18,0.10);
-    color: var(--accent);
-    border-style: solid;
-  }
-  button.host-tag.toggle[disabled] { opacity: 0.4; cursor: wait; }
-  p.team-admin-hint {
-    font-size: 11px; color: #95a5a6;
-    margin-top: 10px; font-style: italic;
-    line-height: 1.45;
-  }
-  .host-bio {
-    font-size: 13px; color: #bdc3c7; line-height: 1.45;
-    flex-basis: 100%;
-  }
-  .host-phone {
-    display: inline-flex; align-items: center;
-    padding: 8px 14px;
-    min-height: 40px;
-    background: rgba(243,156,18,0.18); color: var(--accent);
-    border: 1px solid rgba(243,156,18,0.5);
-    border-radius: 8px; text-decoration: none;
-    font-weight: 700; font-size: 13px;
-    margin-left: auto;
-    overflow-wrap: anywhere;
-  }
-  .host-phone:hover { background: rgba(243,156,18,0.28); }
-  .host-extras {
-    display: flex; flex-wrap: wrap; gap: 6px;
-    flex-basis: 100%;
-  }
-  .host-extras a {
-    display: inline-flex; align-items: center;
-    padding: 6px 12px;
-    min-height: 36px;
-    background: rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 6px;
-    color: #ecf0f1; text-decoration: none;
-    font-size: 12px; font-weight: 600;
-    overflow-wrap: anywhere; word-break: break-all;
-  }
-  .host-extras a:hover { background: rgba(255,255,255,0.10); }
 
   /* Add to Home Screen hint — iOS Safari only, dismissable */
   .a2hs-banner {
