@@ -530,7 +530,10 @@ import Base from '../layouts/Base.astro';
               segment name, an optional speaker/lead, and free-form details. Empty agenda
               hides the cue sheet button.
             </p>
-            <button id="add-a-btn" type="button" class="add-btn">+ Add agenda item</button>
+            <div class="agenda-actions">
+              <button id="add-a-btn" type="button" class="add-btn">+ Add agenda item</button>
+              <button id="paste-a-btn" type="button" class="add-btn paste-btn">📋 Paste agenda</button>
+            </div>
             <div id="a-form-host"></div>
             <ul id="a-list" class="t-list"></ul>
           </section>
@@ -1970,6 +1973,8 @@ import Base from '../layouts/Base.astro';
         function showAgendaForm(it?: AgendaItem) {
           aFormHost.innerHTML = agendaFormHtml(it);
           addABtn.style.display = 'none';
+          const pBtn = document.getElementById('paste-a-btn') as HTMLButtonElement | null;
+          if (pBtn) pBtn.style.display = 'none';
           const f = aFormHost.querySelector('form.t-form') as HTMLFormElement;
           f.addEventListener('submit', (e) => handleAgendaSubmit(e, it));
           f.querySelector('button.cancel')!.addEventListener('click', hideAgendaForm);
@@ -1978,6 +1983,8 @@ import Base from '../layouts/Base.astro';
         function hideAgendaForm() {
           aFormHost.innerHTML = '';
           addABtn.style.display = '';
+          const pBtn = document.getElementById('paste-a-btn') as HTMLButtonElement | null;
+          if (pBtn) pBtn.style.display = '';
         }
 
         async function handleAgendaSubmit(submitEv: Event, editing?: AgendaItem) {
@@ -2031,7 +2038,125 @@ import Base from '../layouts/Base.astro';
           }
         }
 
+        function agendaToTsv(items: AgendaItem[]): string {
+          const lines = ['Time\tSegment\tSpeaker / Lead\tDetails'];
+          for (const it of items) {
+            const row = [
+              it.time_label || '',
+              it.segment || '',
+              it.speaker || '',
+              (it.details || '').replace(/\s*\n+\s*/g, ' '), // flatten newlines so each row stays on one line
+            ];
+            lines.push(row.join('\t'));
+          }
+          return lines.join('\n');
+        }
+
+        function parseAgendaTsv(text: string): Array<{
+          time_label: string; segment: string; speaker: string; details: string;
+        }> {
+          const rows = text.split(/\r?\n/)
+            .map((l) => l.replace(/^\s+|\s+$/g, ''))
+            .filter(Boolean);
+          if (rows.length === 0) return [];
+          const headerCells = rows[0].split('\t').map((c) => c.trim().toLowerCase());
+          const isHeader = ['time', 'time_label', 'time / segment'].includes(headerCells[0]);
+          const start = isHeader ? 1 : 0;
+          const items: Array<{
+            time_label: string; segment: string; speaker: string; details: string;
+          }> = [];
+          for (let i = start; i < rows.length; i++) {
+            const cells = rows[i].split('\t').map((c) => c.trim());
+            if (cells.length < 2 || !cells[0] || !cells[1]) continue;
+            items.push({
+              time_label: cells[0],
+              segment: cells[1],
+              speaker: cells[2] || '',
+              details: cells[3] || '',
+            });
+          }
+          return items;
+        }
+
+        function showAgendaPasteForm() {
+          const initial = agendaToTsv(agenda);
+          aFormHost.innerHTML = `
+            <form class="t-form paste-form" novalidate>
+              <h3>Paste agenda</h3>
+              <p class="paste-hint">
+                Paste 4 tab-separated columns: <strong>Time · Segment · Speaker · Details</strong>.
+                One row per line. First row can be a header (we'll skip it). Saving replaces
+                <strong>all</strong> existing rows.
+              </p>
+              <p class="paste-hint">
+                Copying from Google Sheets, Numbers, or Excel preserves the tabs automatically —
+                just select the 4 columns and paste in here.
+              </p>
+              <textarea name="tsv" rows="14" class="paste-tsv" placeholder="9:00 AM\tWelcome\tMatt\tIntro and QR scan instructions">${escapeHtml(initial)}</textarea>
+              <p class="paste-preview" id="paste-preview"></p>
+              <div class="row">
+                <button type="submit">Save all rows</button>
+                <button type="button" class="cancel">Cancel</button>
+                <span class="t-status" role="status" aria-live="polite"></span>
+              </div>
+            </form>`;
+          addABtn.style.display = 'none';
+          pasteABtn.style.display = 'none';
+
+          const f = aFormHost.querySelector('form.paste-form') as HTMLFormElement;
+          const textarea = f.querySelector('textarea[name=tsv]') as HTMLTextAreaElement;
+          const preview = document.getElementById('paste-preview')!;
+
+          const updatePreview = () => {
+            const parsed = parseAgendaTsv(textarea.value);
+            preview.textContent = parsed.length
+              ? `${parsed.length} row${parsed.length === 1 ? '' : 's'} detected.`
+              : 'No rows detected yet. Make sure cells are separated by tabs.';
+            preview.className = 'paste-preview ' + (parsed.length ? 'ok' : '');
+          };
+          textarea.addEventListener('input', updatePreview);
+          updatePreview();
+
+          f.addEventListener('submit', async (e) => handleAgendaPasteSubmit(e));
+          f.querySelector('button.cancel')!.addEventListener('click', hideAgendaForm);
+        }
+
+        async function handleAgendaPasteSubmit(submitEv: Event) {
+          submitEv.preventDefault();
+          const formEl = submitEv.target as HTMLFormElement;
+          const textarea = formEl.querySelector('textarea[name=tsv]') as HTMLTextAreaElement;
+          const tStatus = formEl.querySelector('.t-status') as HTMLSpanElement;
+          const submit = formEl.querySelector('button[type=submit]') as HTMLButtonElement;
+          const items = parseAgendaTsv(textarea.value);
+
+          if (items.length === 0) {
+            if (!confirm('No rows detected — this will delete every existing agenda item. Continue?')) return;
+          } else if (agenda.length > 0) {
+            if (!confirm(`Replace all ${agenda.length} existing agenda items with these ${items.length}? This cannot be undone.`)) return;
+          }
+
+          submit.disabled = true;
+          tStatus.textContent = 'Saving…';
+          tStatus.className = 't-status';
+          try {
+            const res = await callFunction('manage-agenda', {
+              slug, edit_token: key, action: 'replace_all', items,
+            });
+            agenda = (res.items as AgendaItem[]) || [];
+            renderAgendaList();
+            hideAgendaForm();
+          } catch (err) {
+            const msg = (err as Error).message;
+            tStatus.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+            tStatus.className = 't-status err';
+            submit.disabled = false;
+          }
+        }
+
         addABtn.addEventListener('click', () => showAgendaForm());
+        const pasteABtn = document.getElementById('paste-a-btn') as HTMLButtonElement;
+        pasteABtn.addEventListener('click', () => showAgendaPasteForm());
+
         aList.addEventListener('click', (clickEv) => {
           const target = clickEv.target as HTMLElement;
           if (target.tagName !== 'BUTTON') return;
@@ -2262,6 +2387,28 @@ import Base from '../layouts/Base.astro';
     font-weight: 700;
   }
   button.add-btn:hover { background: rgba(243,156,18,0.06); }
+
+  .agenda-actions { display: grid; gap: 8px; grid-template-columns: 1fr 1fr; margin-bottom: 14px; }
+  .agenda-actions button.add-btn { margin-bottom: 0; }
+  @media (max-width: 460px) { .agenda-actions { grid-template-columns: 1fr; } }
+  button.add-btn.paste-btn {
+    border-color: rgba(255,255,255,0.20);
+    color: #ecf0f1;
+  }
+  form.paste-form {
+    background: rgba(0,0,0,0.2);
+    border: 1px solid rgba(243,156,18,0.4);
+    border-radius: 10px; padding: 14px;
+  }
+  .paste-hint { font-size: 12px; color: #95a5a6; line-height: 1.5; margin: 4px 0; }
+  .paste-hint strong { color: #ecf0f1; }
+  textarea.paste-tsv {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px; min-height: 200px; white-space: pre;
+    background: rgba(0,0,0,0.3);
+  }
+  .paste-preview { font-size: 12px; color: #95a5a6; min-height: 16px; }
+  .paste-preview.ok { color: #2ecc71; font-weight: 700; }
 
   #t-form-host form.t-form {
     background: rgba(0,0,0,0.2);

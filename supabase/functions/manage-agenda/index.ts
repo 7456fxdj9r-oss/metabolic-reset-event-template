@@ -45,8 +45,8 @@ Deno.serve(async (req) => {
   const slug = String(body.slug || '').trim();
   const edit_token = String(body.edit_token || '').trim();
   if (!slug || !edit_token) return errResp(400, 'slug and edit_token required');
-  if (!['add', 'update', 'delete', 'list'].includes(action)) {
-    return errResp(400, 'action must be one of: add, update, delete, list');
+  if (!['add', 'update', 'delete', 'list', 'replace_all'].includes(action)) {
+    return errResp(400, 'action must be one of: add, update, delete, list, replace_all');
   }
 
   const supabase = createClient(
@@ -126,6 +126,39 @@ Deno.serve(async (req) => {
       .from('agenda_items').update(patch).eq('id', id).select('*').single();
     if (error) return errResp(500, error.message);
     return ok({ item: upd });
+  }
+
+  if (action === 'replace_all') {
+    // Bulk paste workflow: wipes existing rows and re-inserts the supplied
+    // list in order. items: [{ time_label, segment, speaker?, details? }, ...]
+    const items = Array.isArray(body.items) ? body.items : null;
+    if (!items) return errResp(400, 'items array required');
+    if (items.length > 100) return errResp(400, 'too many items (max 100)');
+
+    const rows = items.map((it: Record<string, unknown>, idx: number) => {
+      const time_label = String(it.time_label || '').trim();
+      const segment = String(it.segment || '').trim();
+      if (!time_label || !segment) return null;
+      return {
+        event_id: ev.id,
+        time_label,
+        segment,
+        speaker: it.speaker ? String(it.speaker).trim() || null : null,
+        details: it.details ? String(it.details).trim() || null : null,
+        display_order: idx,
+      };
+    }).filter((r): r is Exclude<typeof r, null> => r !== null);
+
+    const { error: delErr } = await supabase
+      .from('agenda_items').delete().eq('event_id', ev.id);
+    if (delErr) return errResp(500, 'failed to clear existing: ' + delErr.message);
+
+    if (rows.length === 0) return ok({ items: [] });
+
+    const { data: inserted, error: insErr } = await supabase
+      .from('agenda_items').insert(rows).select('*').order('display_order', { ascending: true });
+    if (insErr) return errResp(500, 'failed to insert: ' + insErr.message);
+    return ok({ items: inserted || [] });
   }
 
   // delete
