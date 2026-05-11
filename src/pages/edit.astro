@@ -492,6 +492,11 @@ import Base from '../layouts/Base.astro';
                 <input type="url" name="organizer_website" value="${escapeHtml(ev.organizer_website || '')}" placeholder="https://example.com" />
               </label>
 
+              <label class="checkbox-line">
+                <input type="checkbox" name="show_organizer_badge" ${ev.show_organizer_badge === false ? '' : 'checked'} />
+                <span>Show <strong>ORGANIZER</strong> badge on the public page</span>
+              </label>
+
               <div class="row">
                 <button type="submit" id="save-btn">Save changes</button>
                 <span id="save-status" role="status" aria-live="polite"></span>
@@ -656,6 +661,7 @@ import Base from '../layouts/Base.astro';
               organizer_email: fd.get('organizer_email') || null,
               organizer_phone: fd.get('organizer_phone') || null,
               organizer_website: fd.get('organizer_website') || null,
+              show_organizer_badge: fd.get('show_organizer_badge') === 'on',
             });
             status.textContent = 'Saved ✓';
             status.className = 'ok';
@@ -2237,6 +2243,16 @@ import Base from '../layouts/Base.astro';
     color: var(--accent, #f39c12);
     font-weight: 700;
   }
+  label.checkbox-line {
+    display: flex; align-items: center; gap: 8px;
+    cursor: pointer; font-size: 13px; color: #ecf0f1;
+    font-weight: 500;
+  }
+  label.checkbox-line input[type="checkbox"] {
+    width: auto; min-width: 0; margin: 0;
+    accent-color: var(--accent);
+  }
+  label.checkbox-line strong { color: var(--accent); font-weight: 800; letter-spacing: 0.5px; }
 
   /* Transformations section */
   button.add-btn {

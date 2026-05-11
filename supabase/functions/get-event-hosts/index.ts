@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
 
   const { data: ev } = await supabase
     .from('events')
-    .select('id, primary_host_id, organizer_name, organizer_email, organizer_phone, organizer_website, organizer_bio')
+    .select('id, primary_host_id, show_organizer_badge, organizer_name, organizer_email, organizer_phone, organizer_website, organizer_bio')
     .eq('slug', slug).maybeSingle();
   if (!ev) return errResp(404, 'event not found');
 
@@ -88,8 +88,13 @@ Deno.serve(async (req) => {
     if (overridden) primary = overridden;
   }
 
+  // If the master has hidden the organizer badge globally, surface every
+  // host as a peer with no primary. Order stays the same (chosen primary
+  // still leads if set), the badge just doesn't render.
+  const showBadge = ev.show_organizer_badge !== false;
+
   const ordered: Entry[] = [];
-  if (primary) ordered.push({ ...primary, primary: true });
+  if (primary) ordered.push({ ...primary, primary: showBadge });
   if (primary !== masterEntry && masterEntry) ordered.push({ ...masterEntry, primary: false });
   for (const c of cohostEntries) {
     if (c === primary) continue;
