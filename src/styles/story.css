@@ -126,6 +126,19 @@ h1 {
 .chart-head .delta.neg { color: #2ecc71; }
 .chart-head .delta.pos { color: #e74c3c; }
 .chart-head .delta.flat { color: #95a5a6; }
+.chart-head .chart-tag {
+  margin-left: auto;
+  font-size: 10px; padding: 2px 8px; border-radius: 10px;
+  background: rgba(255,255,255,0.08); color: #95a5a6;
+  text-transform: uppercase; letter-spacing: 1.2px; font-weight: 700;
+}
+.chart-note {
+  font-size: 11px; color: #95a5a6;
+  font-style: italic;
+  text-align: center;
+  margin-top: 6px;
+  line-height: 1.45;
+}
 svg.chart {
   width: 100%;
   height: 220px;

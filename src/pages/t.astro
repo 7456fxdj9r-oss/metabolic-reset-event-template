@@ -57,6 +57,36 @@ import '../styles/story.css';
           if (byMetric[p.metric]) byMetric[p.metric].push([p.date, Number(p.value)]);
         });
 
+        // If no time-series data points exist but we DO have before/after
+        // snapshots in the transformation row, synthesize a 2-point series
+        // per metric so the chart still tells the story. drawMultiChart
+        // handles 2-point series fine (straight line, end-of-line labels,
+        // auto-snapped axes). A "estimated trajectory" note shows below
+        // the chart so the audience knows it's not granular tracking.
+        const totalRealPoints = points.length;
+        const haveBeforeAfterDates = !!(t.before_date && t.after_date);
+        const isEstimated = totalRealPoints === 0 && haveBeforeAfterDates;
+        if (isEstimated) {
+          if (t.before_weight != null && t.after_weight != null) {
+            byMetric.weight = [
+              [t.before_date, Number(t.before_weight)],
+              [t.after_date, Number(t.after_weight)],
+            ];
+          }
+          if (t.before_bf != null && t.after_bf != null) {
+            byMetric.bf = [
+              [t.before_date, Number(t.before_bf)],
+              [t.after_date, Number(t.after_bf)],
+            ];
+          }
+          if (t.before_lean != null && t.after_lean != null) {
+            byMetric.lean = [
+              [t.before_date, Number(t.before_lean)],
+              [t.after_date, Number(t.after_lean)],
+            ];
+          }
+        }
+
         const stats = `
           <div class="headline-stats">
             ${t.headline_lb_loss != null ? `
@@ -100,6 +130,7 @@ import '../styles/story.css';
           <div class="chart-card">
             <div class="chart-head">
               <h3>Metabolic Transformation</h3>
+              ${isEstimated ? '<span class="chart-tag">Estimated</span>' : ''}
             </div>
             <svg class="chart" id="comboChart" preserveAspectRatio="none" style="height:300px;"></svg>
             <div class="legend">
@@ -107,6 +138,7 @@ import '../styles/story.css';
               <span class="legend-item"><span class="dot" style="background:#e74c3c"></span>Body Fat</span>
               <span class="legend-item"><span class="dot" style="background:#2ecc71"></span>Lean Mass</span>
             </div>
+            ${isEstimated ? '<p class="chart-note">Estimated trajectory from before/after snapshots — actual week-by-week tracking not recorded.</p>' : ''}
           </div>
 
           ${t.takeaway_text ? `<p class="takeaway">${escapeHtml(t.takeaway_text)}</p>` : ''}
