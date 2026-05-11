@@ -53,8 +53,8 @@ Deno.serve(async (req) => {
   const token = String(body.edit_token || '').trim();
   const action = String(body.action || '');
   if (!slug || !token) return errResp(400, 'slug and edit_token required');
-  if (!['list', 'add', 'remove', 'set_primary'].includes(action)) {
-    return errResp(400, 'action must be one of: list, add, remove, set_primary');
+  if (!['list', 'add', 'update', 'remove', 'set_primary'].includes(action)) {
+    return errResp(400, 'action must be one of: list, add, update, remove, set_primary');
   }
 
   const supabase = createClient(
@@ -116,6 +116,38 @@ Deno.serve(async (req) => {
       .single();
     if (error) return errResp(500, error.message);
     return ok({ host: inserted });
+  }
+
+  if (action === 'update') {
+    if (!isMaster) return errResp(403, 'only the master host can edit co-hosts');
+    const host_id = String(body.host_id || '');
+    if (!host_id) return errResp(400, 'host_id required');
+
+    const { data: existing } = await supabase
+      .from('hosts').select('id')
+      .eq('id', host_id).eq('event_id', ev.id).maybeSingle();
+    if (!existing) return errResp(404, 'host not found in this event');
+
+    const patch: Record<string, unknown> = {};
+    if ('name' in body) {
+      const v = body.name == null ? null : String(body.name).trim();
+      patch.name = v || null;
+    }
+    if ('email' in body) {
+      const v = body.email == null ? null : String(body.email).trim().toLowerCase();
+      patch.email = v || null;
+    }
+    if ('phone' in body) {
+      const v = body.phone == null ? null : String(body.phone).trim();
+      patch.phone = v || null;
+    }
+    if (Object.keys(patch).length === 0) return errResp(400, 'no fields to update');
+
+    const { data: upd, error } = await supabase
+      .from('hosts').update(patch).eq('id', host_id)
+      .select('id, name, email, phone, host_token, created_at').single();
+    if (error) return errResp(500, error.message);
+    return ok({ host: upd });
   }
 
   if (action === 'remove') {

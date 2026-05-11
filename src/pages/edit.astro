@@ -1641,29 +1641,7 @@ import Base from '../layouts/Base.astro';
             hostsBlurb.style.fontStyle = 'italic';
           }
           if (isMaster) {
-            hostsAddSection.innerHTML = `
-              <form id="add-host-form" class="add-host-form" novalidate>
-                <label>
-                  Co-host name
-                  <input name="name" maxlength="120" placeholder="Coach Sam" />
-                </label>
-                <div class="grid-2">
-                  <label>
-                    Phone <span class="opt">(public)</span>
-                    <input type="tel" name="phone" placeholder="555-123-4567" />
-                  </label>
-                  <label>
-                    Email <span class="opt">(private)</span>
-                    <input type="email" name="email" />
-                  </label>
-                </div>
-                <div class="row">
-                  <button type="submit">+ Generate co-host link</button>
-                  <span id="add-host-status" role="status" aria-live="polite"></span>
-                </div>
-              </form>`;
-            const addForm = document.getElementById('add-host-form') as HTMLFormElement;
-            addForm.addEventListener('submit', handleAddHost);
+            renderAddHostForm();
           } else {
             // Co-host: no add form. The blurb above already says why.
             hostsAddSection.innerHTML = '';
@@ -1699,6 +1677,7 @@ import Base from '../layouts/Base.astro';
                       ${isCurrentOrganizer
                         ? '<button type="button" class="organizer-btn current" disabled>Organizer ✓</button>'
                         : `<button type="button" class="organizer-btn make" data-id="${h.id}">Make organizer</button>`}
+                      <button type="button" class="edit-host" data-id="${h.id}">Edit</button>
                       <button type="button" class="remove-host" data-id="${h.id}" data-name="${escapeHtml(h.name || 'this co-host')}">Remove</button>
                     </div>`
                   : ''}
@@ -1768,6 +1747,90 @@ import Base from '../layouts/Base.astro';
           }
         }
 
+        function renderAddHostForm() {
+          hostsAddSection.innerHTML = `
+            <form id="add-host-form" class="add-host-form" novalidate>
+              <label>
+                Co-host name
+                <input name="name" maxlength="120" placeholder="Coach Sam" />
+              </label>
+              <div class="grid-2">
+                <label>
+                  Phone <span class="opt">(public)</span>
+                  <input type="tel" name="phone" placeholder="555-123-4567" />
+                </label>
+                <label>
+                  Email <span class="opt">(private)</span>
+                  <input type="email" name="email" />
+                </label>
+              </div>
+              <div class="row">
+                <button type="submit">+ Generate co-host link</button>
+                <span id="add-host-status" role="status" aria-live="polite"></span>
+              </div>
+            </form>`;
+          (document.getElementById('add-host-form') as HTMLFormElement)
+            .addEventListener('submit', handleAddHost);
+        }
+
+        function showEditHostForm(h: Host) {
+          hostsAddSection.innerHTML = `
+            <form id="edit-host-form" class="add-host-form edit-mode" novalidate data-id="${escapeHtml(h.id)}">
+              <p class="edit-host-title">Editing <strong>${escapeHtml(h.name || 'this co-host')}</strong></p>
+              <label>
+                Co-host name
+                <input name="name" maxlength="120" value="${escapeHtml(h.name || '')}" />
+              </label>
+              <div class="grid-2">
+                <label>
+                  Phone <span class="opt">(public)</span>
+                  <input type="tel" name="phone" value="${escapeHtml(h.phone || '')}" />
+                </label>
+                <label>
+                  Email <span class="opt">(private)</span>
+                  <input type="email" name="email" value="${escapeHtml(h.email || '')}" />
+                </label>
+              </div>
+              <div class="row">
+                <button type="submit">Save changes</button>
+                <button type="button" id="cancel-edit-host">Cancel</button>
+                <span id="edit-host-status" role="status" aria-live="polite"></span>
+              </div>
+            </form>`;
+          (document.getElementById('edit-host-form') as HTMLFormElement)
+            .addEventListener('submit', (e) => handleUpdateHost(e, h.id));
+          document.getElementById('cancel-edit-host')!
+            .addEventListener('click', () => renderAddHostForm());
+          hostsAddSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        async function handleUpdateHost(submitEv: Event, hostId: string) {
+          submitEv.preventDefault();
+          const formEl = submitEv.target as HTMLFormElement;
+          const fd = new FormData(formEl);
+          const statusEl = document.getElementById('edit-host-status')!;
+          const submitBtn = formEl.querySelector('button[type=submit]') as HTMLButtonElement;
+          submitBtn.disabled = true;
+          statusEl.textContent = 'Saving…';
+          statusEl.className = '';
+          try {
+            await callFunction('manage-hosts', {
+              slug, edit_token: key, action: 'update',
+              host_id: hostId,
+              name: fd.get('name') || null,
+              phone: fd.get('phone') || null,
+              email: fd.get('email') || null,
+            });
+            await loadHosts();
+            renderAddHostForm();
+          } catch (err) {
+            const msg = (err as Error).message;
+            statusEl.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+            statusEl.className = 'err';
+            submitBtn.disabled = false;
+          }
+        }
+
         async function handleAddHost(submitEv: Event) {
           submitEv.preventDefault();
           const formEl = submitEv.target as HTMLFormElement;
@@ -1821,6 +1884,10 @@ import Base from '../layouts/Base.astro';
           } else if (target.classList.contains('organizer-btn') && target.classList.contains('make')) {
             const id = target.getAttribute('data-id');
             if (id) await setPrimary(id);
+          } else if (target.classList.contains('edit-host')) {
+            const id = target.getAttribute('data-id');
+            const h = hostsCache.find((x) => x.id === id);
+            if (h) showEditHostForm(h);
           }
         });
 
@@ -2514,6 +2581,24 @@ import Base from '../layouts/Base.astro';
     padding: 6px 12px; font-size: 12px; font-weight: 700;
     background: rgba(231,76,60,0.18); color: #e74c3c;
   }
+  button.edit-host {
+    padding: 6px 12px; font-size: 12px; font-weight: 700;
+    background: rgba(255,255,255,0.08); color: #ecf0f1;
+    border: 1px solid rgba(255,255,255,0.15);
+  }
+  .add-host-form.edit-mode {
+    border: 1px solid rgba(243,156,18,0.5);
+    background: rgba(243,156,18,0.06);
+    padding: 14px; border-radius: 10px;
+  }
+  .edit-host-title { font-size: 12px; color: #95a5a6; margin-bottom: 10px; }
+  .edit-host-title strong { color: var(--accent); }
+  #cancel-edit-host {
+    background: transparent; color: #ecf0f1;
+    border: 1px solid rgba(255,255,255,0.20); font-weight: 600;
+  }
+  #edit-host-status { font-size: 13px; color: #95a5a6; }
+  #edit-host-status.err { color: #e74c3c; font-weight: 600; }
   .host-actions { display: flex; gap: 6px; flex-wrap: wrap; }
   .organizer-btn {
     padding: 6px 12px; font-size: 12px; font-weight: 700;
