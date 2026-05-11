@@ -96,6 +96,15 @@ import Base from '../layouts/Base.astro';
             `<a class="event-btn raffle" href="${base}raffle?slug=${encodeURIComponent(slug)}">🎟️ Enter the Raffle${event.raffle_prize ? ` — ${escapeHtml(event.raffle_prize)}` : ''}</a>`
           );
         }
+        // Audience-mode raffle wheel: visible whenever the raffle has any
+        // status configured (open, drawing, closed). The wheel page handles
+        // its own "waiting for the host to spin" / "winners" empty states.
+        // No ?key= here — that's the host controller; attendees just watch.
+        if (event.raffle_status) {
+          buttons.push(
+            `<a class="event-btn wheel" href="${base}wheel?slug=${encodeURIComponent(slug)}">🎡 Go to the raffle wheel</a>`
+          );
+        }
         for (const t of transformations) {
           const tHref = `${base}t?slug=${encodeURIComponent(slug)}&t=${encodeURIComponent(t.slug)}`;
           buttons.push(`<a class="event-btn story" href="${tHref}">🎯 ${escapeHtml(t.name)}'s Story</a>`);
