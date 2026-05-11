@@ -594,6 +594,7 @@ import Base from '../layouts/Base.astro';
           <section class="card">
             <h2>Co-hosts</h2>
             <p class="hosts-blurb" id="hosts-blurb"></p>
+            <div id="organizer-status"></div>
             <div id="hosts-add-host" class="hosts-add-section"></div>
             <ul id="hosts-list" class="hosts-list">
               <li class="hosts-loading">Loading co-hosts…</li>
@@ -1617,7 +1618,10 @@ import Base from '../layouts/Base.astro';
         const hostsList = document.getElementById('hosts-list')!;
         const hostsAddSection = document.getElementById('hosts-add-host')!;
         const hostsBlurb = document.getElementById('hosts-blurb')!;
+        const organizerStatus = document.getElementById('organizer-status') as HTMLDivElement | null;
         let isMaster = false;
+        let primaryHostId: string | null = null;
+        let hostsCache: Host[] = [];
 
         function hostUrl(token: string): string {
           const params = new URLSearchParams({ slug: slug!, key: token });
@@ -1674,10 +1678,12 @@ import Base from '../layouts/Base.astro';
             const createdTxt = isNaN(created.getTime())
               ? h.created_at
               : created.toLocaleDateString();
+            const isCurrentOrganizer = primaryHostId === h.id;
             return `
-              <li class="host-item" data-id="${h.id}">
+              <li class="host-item ${isCurrentOrganizer ? 'is-organizer' : ''}" data-id="${h.id}">
                 <div class="host-info">
                   <strong>${escapeHtml(h.name || 'Unnamed co-host')}</strong>
+                  ${isCurrentOrganizer ? '<span class="host-organizer-badge">organizer</span>' : ''}
                   ${h.phone ? `<span class="host-meta">📞 ${escapeHtml(h.phone)}</span>` : ''}
                   ${h.email ? `<span class="host-meta">✉️ ${escapeHtml(h.email)}</span>` : ''}
                   <span class="host-meta">added ${escapeHtml(createdTxt)}</span>
@@ -1689,7 +1695,12 @@ import Base from '../layouts/Base.astro';
                     </div>`
                   : ''}
                 ${isMaster
-                  ? `<button type="button" class="remove-host" data-id="${h.id}" data-name="${escapeHtml(h.name || 'this co-host')}">Remove</button>`
+                  ? `<div class="host-actions">
+                      ${isCurrentOrganizer
+                        ? '<button type="button" class="organizer-btn current" disabled>Organizer ✓</button>'
+                        : `<button type="button" class="organizer-btn make" data-id="${h.id}">Make organizer</button>`}
+                      <button type="button" class="remove-host" data-id="${h.id}" data-name="${escapeHtml(h.name || 'this co-host')}">Remove</button>
+                    </div>`
                   : ''}
               </li>`;
           }).join('');
@@ -1703,10 +1714,57 @@ import Base from '../layouts/Base.astro';
               action: 'list',
             });
             isMaster = !!res.you_are_master;
-            renderHosts(res.hosts as Host[]);
+            primaryHostId = (res.primary_host_id ?? null) as string | null;
+            hostsCache = res.hosts as Host[];
+            renderHosts(hostsCache);
+            renderOrganizerBanner();
           } catch (err) {
             hostsList.innerHTML =
               `<li class="hosts-empty err">Could not load co-hosts: ${escapeHtml((err as Error).message)}</li>`;
+          }
+        }
+
+        function renderOrganizerBanner() {
+          if (!organizerStatus) return;
+          const currentCohost = primaryHostId
+            ? hostsCache.find((h) => h.id === primaryHostId)
+            : null;
+          if (!isMaster) {
+            organizerStatus.innerHTML = '';
+            return;
+          }
+          if (currentCohost) {
+            organizerStatus.innerHTML = `
+              <div class="org-banner">
+                <span class="org-banner-line">
+                  Public-page <strong>organizer</strong>:
+                  <strong class="who">${escapeHtml(currentCohost.name || 'co-host')}</strong>
+                </span>
+                <button type="button" id="organizer-reset" class="organizer-btn make">Take it back</button>
+              </div>`;
+            document.getElementById('organizer-reset')!.addEventListener('click', () => setPrimary(null));
+          } else {
+            organizerStatus.innerHTML = `
+              <div class="org-banner">
+                <span class="org-banner-line">
+                  Public-page <strong>organizer</strong>: <strong class="who">You</strong>
+                  <span class="org-banner-hint">(tap "Make organizer" on a co-host to pass it on)</span>
+                </span>
+              </div>`;
+          }
+        }
+
+        async function setPrimary(targetId: string | null) {
+          try {
+            await callFunction('manage-hosts', {
+              slug, edit_token: key, action: 'set_primary',
+              host_id: targetId,
+            });
+            primaryHostId = targetId;
+            renderHosts(hostsCache);
+            renderOrganizerBanner();
+          } catch (err) {
+            alert('Could not change organizer: ' + (err as Error).message);
           }
         }
 
@@ -1760,6 +1818,9 @@ import Base from '../layouts/Base.astro';
             const orig = target.textContent;
             target.textContent = 'Copied!';
             setTimeout(() => (target.textContent = orig), 1200);
+          } else if (target.classList.contains('organizer-btn') && target.classList.contains('make')) {
+            const id = target.getAttribute('data-id');
+            if (id) await setPrimary(id);
           }
         });
 
@@ -2452,8 +2513,45 @@ import Base from '../layouts/Base.astro';
   button.remove-host {
     padding: 6px 12px; font-size: 12px; font-weight: 700;
     background: rgba(231,76,60,0.18); color: #e74c3c;
-    align-self: start; justify-self: start;
   }
+  .host-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .organizer-btn {
+    padding: 6px 12px; font-size: 12px; font-weight: 700;
+    border-radius: 6px; cursor: pointer;
+    background: rgba(243,156,18,0.18); color: var(--accent);
+    border: 1px solid rgba(243,156,18,0.5);
+  }
+  .organizer-btn.current {
+    background: var(--accent); color: #1a252f;
+    border-color: var(--accent);
+    cursor: default; opacity: 0.95;
+  }
+  .organizer-btn:hover:not([disabled]) { background: rgba(243,156,18,0.30); }
+
+  .host-organizer-badge {
+    display: inline-block; vertical-align: middle;
+    margin-left: 6px;
+    font-size: 10px; padding: 1px 6px; border-radius: 8px;
+    background: rgba(243,156,18,0.20); color: var(--accent);
+    text-transform: uppercase; letter-spacing: 1px; font-weight: 700;
+  }
+  .host-item.is-organizer {
+    border-color: rgba(243,156,18,0.4);
+    background: rgba(243,156,18,0.04);
+  }
+
+  .org-banner {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    background: rgba(243,156,18,0.06);
+    border: 1px solid rgba(243,156,18,0.3);
+    border-radius: 8px; padding: 10px 14px;
+    margin-bottom: 14px;
+    font-size: 13px; color: #ecf0f1;
+  }
+  .org-banner-line { flex: 1; min-width: 0; }
+  .org-banner-line strong { color: var(--accent); font-weight: 700; }
+  .org-banner-line strong.who { color: #fff; }
+  .org-banner-hint { color: #95a5a6; font-style: italic; margin-left: 4px; }
 
   /* Share & save links section */
   .link-blurb {

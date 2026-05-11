@@ -39,39 +39,64 @@ Deno.serve(async (req) => {
 
   const { data: ev } = await supabase
     .from('events')
-    .select('id, organizer_name, organizer_email, organizer_phone, organizer_website, organizer_bio')
+    .select('id, primary_host_id, organizer_name, organizer_email, organizer_phone, organizer_website, organizer_bio')
     .eq('slug', slug).maybeSingle();
   if (!ev) return errResp(404, 'event not found');
 
   const { data: cohosts, error } = await supabase
-    .from('hosts').select('name, phone')
+    .from('hosts').select('id, name, phone, email')
     .eq('event_id', ev.id)
     .order('created_at', { ascending: true });
   if (error) return errResp(500, error.message);
 
-  const hosts: Array<{
+  type Entry = {
     name: string | null;
     phone: string | null;
     email?: string | null;
     website?: string | null;
     bio?: string | null;
     primary?: boolean;
-  }> = [];
+    _is_master?: boolean;
+    _id?: string;
+  };
 
-  if (ev.organizer_name || ev.organizer_phone || ev.organizer_email) {
-    hosts.push({
-      name: ev.organizer_name,
-      phone: ev.organizer_phone,
-      email: ev.organizer_email,
-      website: ev.organizer_website,
-      bio: ev.organizer_bio,
-      primary: true,
-    });
-  }
-  for (const c of cohosts || []) {
-    if (!c.name && !c.phone) continue;
-    hosts.push({ name: c.name, phone: c.phone });
+  // The master's organizer_* fields might be empty; only include the
+  // master entry if there's something to show.
+  const masterEntry: Entry | null =
+    (ev.organizer_name || ev.organizer_phone || ev.organizer_email)
+      ? {
+          name: ev.organizer_name,
+          phone: ev.organizer_phone,
+          email: ev.organizer_email,
+          website: ev.organizer_website,
+          bio: ev.organizer_bio,
+          _is_master: true,
+        }
+      : null;
+
+  const cohostEntries: Entry[] = (cohosts || [])
+    .filter((c) => c.name || c.phone)
+    .map((c) => ({ _id: c.id, name: c.name, phone: c.phone, email: c.email }));
+
+  // Pick the public organizer. If primary_host_id matches a co-host, that
+  // co-host wears the ORGANIZER badge and ranks first. Otherwise the master
+  // does. Either way the chosen entry goes first; everyone else follows in
+  // their original order with the master immediately after the organizer.
+  let primary: Entry | null = masterEntry;
+  if (ev.primary_host_id) {
+    const overridden = cohostEntries.find((c) => c._id === ev.primary_host_id);
+    if (overridden) primary = overridden;
   }
 
-  return ok({ hosts });
+  const ordered: Entry[] = [];
+  if (primary) ordered.push({ ...primary, primary: true });
+  if (primary !== masterEntry && masterEntry) ordered.push({ ...masterEntry, primary: false });
+  for (const c of cohostEntries) {
+    if (c === primary) continue;
+    ordered.push({ ...c, primary: false });
+  }
+
+  // Strip the internal flags before returning.
+  const clean = ordered.map(({ _id, _is_master, ...rest }) => rest);
+  return ok({ hosts: clean });
 });

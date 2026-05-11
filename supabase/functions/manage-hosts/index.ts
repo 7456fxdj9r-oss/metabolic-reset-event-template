@@ -53,8 +53,8 @@ Deno.serve(async (req) => {
   const token = String(body.edit_token || '').trim();
   const action = String(body.action || '');
   if (!slug || !token) return errResp(400, 'slug and edit_token required');
-  if (!['list', 'add', 'remove'].includes(action)) {
-    return errResp(400, 'action must be one of: list, add, remove');
+  if (!['list', 'add', 'remove', 'set_primary'].includes(action)) {
+    return errResp(400, 'action must be one of: list, add, remove, set_primary');
   }
 
   const supabase = createClient(
@@ -63,7 +63,7 @@ Deno.serve(async (req) => {
   );
 
   const { data: ev } = await supabase
-    .from('events').select('id, edit_token').eq('slug', slug).maybeSingle();
+    .from('events').select('id, edit_token, primary_host_id').eq('slug', slug).maybeSingle();
   if (!ev) return errResp(404, 'event not found');
 
   // Master = the original event creator's edit_token.
@@ -96,7 +96,11 @@ Deno.serve(async (req) => {
       created_at: row.created_at,
       host_token: isMaster ? row.host_token : null,
     }));
-    return ok({ hosts: sanitized, you_are_master: isMaster });
+    return ok({
+      hosts: sanitized,
+      you_are_master: isMaster,
+      primary_host_id: ev.primary_host_id, // null = master is organizer
+    });
   }
 
   if (action === 'add') {
@@ -123,6 +127,24 @@ Deno.serve(async (req) => {
       .eq('id', host_id).eq('event_id', ev.id);
     if (error) return errResp(500, error.message);
     return ok({ ok: true });
+  }
+
+  if (action === 'set_primary') {
+    // Master can pass the public "ORGANIZER" title to any co-host, or
+    // claim it back themselves. Null clears the override and the master
+    // (organizer_* fields) is treated as the public organizer again.
+    if (!isMaster) return errResp(403, 'only the master host can change the organizer');
+    const target = body.host_id ? String(body.host_id).trim() : null;
+    if (target) {
+      const { data: t } = await supabase
+        .from('hosts').select('id')
+        .eq('id', target).eq('event_id', ev.id).maybeSingle();
+      if (!t) return errResp(404, 'host not found in this event');
+    }
+    const { error } = await supabase
+      .from('events').update({ primary_host_id: target }).eq('id', ev.id);
+    if (error) return errResp(500, error.message);
+    return ok({ primary_host_id: target });
   }
 
   return errResp(400, 'unknown action');
