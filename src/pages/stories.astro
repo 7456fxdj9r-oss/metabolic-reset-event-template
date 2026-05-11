@@ -1,0 +1,184 @@
+---
+// Public list of transformation stories for an event. Each entry is a
+// button-style card showing the after photo (or before, if after is
+// missing), the person's name, and whichever headline stat reads most
+// dramatically. Tapping opens the full /t story page.
+//
+// Lives between /event (the hub) and /t (the deep dive) so the hub
+// stays a clean button stack even when an event features 6+
+// transformations.
+import Base from '../layouts/Base.astro';
+---
+<Base title="Transformation Stories">
+  <main class="stories" id="stories-root">
+    <p class="loading">Loading…</p>
+  </main>
+</Base>
+
+<script>
+  import { fetchEventBySlug, fetchTransformations } from '../lib/supabase.js';
+
+  const root = document.getElementById('stories-root')!;
+  const base = import.meta.env.BASE_URL;
+  const params = new URLSearchParams(window.location.search);
+  const slug = params.get('slug');
+
+  function escapeHtml(s: unknown): string {
+    return String(s ?? '').replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
+    );
+  }
+
+  // Pick the strongest headline number per row so each card reads at a
+  // glance without three competing stats. Priority: pounds lost > BF
+  // points lost > lean mass kept. Falls back to "Read story" if nothing
+  // is filled in.
+  function headlineStat(t: {
+    headline_lb_loss?: number | null;
+    headline_bf_delta_pts?: number | null;
+    headline_lean_kept_pct?: number | null;
+  }): string {
+    if (t.headline_lb_loss != null) return `−${t.headline_lb_loss} lb`;
+    if (t.headline_bf_delta_pts != null) return `−${t.headline_bf_delta_pts} BF%`;
+    if (t.headline_lean_kept_pct != null) return `${t.headline_lean_kept_pct}% lean kept`;
+    return 'Read story';
+  }
+
+  if (!slug) {
+    root.innerHTML = '<p class="loading err">No event specified.</p>';
+  } else {
+    (async () => {
+      try {
+        const event = await fetchEventBySlug(slug);
+        if (!event) {
+          root.innerHTML = '<p class="loading err">Event not found.</p>';
+          return;
+        }
+        document.title = `Stories — ${event.name}`;
+        const accent = event.accent_color || '#f39c12';
+        document.documentElement.style.setProperty('--accent', accent);
+
+        const transformations = await fetchTransformations(event.id);
+
+        const cards = transformations.map((t: any) => {
+          const tHref = `${base}t?slug=${encodeURIComponent(slug)}&t=${encodeURIComponent(t.slug)}`;
+          // Prefer the after photo (the wow shot); fall back to before
+          // if only one was uploaded; placeholder if neither.
+          const photo = t.after_photo_url || t.before_photo_url || '';
+          return `
+            <a class="story-card" href="${tHref}">
+              ${photo
+                ? `<img class="story-photo" src="${escapeHtml(photo)}" alt="${escapeHtml(t.name)}" />`
+                : '<div class="story-photo placeholder"></div>'}
+              <div class="story-body">
+                <strong class="story-name">${escapeHtml(t.name)}</strong>
+                <span class="story-stat">${escapeHtml(headlineStat(t))}</span>
+              </div>
+              <span class="story-chevron">→</span>
+            </a>`;
+        }).join('');
+
+        root.innerHTML = `
+          <a class="back-link" href="${base}event?slug=${encodeURIComponent(slug)}">← Back to the event</a>
+          <header class="top">
+            <p class="eyebrow">Today's Transformation Stories</p>
+            <h1>${escapeHtml(event.name)}</h1>
+            <p class="sub">Tap a story to see the photos, the numbers, and how it actually went down.</p>
+          </header>
+          ${transformations.length
+            ? `<section class="story-list">${cards}</section>`
+            : '<p class="empty">No transformation stories added yet.</p>'}
+          <div class="footer-cta">
+            <a class="secondary" href="${base}event?slug=${encodeURIComponent(slug)}">← Back to the event</a>
+          </div>
+        `;
+      } catch (err) {
+        root.innerHTML = `<p class="loading err">${escapeHtml((err as Error).message)}</p>`;
+      }
+    })();
+  }
+</script>
+
+<style is:global>
+  :root { --accent: #f39c12; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: #1a252f; color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  }
+  body { padding: 20px 14px 50px; line-height: 1.45; }
+  main.stories { max-width: 540px; margin: 0 auto; }
+
+  a.back-link {
+    display: inline-block;
+    padding: 8px 12px;
+    color: #ecf0f1; text-decoration: none;
+    font-size: 13px; font-weight: 600;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    margin-bottom: 16px;
+  }
+
+  .top { text-align: center; margin-bottom: 20px; }
+  .top .eyebrow {
+    font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; margin-bottom: 6px;
+  }
+  .top h1 { font-size: 26px; line-height: 1.2; }
+  .top .sub {
+    font-size: 13px; color: #95a5a6; margin-top: 8px; font-style: italic;
+  }
+
+  .story-list { display: grid; gap: 10px; }
+  a.story-card {
+    display: grid;
+    grid-template-columns: 64px 1fr auto;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 10px;
+    text-decoration: none;
+    color: #ecf0f1;
+  }
+  a.story-card:hover { background: rgba(255,255,255,0.08); }
+  .story-photo {
+    width: 64px; height: 80px;
+    border-radius: 6px;
+    object-fit: cover;
+    background: rgba(0,0,0,0.4);
+  }
+  .story-photo.placeholder {
+    border: 1px dashed rgba(255,255,255,0.14);
+  }
+  .story-body {
+    display: flex; flex-direction: column; gap: 4px; min-width: 0;
+  }
+  .story-name {
+    font-size: 15px; font-weight: 700; color: #ecf0f1;
+    overflow-wrap: anywhere;
+  }
+  .story-stat {
+    font-size: 13px; font-weight: 700;
+    color: var(--accent);
+  }
+  .story-chevron {
+    color: var(--accent);
+    font-size: 18px; font-weight: 700;
+    padding-left: 6px;
+  }
+
+  .empty { color: #95a5a6; font-style: italic; text-align: center; padding: 30px 0; }
+  .loading { color: #95a5a6; text-align: center; padding: 40px 0; font-size: 14px; }
+  .loading.err { color: #e74c3c; }
+
+  .footer-cta { display: grid; gap: 10px; margin-top: 22px; }
+  .footer-cta a {
+    display: block; text-align: center; padding: 12px;
+    background: transparent; color: #ecf0f1;
+    border: 1px solid rgba(255,255,255,0.20); border-radius: 8px;
+    text-decoration: none; font-weight: 600; font-size: 14px;
+  }
+</style>

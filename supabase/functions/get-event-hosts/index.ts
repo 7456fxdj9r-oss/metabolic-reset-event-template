@@ -44,7 +44,7 @@ Deno.serve(async (req) => {
   if (!ev) return errResp(404, 'event not found');
 
   const { data: cohosts, error } = await supabase
-    .from('hosts').select('id, name, phone, email')
+    .from('hosts').select('id, name, phone, email, bio, website')
     .eq('event_id', ev.id)
     .order('created_at', { ascending: true });
   if (error) return errResp(500, error.message);
@@ -76,7 +76,10 @@ Deno.serve(async (req) => {
 
   const cohostEntries: Entry[] = (cohosts || [])
     .filter((c) => c.name || c.phone)
-    .map((c) => ({ _id: c.id, name: c.name, phone: c.phone, email: c.email }));
+    .map((c) => ({
+      _id: c.id, name: c.name, phone: c.phone, email: c.email,
+      bio: c.bio, website: c.website,
+    }));
 
   // Pick the public organizer. If primary_host_id matches a co-host, that
   // co-host wears the ORGANIZER badge and ranks first. Otherwise the master

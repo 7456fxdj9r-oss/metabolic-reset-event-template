@@ -83,7 +83,7 @@ Deno.serve(async (req) => {
   if (action === 'list') {
     const { data: rows, error } = await supabase
       .from('hosts')
-      .select('id, name, email, phone, host_token, created_at')
+      .select('id, name, email, phone, bio, website, host_token, created_at')
       .eq('event_id', ev.id)
       .order('created_at', { ascending: true });
     if (error) return errResp(500, error.message);
@@ -93,6 +93,8 @@ Deno.serve(async (req) => {
       name: row.name,
       email: row.email,
       phone: row.phone,
+      bio: row.bio,
+      website: row.website,
       created_at: row.created_at,
       host_token: isMaster ? row.host_token : null,
     }));
@@ -108,11 +110,13 @@ Deno.serve(async (req) => {
     const name = body.name ? String(body.name).trim() : null;
     const email = body.email ? String(body.email).trim().toLowerCase() : null;
     const phone = body.phone ? String(body.phone).trim() : null;
+    const bio = body.bio ? String(body.bio).trim() : null;
+    const website = body.website ? String(body.website).trim() : null;
     const host_token = randomToken(32);
     const { data: inserted, error } = await supabase
       .from('hosts')
-      .insert({ event_id: ev.id, host_token, name, email, phone })
-      .select('id, name, email, phone, host_token, created_at')
+      .insert({ event_id: ev.id, host_token, name, email, phone, bio, website })
+      .select('id, name, email, phone, bio, website, host_token, created_at')
       .single();
     if (error) return errResp(500, error.message);
     return ok({ host: inserted });
@@ -141,11 +145,19 @@ Deno.serve(async (req) => {
       const v = body.phone == null ? null : String(body.phone).trim();
       patch.phone = v || null;
     }
+    if ('bio' in body) {
+      const v = body.bio == null ? null : String(body.bio).trim();
+      patch.bio = v || null;
+    }
+    if ('website' in body) {
+      const v = body.website == null ? null : String(body.website).trim();
+      patch.website = v || null;
+    }
     if (Object.keys(patch).length === 0) return errResp(400, 'no fields to update');
 
     const { data: upd, error } = await supabase
       .from('hosts').update(patch).eq('id', host_id)
-      .select('id, name, email, phone, host_token, created_at').single();
+      .select('id, name, email, phone, bio, website, host_token, created_at').single();
     if (error) return errResp(500, error.message);
     return ok({ host: upd });
   }
