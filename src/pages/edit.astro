@@ -2098,8 +2098,21 @@ import Base from '../layouts/Base.astro';
           }
         }
 
-        function agendaToTsv(items: AgendaItem[]): string {
-          const lines = ['Time\tSegment\tSpeaker / Lead\tDetails'];
+        // CSV is the canonical agenda paste format. We still accept a
+        // TSV fallback (per-line) when the first row has tabs but no
+        // commas, so people who copy straight from Google Sheets aren't
+        // stuck — but the headline format, the placeholder, and the
+        // export are all CSV.
+        function csvEscape(v: string): string {
+          const s = String(v ?? '');
+          // Quote the cell if it contains a comma, double-quote, or newline.
+          // Inside a quoted cell, double-quotes are escaped by doubling.
+          if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+          return s;
+        }
+
+        function agendaToCsv(items: AgendaItem[]): string {
+          const lines = ['Time,Segment,Speaker / Lead,Details'];
           for (const it of items) {
             const row = [
               it.time_label || '',
@@ -2107,26 +2120,63 @@ import Base from '../layouts/Base.astro';
               it.speaker || '',
               (it.details || '').replace(/\s*\n+\s*/g, ' '), // flatten newlines so each row stays on one line
             ];
-            lines.push(row.join('\t'));
+            lines.push(row.map(csvEscape).join(','));
           }
           return lines.join('\n');
         }
 
-        function parseAgendaTsv(text: string): Array<{
+        function parseCsvLine(line: string): string[] {
+          // Single-row CSV tokenizer. Handles quoted cells, commas inside
+          // quotes, and "" escapes. Doesn't try to handle quoted newlines
+          // spanning rows — agendaToCsv flattens newlines inside cells, so
+          // round-trip pastes from this UI never produce them.
+          const cells: string[] = [];
+          let cur = '';
+          let inQuotes = false;
+          let i = 0;
+          while (i < line.length) {
+            const ch = line[i];
+            if (inQuotes) {
+              if (ch === '"') {
+                if (line[i + 1] === '"') { cur += '"'; i += 2; continue; }
+                inQuotes = false; i++; continue;
+              }
+              cur += ch; i++;
+            } else {
+              if (ch === ',') { cells.push(cur); cur = ''; i++; continue; }
+              if (ch === '"' && cur.length === 0) { inQuotes = true; i++; continue; }
+              cur += ch; i++;
+            }
+          }
+          cells.push(cur);
+          return cells.map((c) => c.trim());
+        }
+
+        function parseAgendaCsv(text: string): Array<{
           time_label: string; segment: string; speaker: string; details: string;
         }> {
-          const rows = text.split(/\r?\n/)
+          const rawRows = text.split(/\r?\n/)
             .map((l) => l.replace(/^\s+|\s+$/g, ''))
             .filter(Boolean);
-          if (rows.length === 0) return [];
-          const headerCells = rows[0].split('\t').map((c) => c.trim().toLowerCase());
+          if (rawRows.length === 0) return [];
+
+          // Pick a per-line tokenizer. CSV is the headline format; if the
+          // first line has tabs but no commas we fall back to splitting on
+          // tabs so a Google Sheets paste still works.
+          const useTsvFallback = rawRows[0].includes('\t') && !rawRows[0].includes(',');
+          const splitRow = (line: string): string[] =>
+            useTsvFallback
+              ? line.split('\t').map((c) => c.trim())
+              : parseCsvLine(line);
+
+          const headerCells = splitRow(rawRows[0]).map((c) => c.toLowerCase());
           const isHeader = ['time', 'time_label', 'time / segment'].includes(headerCells[0]);
           const start = isHeader ? 1 : 0;
           const items: Array<{
             time_label: string; segment: string; speaker: string; details: string;
           }> = [];
-          for (let i = start; i < rows.length; i++) {
-            const cells = rows[i].split('\t').map((c) => c.trim());
+          for (let i = start; i < rawRows.length; i++) {
+            const cells = splitRow(rawRows[i]);
             if (cells.length < 2 || !cells[0] || !cells[1]) continue;
             items.push({
               time_label: cells[0],
@@ -2139,20 +2189,21 @@ import Base from '../layouts/Base.astro';
         }
 
         function showAgendaPasteForm() {
-          const initial = agendaToTsv(agenda);
+          const initial = agendaToCsv(agenda);
           aFormHost.innerHTML = `
             <form class="t-form paste-form" novalidate>
               <h3>Paste agenda</h3>
               <p class="paste-hint">
-                Paste 4 tab-separated columns: <strong>Time · Segment · Speaker · Details</strong>.
+                Paste 4 comma-separated columns: <strong>Time, Segment, Speaker, Details</strong>.
                 One row per line. First row can be a header (we'll skip it). Saving replaces
                 <strong>all</strong> existing rows.
               </p>
               <p class="paste-hint">
-                Copying from Google Sheets, Numbers, or Excel preserves the tabs automatically —
-                just select the 4 columns and paste in here.
+                Wrap any cell that contains a comma in double-quotes — e.g.
+                <code>9:00 AM,Welcome,Matt,"Intro, QR scan, and intentions"</code>.
+                Exporting your sheet as CSV (Google Sheets: <em>File → Download → CSV</em>) handles this for you.
               </p>
-              <textarea name="tsv" rows="14" class="paste-tsv" placeholder="9:00 AM\tWelcome\tMatt\tIntro and QR scan instructions">${escapeHtml(initial)}</textarea>
+              <textarea name="csv" rows="14" class="paste-csv" placeholder="9:00 AM,Welcome,Matt,Intro and QR scan instructions">${escapeHtml(initial)}</textarea>
               <p class="paste-preview" id="paste-preview"></p>
               <div class="row">
                 <button type="submit">Save all rows</button>
@@ -2164,14 +2215,14 @@ import Base from '../layouts/Base.astro';
           pasteABtn.style.display = 'none';
 
           const f = aFormHost.querySelector('form.paste-form') as HTMLFormElement;
-          const textarea = f.querySelector('textarea[name=tsv]') as HTMLTextAreaElement;
+          const textarea = f.querySelector('textarea[name=csv]') as HTMLTextAreaElement;
           const preview = document.getElementById('paste-preview')!;
 
           const updatePreview = () => {
-            const parsed = parseAgendaTsv(textarea.value);
+            const parsed = parseAgendaCsv(textarea.value);
             preview.textContent = parsed.length
               ? `${parsed.length} row${parsed.length === 1 ? '' : 's'} detected.`
-              : 'No rows detected yet. Make sure cells are separated by tabs.';
+              : 'No rows detected yet. Make sure cells are separated by commas (quote any cell that contains a comma).';
             preview.className = 'paste-preview ' + (parsed.length ? 'ok' : '');
           };
           textarea.addEventListener('input', updatePreview);
@@ -2184,10 +2235,10 @@ import Base from '../layouts/Base.astro';
         async function handleAgendaPasteSubmit(submitEv: Event) {
           submitEv.preventDefault();
           const formEl = submitEv.target as HTMLFormElement;
-          const textarea = formEl.querySelector('textarea[name=tsv]') as HTMLTextAreaElement;
+          const textarea = formEl.querySelector('textarea[name=csv]') as HTMLTextAreaElement;
           const tStatus = formEl.querySelector('.t-status') as HTMLSpanElement;
           const submit = formEl.querySelector('button[type=submit]') as HTMLButtonElement;
-          const items = parseAgendaTsv(textarea.value);
+          const items = parseAgendaCsv(textarea.value);
 
           if (items.length === 0) {
             if (!confirm('No rows detected — this will delete every existing agenda item. Continue?')) return;
@@ -2462,10 +2513,16 @@ import Base from '../layouts/Base.astro';
   }
   .paste-hint { font-size: 12px; color: #95a5a6; line-height: 1.5; margin: 4px 0; }
   .paste-hint strong { color: #ecf0f1; }
-  textarea.paste-tsv {
+  textarea.paste-csv {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px; min-height: 200px; white-space: pre;
     background: rgba(0,0,0,0.3);
+  }
+  .paste-hint code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px; padding: 1px 5px;
+    background: rgba(0,0,0,0.35); border-radius: 4px;
+    color: #ecf0f1;
   }
   .paste-preview { font-size: 12px; color: #95a5a6; min-height: 16px; }
   .paste-preview.ok { color: #2ecc71; font-weight: 700; }
