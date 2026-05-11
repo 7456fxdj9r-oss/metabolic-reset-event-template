@@ -29,6 +29,37 @@ import Base from '../../layouts/Base.astro';
     return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
   }
 
+  // PWA manifest — synchronous, from URL params. If an entrant taps
+  // Add to Home Screen the home-screen icon needs to bring them back to
+  // THIS status page with THEIR token, not the marketing landing page.
+  // start_url carries both slug + token; iOS captures the manifest at
+  // install time so we set it before any network call.
+  if (slug && token) {
+    try {
+      const startUrl = `${window.location.origin}${base}raffle/me?slug=${encodeURIComponent(slug)}&token=${encodeURIComponent(token)}`;
+      const iconBase = `${window.location.origin}${base}`;
+      const m = {
+        name: 'Your raffle entry',
+        short_name: 'My entry',
+        start_url: startUrl,
+        scope: window.location.origin + base,
+        display: 'standalone',
+        orientation: 'portrait',
+        background_color: '#1a252f',
+        theme_color: '#1a252f',
+        icons: [
+          { src: iconBase + 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+          { src: iconBase + 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+        ],
+      };
+      const blob = new Blob([JSON.stringify(m)], { type: 'application/manifest+json' });
+      const link = document.getElementById('manifest-link') as HTMLLinkElement | null;
+      if (link) link.href = URL.createObjectURL(blob);
+      const titleMeta = document.getElementById('apple-app-title') as HTMLMetaElement | null;
+      if (titleMeta) titleMeta.setAttribute('content', 'My entry');
+    } catch { /* non-fatal */ }
+  }
+
   if (!slug || !token) {
     root.innerHTML = '<p class="loading err">Missing slug or token. Bookmark the link you got after entering.</p>';
   } else {

@@ -23,6 +23,39 @@ import Base from '../layouts/Base.astro';
     );
   }
 
+  // PWA manifest — SYNCHRONOUS, from URL params. iOS captures the manifest
+  // the instant the user taps "Add to Home Screen", which can happen before
+  // the async event fetch finishes. If the per-event manifest hasn't been
+  // installed yet, iOS falls back to the static manifest with start_url:"./",
+  // which means the home-screen icon opens the marketing landing page
+  // ("Your transformations, on a phone-friendly event page…") and the user
+  // thinks they're being asked to build a new event. Setting a minimal
+  // per-event manifest right now (no name/accent yet — those come post-fetch)
+  // closes the race window: even an instant tap captures the right start_url.
+  if (slug) {
+    try {
+      const startUrl = `${window.location.origin}${base}event?slug=${encodeURIComponent(slug)}`;
+      const iconBase = `${window.location.origin}${base}`;
+      const minimalManifest = {
+        name: 'Event',
+        short_name: 'Event',
+        start_url: startUrl,
+        scope: window.location.origin + base,
+        display: 'standalone',
+        orientation: 'portrait',
+        background_color: '#1a252f',
+        theme_color: '#1a252f',
+        icons: [
+          { src: iconBase + 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+          { src: iconBase + 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+        ],
+      };
+      const blob = new Blob([JSON.stringify(minimalManifest)], { type: 'application/manifest+json' });
+      const link = document.getElementById('manifest-link') as HTMLLinkElement | null;
+      if (link) link.href = URL.createObjectURL(blob);
+    } catch { /* non-fatal */ }
+  }
+
   if (!slug) {
     root.innerHTML = '<p class="loading">No event specified.</p>';
   } else {
@@ -140,7 +173,10 @@ import Base from '../layouts/Base.astro';
         // reads the apple-mobile-web-app-title meta tag, so we update both.
         try {
           const accent = event.accent_color || '#f39c12';
-          const startUrl = `${window.location.origin}${base}event/${encodeURIComponent(slug!)}`;
+          // Query-string form (not /event/<slug>) so a PWA launch lands
+          // directly on the page without bouncing through the 404 SPA
+          // redirect. Matches the synchronous setup above.
+          const startUrl = `${window.location.origin}${base}event?slug=${encodeURIComponent(slug!)}`;
           const iconBase = `${window.location.origin}${base}`;
           const eventManifest = {
             name: event.name || 'Metabolic Reset Event',
