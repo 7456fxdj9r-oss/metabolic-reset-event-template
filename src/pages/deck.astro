@@ -39,6 +39,7 @@ import Base from '../layouts/Base.astro';
   type Slide =
     | { kind: 'cover'; eventName: string; dateText: string; location: string | null }
     | { kind: 'speaker'; item: AgendaItem; speaker: Speaker }
+    | { kind: 'multi'; item: AgendaItem; speakers: Speaker[] }
     | { kind: 'section'; item: AgendaItem };
 
   const root = document.getElementById('deck-root')!;
@@ -80,13 +81,43 @@ import Base from '../layouts/Base.astro';
           fetchAgendaItems(event.id) as Promise<AgendaItem[]>,
         ]);
 
-        // Build the slide list once. Speaker resolution is case-insensitive
-        // exact match — the autocomplete in the agenda form makes this
-        // reliable enough; mismatches degrade to a section slide.
-        const speakerByName = new Map<string, Speaker>();
-        for (const sp of speakers) {
-          if (sp.name) speakerByName.set(sp.name.trim().toLowerCase(), sp);
+        // Resolve which speakers appear in an agenda item's free-text
+        // speaker field. Strict-exact match against a speaker's full name
+        // wins (one slide = one big photo). When the text instead mentions
+        // 2+ speakers by first name (e.g. "Sarah & Nicole", "Matt or Tasha
+        // (with Annie & Rhonda)") we surface all of them as a multi-photo
+        // slide. Photo-less placeholder tiles render when a matched
+        // speaker has no photo yet.
+        function findMatchingSpeakers(agendaText: string | null): Speaker[] {
+          if (!agendaText) return [];
+          const text = agendaText.toLowerCase();
+          // Exact-full-name takes priority: matches the historical strict
+          // rule, used for items where the editor's autocomplete picked a
+          // single speaker.
+          for (const sp of speakers) {
+            if (sp.name && sp.name.trim().toLowerCase() === text.trim()) {
+              return [sp];
+            }
+          }
+          // Otherwise scan each speaker's first name as a whole word.
+          // Compound entries like "Rhonda & Craig Lauritzen" use "Rhonda"
+          // as the first word, so they match when an agenda item mentions
+          // Rhonda but not when it mentions only Craig.
+          const matches: Speaker[] = [];
+          const seen = new Set<string>();
+          for (const sp of speakers) {
+            if (!sp.name) continue;
+            const firstWord = sp.name.trim().split(/\s+/)[0]?.replace(/[^a-zA-Z0-9]/g, '') || '';
+            if (!firstWord) continue;
+            const re = new RegExp(`\\b${firstWord.toLowerCase()}\\b`, 'i');
+            if (re.test(text) && !seen.has(sp.id)) {
+              matches.push(sp);
+              seen.add(sp.id);
+            }
+          }
+          return matches;
         }
+
         const slides: Slide[] = [
           {
             kind: 'cover',
@@ -95,12 +126,14 @@ import Base from '../layouts/Base.astro';
             location: event.host_line || null,
           },
           ...agenda.map((it) => {
-            const sp = it.speaker
-              ? speakerByName.get(it.speaker.trim().toLowerCase())
-              : null;
-            return sp
-              ? { kind: 'speaker' as const, item: it, speaker: sp }
-              : { kind: 'section' as const, item: it };
+            const matched = findMatchingSpeakers(it.speaker);
+            if (matched.length === 1) {
+              return { kind: 'speaker' as const, item: it, speaker: matched[0] };
+            }
+            if (matched.length >= 2) {
+              return { kind: 'multi' as const, item: it, speakers: matched };
+            }
+            return { kind: 'section' as const, item: it };
           }),
         ];
 
@@ -138,6 +171,24 @@ import Base from '../layouts/Base.astro';
                   <h2 class="speaker-name">${escapeHtml(sp.name)}</h2>
                   <p class="speaker-topic">${escapeHtml(it.segment)}</p>
                 </div>
+              </div>`;
+          } else if (slide.kind === 'multi') {
+            const it = slide.item;
+            const tiles = slide.speakers.map((sp) => {
+              const ph = sp.photo_url
+                ? `<img class="multi-photo" src="${escapeHtml(sp.photo_url)}" alt="${escapeHtml(sp.name)}" />`
+                : '<div class="multi-photo empty">📷</div>';
+              return `
+                <div class="multi-tile">
+                  ${ph}
+                  <p class="multi-name">${escapeHtml(sp.name)}</p>
+                </div>`;
+            }).join('');
+            body = `
+              <div class="slide multi-slide" data-count="${slide.speakers.length}">
+                <p class="multi-time">${escapeHtml(it.time_label)}</p>
+                <div class="multi-tiles">${tiles}</div>
+                <h2 class="multi-topic">${escapeHtml(it.segment)}</h2>
               </div>`;
           } else {
             const it = slide.item;
@@ -300,6 +351,63 @@ import Base from '../layouts/Base.astro';
     .speaker-slide { grid-template-columns: 1fr; gap: 30px; }
     .speaker-photo { justify-self: center; max-width: 50vh; }
     .speaker-meta { text-align: center; }
+  }
+
+  /* Multi-speaker slide: photos + names in a row, with time + topic
+     above and below. Auto-shrinks photos for 3+ speakers. */
+  .multi-slide {
+    display: flex; flex-direction: column;
+    align-items: center;
+    gap: clamp(16px, 3vh, 30px);
+  }
+  .multi-time {
+    font-size: clamp(14px, 2vh, 22px);
+    letter-spacing: 4px; text-transform: uppercase;
+    color: var(--accent); font-weight: 700;
+  }
+  .multi-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: clamp(14px, 2.5vw, 36px);
+    width: 100%;
+    max-width: 1100px;
+    align-items: end; justify-items: center;
+  }
+  /* When there are exactly 2 speakers, force them side-by-side at
+     larger sizes (avoids auto-fit stacking on widescreen projectors). */
+  .multi-slide[data-count="2"] .multi-tiles {
+    grid-template-columns: repeat(2, minmax(0, 320px));
+    justify-content: center;
+  }
+  .multi-tile {
+    display: flex; flex-direction: column;
+    align-items: center; gap: 10px;
+    max-width: 320px;
+  }
+  .multi-photo {
+    width: 100%; aspect-ratio: 1 / 1;
+    object-fit: cover;
+    border-radius: 16px;
+    background: rgba(255,255,255,0.05);
+    box-shadow: 0 12px 30px rgba(0,0,0,0.5);
+  }
+  .multi-photo.empty {
+    display: flex; align-items: center; justify-content: center;
+    font-size: 52px; color: rgba(255,255,255,0.25);
+    border: 2px dashed rgba(255,255,255,0.15);
+  }
+  .multi-name {
+    font-size: clamp(16px, 2.4vh, 28px);
+    font-weight: 800; color: #fff;
+    line-height: 1.2;
+    overflow-wrap: anywhere; text-align: center;
+  }
+  .multi-topic {
+    font-size: clamp(26px, 5.5vh, 56px);
+    color: var(--accent); font-weight: 900;
+    line-height: 1.1; letter-spacing: -1px;
+    text-align: center;
+    overflow-wrap: anywhere;
   }
 
   /* Section slide (no matched speaker) */

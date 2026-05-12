@@ -77,25 +77,43 @@ import Base from '../layouts/Base.astro';
           fetchAgendaItems(event.id) as Promise<AgendaItem[]>,
         ]);
 
-        // Same speaker-lookup rule as deck.astro: case-insensitive exact
-        // match. Keep them in sync if the rule ever changes.
-        const speakerByName = new Map<string, Speaker>();
-        for (const sp of speakers) {
-          if (sp.name) speakerByName.set(sp.name.trim().toLowerCase(), sp);
+        // Same speaker-lookup rule as deck.astro: exact-full-name first,
+        // then per-speaker first-name word match so multi-speaker agenda
+        // items (e.g. "Sarah & Nicole") resolve to a list of speakers.
+        // Keep this rule in sync with deck.astro's findMatchingSpeakers.
+        function findMatchingSpeakers(agendaText: string | null): Speaker[] {
+          if (!agendaText) return [];
+          const text = agendaText.toLowerCase();
+          for (const sp of speakers) {
+            if (sp.name && sp.name.trim().toLowerCase() === text.trim()) return [sp];
+          }
+          const matches: Speaker[] = [];
+          const seen = new Set<string>();
+          for (const sp of speakers) {
+            if (!sp.name) continue;
+            const firstWord = sp.name.trim().split(/\s+/)[0]?.replace(/[^a-zA-Z0-9]/g, '') || '';
+            if (!firstWord) continue;
+            const re = new RegExp(`\\b${firstWord.toLowerCase()}\\b`, 'i');
+            if (re.test(text) && !seen.has(sp.id)) {
+              matches.push(sp);
+              seen.add(sp.id);
+            }
+          }
+          return matches;
         }
 
-        // Slide model: index 0 is cover, 1..N agenda items.
+        // Slide model: index 0 is cover, 1..N agenda items. `speakers` is
+        // empty for plain section slides, length 1 for single-speaker, 2+
+        // for multi-speaker.
         type SlideEntry =
           | { kind: 'cover' }
-          | { kind: 'item'; item: AgendaItem; speaker: Speaker | null };
+          | { kind: 'item'; item: AgendaItem; speakers: Speaker[] };
         const slides: SlideEntry[] = [
           { kind: 'cover' },
           ...agenda.map((it) => ({
             kind: 'item' as const,
             item: it,
-            speaker: it.speaker
-              ? (speakerByName.get(it.speaker.trim().toLowerCase()) || null)
-              : null,
+            speakers: findMatchingSpeakers(it.speaker),
           })),
         ];
 
@@ -132,8 +150,9 @@ import Base from '../layouts/Base.astro';
               </div>`;
           }
           const it = slide.item;
-          if (slide.speaker) {
-            const sp = slide.speaker;
+          const sps = slide.speakers;
+          if (sps.length === 1) {
+            const sp = sps[0];
             const photo = sp.photo_url
               ? `<img class="preview-photo" src="${escapeHtml(sp.photo_url)}" alt="" />`
               : '<div class="preview-photo empty">📷</div>';
@@ -145,6 +164,20 @@ import Base from '../layouts/Base.astro';
                   <p class="preview-name">${escapeHtml(sp.name)}</p>
                   <p class="preview-topic">${escapeHtml(it.segment)}</p>
                 </div>
+              </div>`;
+          }
+          if (sps.length >= 2) {
+            const avatars = sps.slice(0, 4).map((sp) => sp.photo_url
+              ? `<img class="preview-avatar" src="${escapeHtml(sp.photo_url)}" alt="" title="${escapeHtml(sp.name)}" />`
+              : `<div class="preview-avatar empty" title="${escapeHtml(sp.name)}">📷</div>`
+            ).join('');
+            const extra = sps.length > 4 ? `<span class="preview-extra">+${sps.length - 4}</span>` : '';
+            return `
+              <div class="preview multi">
+                <p class="preview-time">${escapeHtml(it.time_label)}</p>
+                <div class="preview-avatars">${avatars}${extra}</div>
+                <p class="preview-title">${escapeHtml(it.segment)}</p>
+                ${it.speaker ? `<p class="preview-lead">${escapeHtml(it.speaker)}</p>` : ''}
               </div>`;
           }
           return `
@@ -164,13 +197,15 @@ import Base from '../layouts/Base.astro';
                 <span class="row-info"><strong>${escapeHtml(event.name)}</strong></span>
               </li>`;
             }
-            const sp = s.speaker;
-            const speakerName = sp ? sp.name : (s.item.speaker || '');
+            // Agenda list shows the raw speaker text (what the host typed)
+            // not the resolved speaker name(s) — keeps the editor mental
+            // model intact ("Sarah & Nicole" stays "Sarah & Nicole").
+            const speakerText = s.item.speaker || '';
             return `<li class="agenda-row${active}" data-idx="${i}">
               <span class="row-time">${escapeHtml(s.item.time_label)}</span>
               <span class="row-info">
                 <strong>${escapeHtml(s.item.segment)}</strong>
-                ${speakerName ? `<span class="row-speaker">${escapeHtml(speakerName)}</span>` : ''}
+                ${speakerText ? `<span class="row-speaker">${escapeHtml(speakerText)}</span>` : ''}
               </span>
             </li>`;
           }).join('');
@@ -309,6 +344,26 @@ import Base from '../layouts/Base.astro';
     display: flex; align-items: center; justify-content: center;
     font-size: 28px; color: rgba(255,255,255,0.30);
     border: 1px dashed rgba(255,255,255,0.15);
+  }
+  /* Multi-speaker preview: row of small avatars + "+N more" badge */
+  .preview-avatars {
+    display: flex; gap: 6px; flex-wrap: wrap;
+    align-items: center;
+    margin: 4px 0;
+  }
+  .preview-avatar {
+    width: 44px; height: 44px;
+    object-fit: cover; border-radius: 8px;
+    background: rgba(255,255,255,0.06);
+  }
+  .preview-avatar.empty {
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; color: rgba(255,255,255,0.30);
+    border: 1px dashed rgba(255,255,255,0.15);
+  }
+  .preview-extra {
+    font-size: 11px; font-weight: 700; color: #95a5a6;
+    padding: 0 4px;
   }
   .preview-meta { min-width: 0; flex: 1; }
   .preview-time {
