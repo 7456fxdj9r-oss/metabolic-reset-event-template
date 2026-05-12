@@ -21,6 +21,7 @@ import Base from '../layouts/Base.astro';
   type TeamHost = {
     name: string | null; phone: string | null;
     email?: string | null; website?: string | null; bio?: string | null;
+    photo_url?: string | null;
     primary?: boolean; is_master?: boolean; id?: string;
   };
 
@@ -59,8 +60,12 @@ import Base from '../layouts/Base.astro';
           const extras: string[] = [];
           if (h.email) extras.push(`<a href="mailto:${escapeHtml(h.email)}">✉️ ${escapeHtml(h.email)}</a>`);
           if (h.website) extras.push(`<a href="${escapeHtml(h.website)}" target="_blank" rel="noopener">🌐 Website</a>`);
+          const thumb = h.photo_url
+            ? `<img class="host-thumb" src="${escapeHtml(h.photo_url)}" alt="" />`
+            : '<div class="host-thumb empty" aria-hidden="true"></div>';
           return `
             <li class="host-card">
+              ${thumb}
               <div class="host-head">
                 <strong>${escapeHtml(h.name || 'Co-host')}</strong>
                 ${badge}
@@ -188,6 +193,15 @@ import Base from '../layouts/Base.astro';
     padding: 12px 14px;
     display: flex; align-items: center; gap: 10px;
     flex-wrap: wrap;
+  }
+  .host-thumb {
+    width: 56px; height: 56px;
+    border-radius: 50%; object-fit: cover;
+    background: rgba(0,0,0,0.35);
+    flex-shrink: 0;
+  }
+  .host-thumb.empty {
+    border: 1px dashed rgba(255,255,255,0.18);
   }
   .host-head {
     display: flex; align-items: center; gap: 6px;

@@ -26,7 +26,7 @@ import Base from '../layouts/Base.astro';
   import { drawMultiChart } from '../lib/chart.js';
   import { buildRaffleEntriesCsv, downloadCsv } from '../lib/csv.js';
   import {
-    eventUrl, editUrl as editUrlOf, liveUrl, wheelUrl, posterUrl,
+    eventUrl, editUrl as editUrlOf, liveUrl, wheelUrl,
     rafflePosterUrl, cueUrl, raffleUrl,
   } from '../lib/urls.js';
   import QRCode from 'qrcode';
@@ -508,8 +508,7 @@ import Base from '../layouts/Base.astro';
               <a class="wheel-link live" href="${liveUrl(base, slug, key)}" target="_blank" rel="noopener">📊 Live event dashboard</a>
               <a class="wheel-link host" href="${wheelUrl(base, slug, key)}" target="_blank" rel="noopener">🎡 Open the wheel (host)</a>
               <a class="wheel-link viewer" href="${wheelUrl(base, slug)}" target="_blank" rel="noopener">👀 Audience view</a>
-              <a class="wheel-link poster" href="${posterUrl(base, slug, key)}" target="_blank" rel="noopener">🖨 Print event poster</a>
-              <a class="wheel-link poster" href="${rafflePosterUrl(base, slug, key)}" target="_blank" rel="noopener">🎁 Print raffle poster (with prize photo)</a>
+              <a class="wheel-link poster" href="${rafflePosterUrl(base, slug, key)}" target="_blank" rel="noopener">🖨 Print raffle poster</a>
               <a class="wheel-link poster" href="${cueUrl(base, slug, key)}" target="_blank" rel="noopener">📋 Print cue sheet</a>
             </div>
           </section>
@@ -2111,6 +2110,7 @@ import Base from '../layouts/Base.astro';
           phone: string | null;
           bio: string | null;
           website: string | null;
+          photo_url: string | null;
           host_token: string | null; // null when the viewer isn't the master
           created_at: string;
         };
@@ -2121,9 +2121,172 @@ import Base from '../layouts/Base.astro';
         let isMaster = false;
         let primaryHostId: string | null = null;
         let hostsCache: Host[] = [];
+        let pendingHostPhoto: File | null = null;
 
         function hostUrl(token: string): string {
           return window.location.origin + editUrlOf(base, slug!, token);
+        }
+
+        // Photo slot HTML for the host add/edit form. Mirrors speakerFormHtml's
+        // photo block — same data attributes (data-host-slot) so the form
+        // wiring stays parallel.
+        function hostPhotoSlotHtml(h?: Host): string {
+          const url = h?.photo_url || null;
+          const showRecrop = !!(h && url);
+          return `
+            <div class="photo-slot host-slot" data-host-slot>
+              <span class="slot-label">Photo</span>
+              <div class="photo-preview speaker-preview">
+                ${url
+                  ? `<img src="${escapeHtml(url)}" alt="" />`
+                  : '<div class="empty">No photo</div>'}
+              </div>
+              <div class="photo-actions">
+                <label class="upload-btn">
+                  <input type="file" accept="image/*" data-host-slot hidden />
+                  <span class="upload-label">${url ? 'Replace photo' : 'Upload photo'}</span>
+                </label>
+                ${showRecrop
+                  ? `<button type="button" class="upload-btn recrop-btn" data-recrop-host>✂️ Re-crop current</button>`
+                  : ''}
+              </div>
+              ${showRecrop
+                ? '<span class="recrop-hint">Re-crop adjusts the saved photo (1200px wide). To recover area outside the original crop, use Replace photo with the original file.</span>'
+                : ''}
+              <span class="upload-status" data-host-slot></span>
+            </div>`;
+        }
+
+        async function uploadHostPhoto(hostId: string, file: File): Promise<string> {
+          const compressed = await compressImage(file, 1200, 0.82);
+          const data_b64 = await blobToBase64(compressed);
+          const res = await callFunction('upload-host-photo', {
+            slug, edit_token: key,
+            host_id: hostId,
+            filename: 'photo.jpg',
+            data: data_b64,
+          });
+          return res.url as string;
+        }
+
+        async function handlePendingHostPhoto(changeEv: Event) {
+          const input = changeEv.target as HTMLInputElement;
+          const file = input.files?.[0];
+          if (!file) return;
+          const slotEl = input.closest('.host-slot') as HTMLElement;
+          const previewEl = slotEl.querySelector('.photo-preview') as HTMLElement;
+          const labelEl = slotEl.querySelector('.upload-label') as HTMLElement;
+          const statusEl = slotEl.querySelector('.upload-status') as HTMLElement;
+          input.value = '';
+          statusEl.textContent = 'Opening crop tool…';
+          statusEl.className = 'upload-status';
+          const cropped = await openCropModal(file, 1, 'Crop the co-host photo');
+          if (!cropped) {
+            statusEl.textContent = '';
+            return;
+          }
+          pendingHostPhoto = new File([cropped], 'photo.jpg', { type: 'image/jpeg' });
+          const reader = new FileReader();
+          reader.onload = () => {
+            previewEl.innerHTML = `<img src="${reader.result}" alt="" />`;
+            labelEl.textContent = 'Replace photo';
+            statusEl.textContent = 'Will upload after Generate co-host link';
+            statusEl.className = 'upload-status';
+          };
+          reader.readAsDataURL(cropped);
+        }
+
+        async function handleHostPhotoUpload(changeEv: Event, h: Host) {
+          const input = changeEv.target as HTMLInputElement;
+          const file = input.files?.[0];
+          if (!file) return;
+          const slotEl = input.closest('.host-slot') as HTMLElement;
+          const previewEl = slotEl.querySelector('.photo-preview') as HTMLElement;
+          const labelEl = slotEl.querySelector('.upload-label') as HTMLElement;
+          const statusEl = slotEl.querySelector('.upload-status') as HTMLElement;
+          input.value = '';
+          statusEl.textContent = 'Opening crop tool…';
+          statusEl.className = 'upload-status';
+          try {
+            const cropped = await openCropModal(file, 1, `Crop ${h.name || 'co-host'}'s photo`);
+            if (!cropped) {
+              statusEl.textContent = '';
+              return;
+            }
+            statusEl.textContent = 'Uploading…';
+            const data_b64 = await blobToBase64(cropped);
+            const res = await callFunction('upload-host-photo', {
+              slug, edit_token: key,
+              host_id: h.id,
+              filename: 'photo.jpg', data: data_b64,
+            });
+            const url = res.url as string;
+            hostsCache = hostsCache.map((x) => (x.id === h.id ? { ...x, photo_url: url } : x));
+            h.photo_url = url;
+            previewEl.innerHTML = `<img src="${escapeHtml(url)}" alt="" />`;
+            labelEl.textContent = 'Replace photo';
+            statusEl.textContent = 'Uploaded ✓';
+            statusEl.className = 'upload-status ok';
+            renderHosts(hostsCache);
+          } catch (err) {
+            const msg = (err as Error).message;
+            statusEl.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+            statusEl.className = 'upload-status err';
+          }
+        }
+
+        // Re-crop the already-saved host photo without re-uploading the
+        // original. Same trade-off as the speaker re-crop: works from the
+        // already-cropped JPEG, so the user can tighten the framing but
+        // can't recover area outside the original crop.
+        async function handleHostRecrop(h: Host) {
+          if (!h.photo_url) return;
+          const slotEl = hostsAddSection.querySelector('.host-slot') as HTMLElement;
+          const previewEl = slotEl.querySelector('.photo-preview') as HTMLElement;
+          const labelEl = slotEl.querySelector('.upload-label') as HTMLElement;
+          const statusEl = slotEl.querySelector('.upload-status') as HTMLElement;
+          const recropBtn = slotEl.querySelector('[data-recrop-host]') as HTMLButtonElement | null;
+
+          if (recropBtn) recropBtn.disabled = true;
+          statusEl.textContent = 'Fetching current photo…';
+          statusEl.className = 'upload-status';
+          try {
+            const fetchUrl = h.photo_url + (h.photo_url.includes('?') ? '&' : '?') + 'r=' + Date.now();
+            const fetched = await fetch(fetchUrl);
+            if (!fetched.ok) throw new Error('Could not load the saved photo (HTTP ' + fetched.status + ')');
+            const blob = await fetched.blob();
+            const file = new File([blob], 'photo.jpg', { type: blob.type || 'image/jpeg' });
+
+            statusEl.textContent = 'Opening crop tool…';
+            const cropped = await openCropModal(file, 1, `Re-crop ${h.name || 'co-host'}'s photo`);
+            if (!cropped) {
+              statusEl.textContent = '';
+              if (recropBtn) recropBtn.disabled = false;
+              return;
+            }
+
+            statusEl.textContent = 'Uploading…';
+            const data_b64 = await blobToBase64(cropped);
+            const res = await callFunction('upload-host-photo', {
+              slug, edit_token: key,
+              host_id: h.id,
+              filename: 'photo.jpg', data: data_b64,
+            });
+            const url = res.url as string;
+            hostsCache = hostsCache.map((x) => (x.id === h.id ? { ...x, photo_url: url } : x));
+            h.photo_url = url;
+            previewEl.innerHTML = `<img src="${escapeHtml(url)}?r=${Date.now()}" alt="" />`;
+            labelEl.textContent = 'Replace photo';
+            statusEl.textContent = 'Re-cropped ✓';
+            statusEl.className = 'upload-status ok';
+            renderHosts(hostsCache);
+          } catch (err) {
+            const msg = (err as Error).message;
+            statusEl.textContent = msg.includes('403') ? 'Invalid edit link.' : ('Could not re-crop: ' + msg);
+            statusEl.className = 'upload-status err';
+          } finally {
+            if (recropBtn) recropBtn.disabled = false;
+          }
         }
 
         function renderHosts(hosts: Host[]) {
@@ -2155,25 +2318,32 @@ import Base from '../layouts/Base.astro';
               ? h.created_at
               : created.toLocaleDateString();
             const isCurrentOrganizer = primaryHostId === h.id;
+            const contactBits: string[] = [];
+            if (h.phone) contactBits.push(`📞 ${escapeHtml(h.phone)}`);
+            if (h.email) contactBits.push(`✉️ ${escapeHtml(h.email)}`);
+            if (h.website) contactBits.push(`🌐 ${escapeHtml(h.website)}`);
             return `
-              <li class="host-item ${isCurrentOrganizer ? 'is-organizer' : ''}" data-id="${h.id}">
-                <div class="host-info">
-                  <strong>${escapeHtml(h.name || 'Unnamed co-host')}</strong>
-                  ${isCurrentOrganizer ? '<span class="host-organizer-badge">organizer</span>' : ''}
-                  ${h.phone ? `<span class="host-meta">📞 ${escapeHtml(h.phone)}</span>` : ''}
-                  ${h.email ? `<span class="host-meta">✉️ ${escapeHtml(h.email)}</span>` : ''}
-                  ${h.website ? `<span class="host-meta">🌐 ${escapeHtml(h.website)}</span>` : ''}
-                  ${h.bio ? `<span class="host-meta host-bio-preview">${escapeHtml(h.bio.slice(0, 80))}${h.bio.length > 80 ? '…' : ''}</span>` : ''}
-                  <span class="host-meta">added ${escapeHtml(createdTxt)}</span>
+              <li class="t-row host-row ${isCurrentOrganizer ? 'is-organizer' : ''}" data-id="${h.id}">
+                ${h.photo_url
+                  ? `<img class="t-thumb" src="${escapeHtml(h.photo_url)}" alt="" style="border-radius:50%;width:56px;height:56px;" />`
+                  : '<div class="t-thumb empty" style="border-radius:50%;width:56px;height:56px;"></div>'}
+                <div class="t-info">
+                  <strong>
+                    ${escapeHtml(h.name || 'Unnamed co-host')}
+                    ${isCurrentOrganizer ? '<span class="host-organizer-badge">organizer</span>' : ''}
+                  </strong>
+                  ${contactBits.length ? `<span class="t-meta">${contactBits.join(' · ')}</span>` : ''}
+                  ${h.bio ? `<span class="t-meta">${escapeHtml(h.bio.slice(0, 80))}${h.bio.length > 80 ? '…' : ''}</span>` : ''}
+                  <span class="t-meta">added ${escapeHtml(createdTxt)}</span>
+                  ${h.host_token
+                    ? `<div class="host-link">
+                        <input type="text" readonly value="${escapeHtml(hostUrl(h.host_token))}" />
+                        <button type="button" class="copy-host" data-url="${escapeHtml(hostUrl(h.host_token))}">Copy</button>
+                      </div>`
+                    : ''}
                 </div>
-                ${h.host_token
-                  ? `<div class="host-link">
-                      <input type="text" readonly value="${escapeHtml(hostUrl(h.host_token))}" />
-                      <button type="button" class="copy-host" data-url="${escapeHtml(hostUrl(h.host_token))}">Copy</button>
-                    </div>`
-                  : ''}
                 ${isMaster
-                  ? `<div class="host-actions">
+                  ? `<div class="t-actions host-actions">
                       ${isCurrentOrganizer
                         ? '<button type="button" class="organizer-btn current" disabled>Organizer ✓</button>'
                         : `<button type="button" class="organizer-btn make" data-id="${h.id}">Make organizer</button>`}
@@ -2248,6 +2418,7 @@ import Base from '../layouts/Base.astro';
         }
 
         function renderAddHostForm() {
+          pendingHostPhoto = null;
           hostsAddSection.innerHTML = `
             <form id="add-host-form" class="add-host-form" novalidate>
               <label>
@@ -2272,16 +2443,20 @@ import Base from '../layouts/Base.astro';
                 Website <span class="opt">(public)</span>
                 <input type="url" name="website" placeholder="https://example.com" />
               </label>
+              ${hostPhotoSlotHtml()}
               <div class="row">
                 <button type="submit">+ Generate co-host link</button>
                 <span id="add-host-status" role="status" aria-live="polite"></span>
               </div>
             </form>`;
-          (document.getElementById('add-host-form') as HTMLFormElement)
-            .addEventListener('submit', handleAddHost);
+          const formEl = document.getElementById('add-host-form') as HTMLFormElement;
+          formEl.addEventListener('submit', handleAddHost);
+          const fileInput = formEl.querySelector('input[type=file][data-host-slot]') as HTMLInputElement;
+          fileInput.addEventListener('change', handlePendingHostPhoto);
         }
 
         function showEditHostForm(h: Host) {
+          pendingHostPhoto = null;
           hostsAddSection.innerHTML = `
             <form id="edit-host-form" class="add-host-form edit-mode" novalidate data-id="${escapeHtml(h.id)}">
               <p class="edit-host-title">Editing <strong>${escapeHtml(h.name || 'this co-host')}</strong></p>
@@ -2307,16 +2482,21 @@ import Base from '../layouts/Base.astro';
                 Website <span class="opt">(public)</span>
                 <input type="url" name="website" value="${escapeHtml(h.website || '')}" placeholder="https://example.com" />
               </label>
+              ${hostPhotoSlotHtml(h)}
               <div class="row">
                 <button type="submit">Save changes</button>
                 <button type="button" id="cancel-edit-host">Cancel</button>
                 <span id="edit-host-status" role="status" aria-live="polite"></span>
               </div>
             </form>`;
-          (document.getElementById('edit-host-form') as HTMLFormElement)
-            .addEventListener('submit', (e) => handleUpdateHost(e, h.id));
+          const formEl = document.getElementById('edit-host-form') as HTMLFormElement;
+          formEl.addEventListener('submit', (e) => handleUpdateHost(e, h.id));
           document.getElementById('cancel-edit-host')!
             .addEventListener('click', () => renderAddHostForm());
+          const fileInput = formEl.querySelector('input[type=file][data-host-slot]') as HTMLInputElement;
+          fileInput.addEventListener('change', (e) => handleHostPhotoUpload(e, h));
+          const recropBtn = formEl.querySelector('[data-recrop-host]') as HTMLButtonElement | null;
+          if (recropBtn) recropBtn.addEventListener('click', () => handleHostRecrop(h));
           hostsAddSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
 
@@ -2359,7 +2539,7 @@ import Base from '../layouts/Base.astro';
           statusEl.textContent = 'Adding…';
           statusEl.className = '';
           try {
-            await callFunction('manage-hosts', {
+            const addRes = await callFunction('manage-hosts', {
               slug,
               edit_token: key,
               action: 'add',
@@ -2369,10 +2549,21 @@ import Base from '../layouts/Base.astro';
               bio: fd.get('bio') || null,
               website: fd.get('website') || null,
             });
+            const newHostId = addRes?.host?.id as string | undefined;
+            if (pendingHostPhoto && newHostId) {
+              statusEl.textContent = 'Uploading photo…';
+              try {
+                await uploadHostPhoto(newHostId, pendingHostPhoto);
+              } catch (err) {
+                console.error('Failed to upload host photo:', err);
+              }
+              pendingHostPhoto = null;
+            }
             statusEl.textContent = 'Added ✓';
             statusEl.className = 'ok';
             formEl.reset();
             await loadHosts();
+            renderAddHostForm();
           } catch (err) {
             statusEl.textContent = (err as Error).message;
             statusEl.className = 'err';
@@ -3461,15 +3652,9 @@ import Base from '../layouts/Base.astro';
     color: #95a5a6; font-size: 13px; font-style: italic; padding: 8px 0;
   }
   .hosts-empty.err { color: #e74c3c; font-style: normal; }
-  .host-item {
-    background: rgba(0,0,0,0.2);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 8px; padding: 10px 12px;
-    display: grid; gap: 8px;
-  }
-  .host-info { display: grid; gap: 2px; }
-  .host-info strong { font-size: 14px; color: #fff; }
-  .host-meta { font-size: 11px; color: #95a5a6; }
+  /* Co-host rows reuse the .t-row chassis (speakers/transformations); the
+     extras below add the shareable-link strip and the master-only buttons. */
+  .host-row .host-link { display: flex; gap: 6px; margin-top: 6px; }
   .host-link { display: flex; gap: 6px; }
   .host-link input {
     flex: 1; min-width: 0;
@@ -3523,7 +3708,7 @@ import Base from '../layouts/Base.astro';
     background: rgba(243,156,18,0.20); color: var(--accent);
     text-transform: uppercase; letter-spacing: 1px; font-weight: 700;
   }
-  .host-item.is-organizer {
+  .host-row.is-organizer {
     border-color: rgba(243,156,18,0.4);
     background: rgba(243,156,18,0.04);
   }

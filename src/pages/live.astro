@@ -16,7 +16,7 @@ import Base from '../layouts/Base.astro';
   // accepts the token (master edit_token or a co-host's host_token).
   import { fetchEventBySlug, callFunction, getConfig } from '../lib/supabase.js';
   import { buildRaffleEntriesCsv, downloadCsv } from '../lib/csv.js';
-  import { raffleUrl as raffleClean, wheelUrl, editUrl as editUrlOf, posterUrl } from '../lib/urls.js';
+  import { raffleUrl as raffleClean, wheelUrl, editUrl as editUrlOf, rafflePosterUrl } from '../lib/urls.js';
   import { createClient } from '@supabase/supabase-js';
   import QRCode from 'qrcode';
 
@@ -149,7 +149,7 @@ import Base from '../layouts/Base.astro';
       <section class="actions">
         <a class="action wheel" href="${wheelHostUrl}" target="_blank" rel="noopener">🎡 Open the wheel (host)</a>
         <a class="action wheel-view" href="${wheelViewerUrl}" target="_blank" rel="noopener">👀 Audience wheel</a>
-        <a class="action poster" href="${posterUrl(base, slug!, key!)}" target="_blank" rel="noopener">🖨 Print poster</a>
+        <a class="action poster" href="${rafflePosterUrl(base, slug!, key!)}" target="_blank" rel="noopener">🖨 Print raffle poster</a>
         <button type="button" id="export-action" class="action export" disabled>📥 Export entries (CSV)</button>
         <a class="action edit" href="${editUrl}">⚙️ Full edit page</a>
       </section>

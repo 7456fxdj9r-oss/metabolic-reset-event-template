@@ -1,13 +1,13 @@
 ---
-// Printable raffle-focused poster. Letter portrait, white background,
-// designed to sit on a table or be taped to a wall. Big prize photo on
-// the left, big QR code on the right — modeled on the Spokane "raffle
-// opener" slide so it reads from across the room.
+// Printable raffle poster. Letter portrait, white background. Vertical
+// stack: event title up top, grand prize photo in the dominant middle,
+// big QR (raffle-entry URL) at the bottom so the eye flows from "what
+// is this?" → "what do I win?" → "how do I enter?".
 //
 // Pulls the grand prize from raffle_prizes (falls back to legacy
-// event.raffle_prize fields for events that haven't migrated). If the
-// raffle is closed OR no prize is defined, still renders — the page is
-// useful for set-up before entries open.
+// event.raffle_prize fields for events that haven't migrated to the
+// multi-prize model). Renders even if no prize is defined — useful for
+// set-up before entries open.
 import Base from '../layouts/Base.astro';
 ---
 <Base title="Raffle poster">
@@ -16,7 +16,7 @@ import Base from '../layouts/Base.astro';
     <button id="print-btn" type="button">🖨 Print or Save as PDF</button>
     <p class="hint">
       Tip: in the print dialog, set <strong>Background graphics</strong> ON so
-      the orange pill prints. <strong>Portrait</strong> orientation, US Letter.
+      the orange stripe prints. <strong>Portrait</strong> orientation, US Letter.
       Use <strong>Save as PDF</strong> if you want a file to take to the print shop.
     </p>
   </div>
@@ -41,12 +41,21 @@ import Base from '../layouts/Base.astro';
   const base = import.meta.env.BASE_URL;
   const params = new URLSearchParams(window.location.search);
   const slug = params.get('slug');
-  const key = params.get('key'); // optional — controls the back link
+  const key = params.get('key'); // optional — sets up the back link
 
   function escapeHtml(s: unknown): string {
     return String(s ?? '').replace(/[&<>"']/g, (c) =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
     );
+  }
+
+  function fmtEventDate(d: string | null): string {
+    if (!d) return '';
+    const dt = new Date(d + 'T00:00:00');
+    if (isNaN(dt.getTime())) return d;
+    return dt.toLocaleDateString(undefined, {
+      weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+    });
   }
 
   if (!slug) {
@@ -90,6 +99,8 @@ import Base from '../layouts/Base.astro';
           if (primaryHost) primary = { name: primaryHost.name, phone: primaryHost.phone };
         } catch { /* non-fatal */ }
 
+        const datePretty = fmtEventDate(event.event_date);
+
         // QR encodes the raffle entry URL (not the event hub) — this poster
         // exists to drive entries, so scan should land on the entry form.
         const qrTarget = `${window.location.origin}${raffleUrl(base, slug)}`;
@@ -97,24 +108,24 @@ import Base from '../layouts/Base.astro';
         root.innerHTML = `
           <article class="sheet">
             <header class="sheet-top">
-              <p class="kicker">${escapeHtml(event.name)}</p>
-              <h1>Raffle</h1>
+              <p class="kicker">Metabolic Reset Event</p>
+              <h1>${escapeHtml(event.name)}</h1>
+              ${event.host_line ? `<p class="loc">📍 ${escapeHtml(event.host_line)}</p>` : ''}
+              ${datePretty ? `<p class="date">${escapeHtml(datePretty)}</p>` : ''}
             </header>
 
-            <section class="hero">
-              <div class="prize-side">
-                ${prizePhotoUrl
-                  ? `<img class="prize-photo" src="${escapeHtml(prizePhotoUrl)}" alt="${escapeHtml(prizeName || 'Prize')}" />`
-                  : '<div class="prize-photo placeholder">Prize photo</div>'}
-                <span class="prize-label">Tonight's Prize</span>
-                <p class="prize-name">${escapeHtml(prizeName || '—')}</p>
-              </div>
+            <section class="prize-block">
+              ${prizePhotoUrl
+                ? `<img class="prize-photo" src="${escapeHtml(prizePhotoUrl)}" alt="${escapeHtml(prizeName || 'Prize')}" />`
+                : '<div class="prize-photo placeholder">Prize photo</div>'}
+              <span class="prize-label">Grand Prize</span>
+              <p class="prize-name">${escapeHtml(prizeName || '—')}</p>
+            </section>
 
-              <div class="qr-side">
-                <canvas id="qr-canvas"></canvas>
-                <p class="scan-cta">📱 Scan to enter</p>
-                <p class="qr-url">${escapeHtml(qrTarget)}</p>
-              </div>
+            <section class="qr-block">
+              <canvas id="qr-canvas"></canvas>
+              <p class="scan-cta">📱 Scan to enter</p>
+              <p class="qr-url">${escapeHtml(qrTarget)}</p>
             </section>
 
             <footer class="sheet-bottom">
@@ -171,57 +182,67 @@ import Base from '../layouts/Base.astro';
   }
   .page-controls .hint strong { color: #ecf0f1; }
 
-  /* Letter portrait sheet — the printable page itself */
+  /* Letter portrait sheet — vertical stack: title → prize → QR → footer */
   main.poster { display: flex; justify-content: center; }
   .sheet {
     width: 8.5in;
     min-height: 11in;
     background: #ffffff;
     color: #2c3e50;
-    padding: 0.7in 0.7in 0.5in;
+    padding: 0.55in 0.6in 0.45in;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.35);
     display: flex; flex-direction: column;
+    text-align: center;
     position: relative;
     overflow: hidden;
   }
-  /* Accent stripe at the very top */
+  /* Accent stripes top and bottom */
   .sheet::before {
     content: '';
     position: absolute; top: 0; left: 0; right: 0;
     height: 14px; background: var(--accent);
   }
+  .sheet::after {
+    content: '';
+    position: absolute; bottom: 0; left: 0; right: 0;
+    height: 8px; background: var(--accent);
+  }
 
-  .sheet-top { text-align: center; margin: 6px 0 0; }
+  .sheet-top { margin-top: 10px; }
   .sheet-top .kicker {
-    font-size: 13px; letter-spacing: 4px;
-    text-transform: uppercase; color: #7f8c8d;
-    font-weight: 700; margin-bottom: 6px;
+    font-size: 12px; letter-spacing: 4px;
+    text-transform: uppercase; color: var(--accent);
+    font-weight: 800; margin-bottom: 8px;
   }
   .sheet-top h1 {
-    font-size: 62px; line-height: 1.0;
-    color: #2c3e50; font-weight: 900;
-    letter-spacing: -1px;
+    font-size: 38px; line-height: 1.1;
+    color: #1a252f; font-weight: 800;
+    letter-spacing: -0.5px;
+    margin-bottom: 6px;
+  }
+  .sheet-top .loc {
+    font-size: 14px; color: #34495e;
+    margin-top: 4px; font-weight: 600;
+  }
+  .sheet-top .date {
+    font-size: 13px; color: #7f8c8d; font-style: italic;
+    margin-top: 2px;
   }
 
-  /* Hero: prize photo on the left, QR on the right.
-     Stacks on screens narrower than the sheet (only happens in screen
-     preview when the browser is < 8.5in; print is always wide enough). */
-  .hero {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.4in;
-    align-items: center;
-    margin-top: 0.45in;
-    flex: 1;
+  /* Prize block: dominant visual element, sits in the upper-middle */
+  .prize-block {
+    margin: 0.3in auto 0;
+    max-width: 6in;
   }
-  .prize-side { text-align: center; }
   .prize-photo {
+    display: block;
     width: 100%;
-    max-height: 4.2in;
+    max-height: 4.4in;
     object-fit: contain;
-    border-radius: 16px;
+    border-radius: 14px;
     background: #f5f5f5;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.12);
-    padding: 8px;
+    box-shadow: 0 10px 28px rgba(0,0,0,0.12);
+    padding: 10px;
   }
   .prize-photo.placeholder {
     height: 3.6in;
@@ -231,38 +252,42 @@ import Base from '../layouts/Base.astro';
   }
   .prize-label {
     display: inline-block;
-    margin: 18px 0 8px;
-    padding: 6px 14px;
-    font-size: 13px; font-weight: 800;
+    margin: 14px 0 6px;
+    padding: 5px 14px;
+    font-size: 12px; font-weight: 800;
     letter-spacing: 2.5px; text-transform: uppercase;
     color: var(--accent);
     background: color-mix(in srgb, var(--accent) 12%, white);
-    border-radius: 14px;
+    border-radius: 12px;
   }
   .prize-name {
     font-size: 22px; font-weight: 700;
-    color: #2c3e50; line-height: 1.25;
+    color: #1a252f; line-height: 1.25;
     overflow-wrap: anywhere;
   }
 
-  .qr-side { text-align: center; }
-  .qr-side canvas {
-    width: 100% !important;
-    max-width: 3.4in;
-    height: auto !important;
-    background: #fff;
+  /* QR block: bottom of the sheet, mid-size QR to keep prize dominant */
+  .qr-block {
+    margin: 0.3in auto 0;
+  }
+  .qr-block canvas {
+    display: block;
+    width: 2.6in !important;
+    height: 2.6in !important;
+    margin: 0 auto;
     padding: 8px;
-    border: 2px solid #ecf0f1;
-    border-radius: 8px;
+    background: #fff;
+    border: 3px solid #1a252f;
+    border-radius: 10px;
   }
   .scan-cta {
-    margin-top: 14px;
-    font-size: 26px; font-weight: 800;
-    letter-spacing: 1px;
+    margin-top: 12px;
+    font-size: 24px; font-weight: 800;
+    letter-spacing: 1.5px;
     color: var(--accent);
   }
   .qr-url {
-    margin-top: 6px;
+    margin-top: 4px;
     font-size: 11px;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     color: #7f8c8d;
@@ -271,13 +296,12 @@ import Base from '../layouts/Base.astro';
 
   .sheet-bottom {
     margin-top: auto;
-    text-align: center;
-    padding-top: 18px;
+    padding-top: 14px;
     border-top: 1px solid #ecf0f1;
   }
   .sheet-bottom .hosted-by {
-    font-size: 13px; color: #7f8c8d;
-    letter-spacing: 0.5px;
+    font-size: 13px; color: #34495e;
+    letter-spacing: 0.5px; font-weight: 600;
   }
 
   .loading { color: #95a5a6; text-align: center; padding: 60px 0; font-size: 14px; }
@@ -291,9 +315,10 @@ import Base from '../layouts/Base.astro';
     .page-controls { display: none !important; }
     main.poster { display: block; }
     .sheet {
+      box-shadow: none;
       width: 100%;
       min-height: 100vh;
-      padding: 0.5in 0.6in 0.4in;
+      padding: 0.5in 0.55in 0.4in;
       page-break-after: avoid;
     }
     .sheet::before { height: 18px; }
@@ -302,8 +327,9 @@ import Base from '../layouts/Base.astro';
   /* Tighten on tablet-ish previews (still > sheet width but small) */
   @media (max-width: 9in) {
     .sheet { width: 100%; padding: 0.5in 0.4in; }
-    .sheet-top h1 { font-size: 48px; }
-    .hero { gap: 0.3in; }
-    .scan-cta { font-size: 22px; }
+    .sheet-top h1 { font-size: 32px; }
+    .prize-photo { max-height: 3.8in; }
+    .qr-block canvas { width: 2.4in !important; height: 2.4in !important; }
+    .scan-cta { font-size: 20px; }
   }
 </style>

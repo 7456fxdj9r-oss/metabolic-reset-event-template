@@ -44,7 +44,7 @@ Deno.serve(async (req) => {
   if (!ev) return errResp(404, 'event not found');
 
   const { data: cohosts, error } = await supabase
-    .from('hosts').select('id, name, phone, email, bio, website')
+    .from('hosts').select('id, name, phone, email, bio, website, photo_url')
     .eq('event_id', ev.id)
     .order('created_at', { ascending: true });
   if (error) return errResp(500, error.message);
@@ -55,6 +55,7 @@ Deno.serve(async (req) => {
     email?: string | null;
     website?: string | null;
     bio?: string | null;
+    photo_url?: string | null;
     primary?: boolean;
     _is_master?: boolean;
     _id?: string;
@@ -78,7 +79,7 @@ Deno.serve(async (req) => {
     .filter((c) => c.name || c.phone)
     .map((c) => ({
       _id: c.id, name: c.name, phone: c.phone, email: c.email,
-      bio: c.bio, website: c.website,
+      bio: c.bio, website: c.website, photo_url: c.photo_url,
     }));
 
   // Pick the public organizer. If primary_host_id matches a co-host, that

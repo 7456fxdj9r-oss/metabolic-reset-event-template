@@ -12,7 +12,6 @@
 /raffle/me/:slug/:token  /raffle/me/?slug=:slug&token=:token  200
 /edit/:slug/:key         /edit/?slug=:slug&key=:key           200
 /live/:slug/:key         /live/?slug=:slug&key=:key           200
-/poster/:slug/:key       /poster/?slug=:slug&key=:key         200
 /raffle-poster/:slug/:key /raffle-poster/?slug=:slug&key=:key 200
 /cue/:slug/:key          /cue/?slug=:slug&key=:key            200
 /wheel/:slug/:key        /wheel/?slug=:slug&key=:key          200
