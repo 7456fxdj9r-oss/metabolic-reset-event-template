@@ -1355,6 +1355,11 @@ import Base from '../layouts/Base.astro';
 
         function speakerFormHtml(sp?: Speaker): string {
           const v = sp || ({} as Partial<Speaker>);
+          // Re-crop is only meaningful when there's already a saved photo
+          // AND we're editing an existing speaker (the new-speaker flow has
+          // a pendingSpeakerPhoto blob in memory, not yet uploaded — for
+          // that case the user can just re-pick the file).
+          const showRecrop = !!(sp && v.photo_url);
           const photoBlock = `
             <div class="photo-slot speaker-slot" data-speaker-slot>
               <span class="slot-label">Photo</span>
@@ -1363,10 +1368,18 @@ import Base from '../layouts/Base.astro';
                   ? `<img src="${escapeHtml(v.photo_url)}" alt="" />`
                   : '<div class="empty">No photo</div>'}
               </div>
-              <label class="upload-btn">
-                <input type="file" accept="image/*" data-speaker-slot hidden />
-                <span class="upload-label">${v.photo_url ? 'Replace photo' : 'Upload photo'}</span>
-              </label>
+              <div class="photo-actions">
+                <label class="upload-btn">
+                  <input type="file" accept="image/*" data-speaker-slot hidden />
+                  <span class="upload-label">${v.photo_url ? 'Replace photo' : 'Upload photo'}</span>
+                </label>
+                ${showRecrop
+                  ? `<button type="button" class="upload-btn recrop-btn" data-recrop-speaker>✂️ Re-crop current</button>`
+                  : ''}
+              </div>
+              ${showRecrop
+                ? '<span class="recrop-hint">Re-crop adjusts the saved photo (1200px wide). To recover area outside the original crop, use Replace photo with the original file.</span>'
+                : ''}
               <span class="upload-status" data-speaker-slot></span>
             </div>`;
           return `
@@ -1441,6 +1454,12 @@ import Base from '../layouts/Base.astro';
             if (sp) handleSpeakerPhotoUpload(e, sp);
             else handlePendingSpeakerPhoto(e);
           });
+          // Wire the re-crop button (only present when editing a speaker
+          // that already has a saved photo).
+          const recropBtn = newForm.querySelector('[data-recrop-speaker]') as HTMLButtonElement | null;
+          if (recropBtn && sp) {
+            recropBtn.addEventListener('click', () => handleSpeakerRecrop(sp));
+          }
           if (!sp) (newForm.querySelector('input[name=name]') as HTMLInputElement).focus();
         }
 
@@ -1487,6 +1506,69 @@ import Base from '../layouts/Base.astro';
             data: data_b64,
           });
           return res.url as string;
+        }
+
+        // Re-crop the already-saved speaker photo without re-uploading
+        // the original. We fetch the storage URL → blob → File, feed it
+        // back through the cropper, then upload the new crop. The
+        // original (un-cropped) image isn't kept anywhere, so each
+        // re-crop is from the previously cropped 1200px JPEG — fine for
+        // nudges and tighter framing, but the user can't recover area
+        // outside the original crop. The hint under the button explains
+        // this trade-off.
+        async function handleSpeakerRecrop(sp: Speaker) {
+          if (!sp.photo_url) return;
+          const slotEl = sFormHost.querySelector('.speaker-slot') as HTMLElement;
+          const previewEl = slotEl.querySelector('.photo-preview') as HTMLElement;
+          const labelEl = slotEl.querySelector('.upload-label') as HTMLElement;
+          const statusEl = slotEl.querySelector('.upload-status') as HTMLElement;
+          const recropBtn = slotEl.querySelector('[data-recrop-speaker]') as HTMLButtonElement | null;
+
+          if (recropBtn) recropBtn.disabled = true;
+          statusEl.textContent = 'Fetching current photo…';
+          statusEl.className = 'upload-status';
+
+          try {
+            // Cache-bust so a stale CDN copy doesn't reopen the previous crop
+            // when the user re-crops twice in a row.
+            const fetchUrl = sp.photo_url + (sp.photo_url.includes('?') ? '&' : '?') + 'r=' + Date.now();
+            const fetched = await fetch(fetchUrl);
+            if (!fetched.ok) throw new Error('Could not load the saved photo (HTTP ' + fetched.status + ')');
+            const blob = await fetched.blob();
+            const file = new File([blob], 'photo.jpg', { type: blob.type || 'image/jpeg' });
+
+            statusEl.textContent = 'Opening crop tool…';
+            const cropped = await openCropModal(file, 1, `Re-crop ${sp.name}'s photo`);
+            if (!cropped) {
+              statusEl.textContent = '';
+              if (recropBtn) recropBtn.disabled = false;
+              return;
+            }
+
+            statusEl.textContent = 'Uploading…';
+            const data_b64 = await blobToBase64(cropped);
+            const res = await callFunction('upload-speaker-photo', {
+              slug, edit_token: key,
+              speaker_id: sp.id,
+              filename: 'photo.jpg', data: data_b64,
+            });
+            const url = res.url as string;
+            speakers = speakers.map((x) => (x.id === sp.id ? { ...x, photo_url: url } : x));
+            sp.photo_url = url;
+            // Cache-bust the preview img too so the new crop renders
+            // immediately (browser would otherwise show the cached old URL).
+            previewEl.innerHTML = `<img src="${escapeHtml(url)}?r=${Date.now()}" alt="" />`;
+            labelEl.textContent = 'Replace photo';
+            statusEl.textContent = 'Re-cropped ✓';
+            statusEl.className = 'upload-status ok';
+            renderSpeakerList();
+          } catch (err) {
+            const msg = (err as Error).message;
+            statusEl.textContent = msg.includes('403') ? 'Invalid edit link.' : ('Could not re-crop: ' + msg);
+            statusEl.className = 'upload-status err';
+          } finally {
+            if (recropBtn) recropBtn.disabled = false;
+          }
         }
 
         async function handleSpeakerPhotoUpload(changeEv: Event, sp: Speaker) {
@@ -2627,6 +2709,24 @@ import Base from '../layouts/Base.astro';
     font-size: 12px; font-weight: 700;
   }
   .upload-btn:hover { background: rgba(255,255,255,0.14); }
+  .upload-btn[disabled] { opacity: 0.5; cursor: wait; }
+  .photo-actions {
+    display: flex; flex-wrap: wrap; gap: 6px;
+  }
+  .photo-actions .upload-btn { flex: 1 1 auto; }
+  button.recrop-btn {
+    border: 1px solid rgba(243,156,18,0.4);
+    background: rgba(243,156,18,0.10);
+    color: var(--accent, #f39c12);
+    font-family: inherit;
+  }
+  button.recrop-btn:hover { background: rgba(243,156,18,0.18); }
+  .recrop-hint {
+    display: block;
+    font-size: 11px; color: #95a5a6;
+    line-height: 1.45; font-style: italic;
+    margin-top: 2px;
+  }
   .upload-status {
     font-size: 11px; color: #95a5a6;
     min-height: 14px;
