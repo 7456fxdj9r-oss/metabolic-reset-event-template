@@ -1,9 +1,13 @@
-// Event-level photo upload (currently just the raffle prize). Different
-// from upload-photo, which is scoped to a transformation.
+// Event-level photo upload. Different from upload-photo, which is
+// scoped to a transformation.
 //
-// Body: { slug, edit_token, kind: 'prize', filename, data: base64 }
-// Writes to event-photos/<event_slug>/<kind>-<ts>.<ext> and patches the
-// matching column on the event row.
+// Body shapes:
+//   { slug, edit_token, kind: 'prize',      filename, data }
+//     → legacy single-prize photo, patches events.raffle_prize_photo_url
+//   { slug, edit_token, kind: 'prize_item', prize_id, filename, data }
+//     → multi-prize: patches raffle_prizes.photo_url for the given row
+//
+// Writes to event-photos/<event_slug>/<kind>-<id>-<ts>.<ext>.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
@@ -20,10 +24,13 @@ const ALLOWED_EXTS: Record<string, string> = {
   webp: 'image/webp',
 };
 
-// Map of kind → which column to patch on the event row.
+// Map of kind → which column to patch on the event row. Only used for
+// event-row writes; the 'prize_item' kind targets raffle_prizes instead
+// (see below).
 const KIND_COLUMN: Record<string, string> = {
   prize: 'raffle_prize_photo_url',
 };
+const VALID_KINDS = ['prize', 'prize_item'];
 
 function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
@@ -57,9 +64,13 @@ Deno.serve(async (req) => {
   const data_b64 = String(body.data || '');
 
   if (!slug || !edit_token) return errResp(400, 'slug and edit_token required');
-  const column = KIND_COLUMN[kind];
-  if (!column) return errResp(400, `kind must be one of: ${Object.keys(KIND_COLUMN).join(', ')}`);
+  if (!VALID_KINDS.includes(kind)) {
+    return errResp(400, `kind must be one of: ${VALID_KINDS.join(', ')}`);
+  }
   if (!data_b64) return errResp(400, 'data required');
+  // For per-prize uploads, prize_id targets which raffle_prizes row to patch.
+  const prize_id = kind === 'prize_item' ? String(body.prize_id || '').trim() : '';
+  if (kind === 'prize_item' && !prize_id) return errResp(400, 'prize_id required when kind=prize_item');
 
   const ext = (filename.split('.').pop() || 'jpg').toLowerCase();
   const contentType = ALLOWED_EXTS[ext];
@@ -92,7 +103,18 @@ Deno.serve(async (req) => {
     if (!cohost) return errResp(403, 'invalid edit token');
   }
 
-  const path = `${ev.slug}/${kind}-${Date.now()}.${ext}`;
+  // Verify prize ownership before uploading anything for the per-prize
+  // case — prevents a malicious caller from filling storage with photos
+  // pinned to prize_ids they don't own.
+  if (kind === 'prize_item') {
+    const { data: prize } = await supabase
+      .from('raffle_prizes').select('id')
+      .eq('id', prize_id).eq('event_id', ev.id).maybeSingle();
+    if (!prize) return errResp(404, 'prize not found in this event');
+  }
+
+  const idSegment = kind === 'prize_item' ? `prize_item-${prize_id}` : kind;
+  const path = `${ev.slug}/${idSegment}-${Date.now()}.${ext}`;
   const { error: upErr } = await supabase.storage
     .from('event-photos')
     .upload(path, bytes, { contentType, upsert: false });
@@ -101,9 +123,16 @@ Deno.serve(async (req) => {
   const { data: pub } = supabase.storage.from('event-photos').getPublicUrl(path);
   const publicUrl = pub.publicUrl;
 
-  const { error: updErr } = await supabase
-    .from('events').update({ [column]: publicUrl }).eq('id', ev.id);
-  if (updErr) return errResp(500, updErr.message);
+  if (kind === 'prize_item') {
+    const { error: updErr } = await supabase
+      .from('raffle_prizes').update({ photo_url: publicUrl }).eq('id', prize_id);
+    if (updErr) return errResp(500, updErr.message);
+  } else {
+    const column = KIND_COLUMN[kind];
+    const { error: updErr } = await supabase
+      .from('events').update({ [column]: publicUrl }).eq('id', ev.id);
+    if (updErr) return errResp(500, updErr.message);
+  }
 
   return ok({ url: publicUrl, kind });
 });

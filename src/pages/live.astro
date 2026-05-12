@@ -14,9 +14,10 @@ import Base from '../layouts/Base.astro';
   //
   // Auth: same ?key= as the edit page. The page only loads when manage-raffle
   // accepts the token (master edit_token or a co-host's host_token).
-  import { fetchEventBySlug, callFunction } from '../lib/supabase.js';
+  import { fetchEventBySlug, callFunction, getConfig } from '../lib/supabase.js';
   import { buildRaffleEntriesCsv, downloadCsv } from '../lib/csv.js';
   import { raffleUrl as raffleClean, wheelUrl, editUrl as editUrlOf, posterUrl } from '../lib/urls.js';
+  import { createClient } from '@supabase/supabase-js';
   import QRCode from 'qrcode';
 
   type Entry = {
@@ -24,7 +25,15 @@ import Base from '../layouts/Base.astro';
     risk_score: number | null;
     apprentice_optin: boolean | null;
     drawn: boolean; prize_won: string | null;
+    prize_id: string | null;
     submitted_at: string;
+  };
+  type Prize = {
+    id: string; name: string; description: string | null;
+    photo_url: string | null;
+    is_grand: boolean;
+    drawn_winner_id: string | null;
+    drawn_at: string | null;
   };
 
   const root = document.getElementById('live-root')!;
@@ -57,6 +66,15 @@ import Base from '../layouts/Base.astro';
   let editUrl = '';
   let pollTimer: number | undefined;
   let entriesCache: Entry[] = [];
+  let prizesCache: Prize[] = [];
+  // Realtime channel — when the host taps a Draw button on this dashboard
+  // we broadcast a 'spin' event so any /wheel page subscribed to the same
+  // channel animates in sync. Same payload shape the wheel page already
+  // understands (winner_id + winner_first_name + duration_ms), plus
+  // prize info so the wheel can render "Spinning for: X".
+  let realtimeChannel: ReturnType<ReturnType<typeof createClient>['channel']> | null = null;
+  const SPIN_DURATION_MS = 7000;
+  const SPIN_DURATION_MS_GRAND = 10000;
 
   async function init() {
     try {
@@ -79,6 +97,7 @@ import Base from '../layouts/Base.astro';
       editUrl = origin + editUrlOf(base, slug!, key!);
 
       renderShell(event);
+      subscribeRealtime();
 
       const qrCanvas = document.getElementById('raffle-qr') as HTMLCanvasElement;
       QRCode.toCanvas(qrCanvas, raffleUrl, {
@@ -121,15 +140,19 @@ import Base from '../layouts/Base.astro';
         <div class="stat"><span class="num" id="stat-apprentice">—</span><span class="lbl">Apprentice ⚑</span></div>
       </section>
 
+      <section class="prize-ladder" id="prize-ladder">
+        <h2>Prizes</h2>
+        <div id="ladder-body"><p class="ladder-empty">Loading prizes…</p></div>
+      </section>
+      <p id="action-status" role="status" aria-live="polite"></p>
+
       <section class="actions">
-        <button type="button" id="draw-action" class="action draw" disabled>🎲 Draw next winner</button>
         <a class="action wheel" href="${wheelHostUrl}" target="_blank" rel="noopener">🎡 Open the wheel (host)</a>
         <a class="action wheel-view" href="${wheelViewerUrl}" target="_blank" rel="noopener">👀 Audience wheel</a>
         <a class="action poster" href="${posterUrl(base, slug!, key!)}" target="_blank" rel="noopener">🖨 Print poster</a>
         <button type="button" id="export-action" class="action export" disabled>📥 Export entries (CSV)</button>
         <a class="action edit" href="${editUrl}">⚙️ Full edit page</a>
       </section>
-      <p id="action-status" role="status" aria-live="polite"></p>
 
       <section class="recent">
         <h2>Recent entries</h2>
@@ -140,10 +163,13 @@ import Base from '../layouts/Base.astro';
 
   async function refresh() {
     try {
-      const res = await callFunction('manage-raffle', {
-        slug, edit_token: key, action: 'list',
-      });
-      entriesCache = (res.entries || []) as Entry[];
+      // Pull entries + prizes in parallel.
+      const [eRes, pRes] = await Promise.all([
+        callFunction('manage-raffle', { slug, edit_token: key, action: 'list' }),
+        callFunction('manage-raffle', { slug, edit_token: key, action: 'list_prizes' }),
+      ]);
+      entriesCache = (eRes.entries || []) as Entry[];
+      prizesCache = (pRes.prizes || []) as Prize[];
       const entries = entriesCache;
       const total = entries.length;
       const drawn = entries.filter((e) => e.drawn).length;
@@ -155,9 +181,7 @@ import Base from '../layouts/Base.astro';
       document.getElementById('stat-drawn')!.textContent = String(drawn);
       document.getElementById('stat-apprentice')!.textContent = String(apprentice);
 
-      const drawBtn = document.getElementById('draw-action') as HTMLButtonElement;
-      drawBtn.disabled = eligible === 0;
-      drawBtn.title = eligible === 0 ? 'No eligible entries' : `${eligible} eligible`;
+      renderLadder(eligible);
       const exportBtn = document.getElementById('export-action') as HTMLButtonElement;
       exportBtn.disabled = total === 0;
       exportBtn.title = total === 0 ? 'Nothing to export' : `Download ${total} entries as CSV`;
@@ -189,26 +213,141 @@ import Base from '../layouts/Base.astro';
     }
   }
 
-  function wireActions() {
-    const drawBtn = document.getElementById('draw-action') as HTMLButtonElement;
+  function escapeAttr(s: string): string {
+    return s.replace(/"/g, '&quot;');
+  }
+
+  function renderLadder(eligible: number) {
+    const body = document.getElementById('ladder-body');
+    if (!body) return;
+    if (prizesCache.length === 0) {
+      body.innerHTML = `
+        <p class="ladder-empty">
+          No prizes defined yet.
+          <a href="${escapeAttr(editUrl)}" target="_blank" rel="noopener">Add prizes on the edit page →</a>
+        </p>`;
+      return;
+    }
+    // Sort: spot prizes first (display_order), grand last regardless.
+    const sorted = [...prizesCache].sort((a, b) => {
+      if (a.is_grand !== b.is_grand) return a.is_grand ? 1 : -1;
+      return 0; // server already returned in display_order
+    });
+    body.innerHTML = sorted.map((p) => {
+      const winnerName = p.drawn_winner_id
+        ? (entriesCache.find((e) => e.id === p.drawn_winner_id)?.name || '(winner)')
+        : null;
+      const drawDisabled = !winnerName && eligible === 0;
+      const action = winnerName
+        ? `<button type="button" class="ladder-btn redraw" data-prize-id="${escapeAttr(p.id)}" data-prize-name="${escapeHtml(p.name)}">↻ Re-draw</button>`
+        : `<button type="button" class="ladder-btn draw ${p.is_grand ? 'grand' : ''}" data-prize-id="${escapeAttr(p.id)}" data-prize-name="${escapeHtml(p.name)}" data-is-grand="${p.is_grand ? '1' : '0'}" ${drawDisabled ? 'disabled' : ''}>${p.is_grand ? '🏆 DRAW GRAND' : '🎲 Draw'}</button>`;
+      return `
+        <div class="ladder-row ${p.is_grand ? 'is-grand' : ''}">
+          ${p.photo_url
+            ? `<img class="ladder-thumb" src="${escapeHtml(p.photo_url)}" alt="" />`
+            : '<div class="ladder-thumb empty"></div>'}
+          <div class="ladder-info">
+            <strong>${escapeHtml(p.name)}${p.is_grand ? ' <span class="ladder-grand">GRAND</span>' : ''}</strong>
+            ${winnerName
+              ? `<span class="ladder-winner">✓ ${escapeHtml(winnerName)}</span>`
+              : '<span class="ladder-pending">— not drawn yet</span>'}
+          </div>
+          <div class="ladder-action">${action}</div>
+        </div>`;
+    }).join('');
+  }
+
+  function subscribeRealtime() {
+    const cfg = getConfig();
+    if (!cfg.url || !cfg.anonKey) return;
+    const client = createClient(cfg.url, cfg.anonKey);
+    realtimeChannel = client.channel(`raffle:${slug}`, {
+      config: { broadcast: { self: false } },
+    });
+    realtimeChannel.subscribe();
+  }
+
+  function broadcastSpin(
+    winner: { id: string; name: string; prize_won: string | null; prize_id: string | null },
+    prize: Prize | null,
+  ) {
+    if (!realtimeChannel) return;
+    const firstName = (winner.name || '').trim().split(/\s+/)[0] || 'Anon';
+    realtimeChannel.send({
+      type: 'broadcast', event: 'spin',
+      payload: {
+        winner_id: winner.id,
+        winner_first_name: firstName,
+        winner_prize: winner.prize_won,
+        prize_id: winner.prize_id,
+        prize_name: prize?.name || winner.prize_won || null,
+        is_grand: !!prize?.is_grand,
+        duration_ms: prize?.is_grand ? SPIN_DURATION_MS_GRAND : SPIN_DURATION_MS,
+      },
+    });
+  }
+
+  async function drawForPrize(prizeId: string, prizeName: string, isGrand: boolean) {
     const status = document.getElementById('action-status')!;
-    drawBtn.addEventListener('click', async () => {
-      if (!confirm('Pick a random winner from the eligible entries?')) return;
-      drawBtn.disabled = true;
-      status.textContent = 'Drawing…';
-      status.className = '';
+    const labelPrefix = isGrand ? '🏆 GRAND PRIZE: ' : '';
+    if (!confirm(`Draw a random winner for ${labelPrefix}${prizeName}?\n\nThis broadcasts to every connected wheel page so attendees see the spin live.`)) return;
+    status.textContent = `Drawing for ${prizeName}…`;
+    status.className = '';
+    try {
+      const res = await callFunction('manage-raffle', {
+        slug, edit_token: key, action: 'draw', prize_id: prizeId,
+      });
+      const winner = res.winner;
+      const prize = (res.prize as Prize | null) || prizesCache.find((p) => p.id === prizeId) || null;
+      broadcastSpin(winner, prize);
+      status.textContent = `🏆 ${winner.name} won ${prizeName}`;
+      status.className = 'ok';
+      await refresh();
+    } catch (err) {
+      status.textContent = (err as Error).message;
+      status.className = 'err';
+    }
+  }
+
+  async function redrawPrize(prizeId: string, prizeName: string) {
+    const status = document.getElementById('action-status')!;
+    if (!confirm(`Re-draw the winner for "${prizeName}"?\n\nThe current winner will be returned to the eligible pool, then a new winner will be picked. Use this when a winner isn't in the room.`)) return;
+    status.textContent = `Re-drawing ${prizeName}…`;
+    status.className = '';
+    try {
+      const res = await callFunction('manage-raffle', {
+        slug, edit_token: key, action: 'redraw_prize', prize_id: prizeId,
+      });
+      const winner = res.winner;
+      const prize = (res.prize as Prize | null) || prizesCache.find((p) => p.id === prizeId) || null;
+      broadcastSpin(winner, prize);
+      status.textContent = `🏆 New winner for ${prizeName}: ${winner.name}`;
+      status.className = 'ok';
+      await refresh();
+    } catch (err) {
+      status.textContent = (err as Error).message;
+      status.className = 'err';
+    }
+  }
+
+  function wireActions() {
+    const status = document.getElementById('action-status')!;
+    // Ladder is event-delegated since it re-renders every refresh.
+    document.getElementById('ladder-body')!.addEventListener('click', async (clickEv) => {
+      const target = (clickEv.target as HTMLElement).closest('button.ladder-btn') as HTMLButtonElement | null;
+      if (!target || target.disabled) return;
+      const prizeId = target.getAttribute('data-prize-id') || '';
+      const prizeName = target.getAttribute('data-prize-name') || '';
+      const isGrand = target.getAttribute('data-is-grand') === '1';
+      target.disabled = true;
       try {
-        const res = await callFunction('manage-raffle', {
-          slug, edit_token: key, action: 'draw',
-        });
-        const winner = res.winner;
-        status.textContent = `🏆 ${winner.name}${winner.prize_won ? ` — ${winner.prize_won}` : ''}`;
-        status.className = 'ok';
-        await refresh();
-      } catch (err) {
-        status.textContent = (err as Error).message;
-        status.className = 'err';
-        drawBtn.disabled = false;
+        if (target.classList.contains('draw')) {
+          await drawForPrize(prizeId, prizeName, isGrand);
+        } else if (target.classList.contains('redraw')) {
+          await redrawPrize(prizeId, prizeName);
+        }
+      } finally {
+        target.disabled = false;
       }
     });
     document.getElementById('copy-raffle-url')!.addEventListener('click', async () => {
@@ -296,6 +435,80 @@ import Base from '../layouts/Base.astro';
     font-size: 10px; text-transform: uppercase;
     letter-spacing: 1px; margin-top: 4px;
   }
+
+  /* Prize ladder — one row per defined prize. Spot prizes first,
+     grand prize last with a gold treatment. The "🎲 Draw" button on
+     each row is what the host picks during the event to launch a
+     wheel spin for that specific prize. */
+  .prize-ladder {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px; padding: 14px 16px;
+    margin-bottom: 14px;
+  }
+  .prize-ladder h2 {
+    font-size: 11px; color: #95a5a6;
+    text-transform: uppercase; letter-spacing: 1.5px;
+    margin-bottom: 12px;
+  }
+  .ladder-row {
+    display: grid;
+    grid-template-columns: 48px 1fr auto;
+    gap: 10px; align-items: center;
+    padding: 8px 10px; margin-bottom: 6px;
+    border-radius: 8px;
+    background: rgba(0,0,0,0.20);
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  .ladder-row:last-child { margin-bottom: 0; }
+  .ladder-row.is-grand {
+    background: rgba(243,156,18,0.08);
+    border-color: rgba(243,156,18,0.45);
+  }
+  .ladder-thumb {
+    width: 48px; height: 48px; border-radius: 6px;
+    object-fit: cover; background: rgba(0,0,0,0.4);
+  }
+  .ladder-thumb.empty { border: 1px dashed rgba(255,255,255,0.14); }
+  .ladder-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .ladder-info strong {
+    color: #ecf0f1; font-size: 14px; font-weight: 700;
+    overflow-wrap: anywhere;
+  }
+  .ladder-grand {
+    display: inline-block;
+    font-size: 9px; font-weight: 800; letter-spacing: 1px;
+    padding: 1px 6px; border-radius: 999px;
+    background: rgba(243,156,18,0.20); color: var(--accent);
+    border: 1px solid rgba(243,156,18,0.5);
+    margin-left: 4px;
+  }
+  .ladder-winner { color: #2ecc71; font-size: 12px; font-weight: 700; }
+  .ladder-pending { color: #95a5a6; font-size: 12px; font-style: italic; }
+  .ladder-action button.ladder-btn {
+    padding: 9px 14px; font-size: 12px; font-weight: 800;
+    border-radius: 6px; cursor: pointer;
+    font-family: inherit;
+    border: 1px solid rgba(255,255,255,0.10);
+    background: rgba(255,255,255,0.06); color: #ecf0f1;
+  }
+  .ladder-action button.ladder-btn.draw {
+    background: var(--accent); color: #1a252f; border-color: var(--accent);
+  }
+  .ladder-action button.ladder-btn.draw.grand {
+    background: #f1c40f;
+    border-color: #f1c40f;
+    color: #1a252f;
+    box-shadow: 0 0 10px rgba(241,196,15,0.4);
+    font-size: 13px;
+  }
+  .ladder-action button.ladder-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .ladder-action button.ladder-btn.redraw {
+    background: rgba(255,255,255,0.06);
+    color: #95a5a6;
+  }
+  .ladder-empty { color: #95a5a6; font-style: italic; text-align: center; padding: 12px 0; font-size: 13px; }
+  .ladder-empty a { color: var(--accent); text-decoration: none; font-weight: 700; }
 
   .actions {
     display: grid; gap: 8px; margin-bottom: 8px;

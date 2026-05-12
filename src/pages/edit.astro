@@ -592,6 +592,14 @@ import Base from '../layouts/Base.astro';
 
           <section class="card">
             <h2>Raffle <span class="audience-tag">Public</span></h2>
+            <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;line-height:1.5;">
+              One entry form, one pool of attendees, but you can define
+              <strong>multiple distinct prizes</strong> and pick which one
+              you're drawing for at any moment. Mark exactly one as the
+              <strong>GRAND PRIZE</strong> for finale-style emphasis (or
+              leave them all equal). Open the raffle below to start
+              accepting entries; manage prizes in the Prizes section.
+            </p>
             <form id="raffle-form" novalidate>
               <label>
                 Status
@@ -600,28 +608,24 @@ import Base from '../layouts/Base.astro';
                   <option value="open" ${ev.raffle_status === 'open' ? 'selected' : ''}>Open for entries</option>
                 </select>
               </label>
-              <label>
-                Prize description <span class="opt">(shown on the entry page; leave blank if generic)</span>
-                <input name="raffle_prize" maxlength="200" value="${escapeHtml(ev.raffle_prize || '')}" placeholder="Free 30-min consult" />
-              </label>
-              <div class="prize-photo-slot photo-slot" data-event-slot="prize">
-                <span class="slot-label">Prize photo <span class="opt">(optional)</span></span>
-                <div class="photo-preview prize-preview">
-                  ${ev.raffle_prize_photo_url
-                    ? `<img src="${escapeHtml(ev.raffle_prize_photo_url)}" alt="" />`
-                    : '<div class="empty">No photo</div>'}
-                </div>
-                <label class="upload-btn">
-                  <input type="file" accept="image/*" data-event-slot="prize" hidden />
-                  <span class="upload-label">${ev.raffle_prize_photo_url ? 'Replace photo' : 'Upload photo'}</span>
-                </label>
-                <span class="upload-status" data-event-slot="prize"></span>
-              </div>
               <div class="row">
-                <button type="submit" id="raffle-save">Save raffle settings</button>
+                <button type="submit" id="raffle-save">Save status</button>
                 <span id="raffle-save-status" role="status" aria-live="polite"></span>
               </div>
             </form>
+
+            <div class="hosts-subhead">Prizes</div>
+            <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:10px;line-height:1.5;">
+              Add each prize separately. The host picks which one to draw
+              from the live dashboard / wheel page during the event — order
+              isn't fixed. Spot-prize winners come <strong>out of the pool</strong>
+              for the grand draw, so everyone gets a fair shot at the finale.
+            </p>
+            <button id="add-prize-btn" type="button" class="add-btn">+ Add prize</button>
+            <div id="prize-form-host"></div>
+            <ul id="prize-list" class="prize-list">
+              <li class="prize-loading">Loading prizes…</li>
+            </ul>
 
             <h3 class="raffle-entries-h">
               Entries <span class="entry-count" id="entry-count">—</span>
@@ -1188,46 +1192,261 @@ import Base from '../layouts/Base.astro';
         const entriesWrap = document.getElementById('entries-list-wrap')!;
         let raffleStatus: 'open' | 'closed' = (ev.raffle_status === 'open' ? 'open' : 'closed');
 
-        // Prize photo: separate upload flow (event-level, not transformation-level).
-        const prizePhotoInput = raffleForm.querySelector(
-          'input[type=file][data-event-slot="prize"]'
-        ) as HTMLInputElement | null;
-        if (prizePhotoInput) {
-          prizePhotoInput.addEventListener('change', async (changeEv) => {
-            const file = (changeEv.target as HTMLInputElement).files?.[0];
-            if (!file) return;
-            const slotEl = prizePhotoInput.closest('.prize-photo-slot') as HTMLElement;
-            const previewEl = slotEl.querySelector('.photo-preview') as HTMLElement;
-            const labelEl = slotEl.querySelector('.upload-label') as HTMLElement;
-            const statusEl = slotEl.querySelector('.upload-status') as HTMLElement;
+        // ---------- Prize list ----------
+        // Multi-prize raffle: one entry pool, multiple distinct prizes, one
+        // optional grand. Add/edit/remove flow mirrors the speakers section.
+        // Photos upload to event-photos via upload-event-photo with
+        // kind=prize_item, prize_id=<id> after the prize row exists.
+        type Prize = {
+          id: string;
+          name: string;
+          description: string | null;
+          photo_url: string | null;
+          display_order: number;
+          is_grand: boolean;
+          drawn_winner_id: string | null;
+          drawn_at: string | null;
+          created_at: string;
+        };
+        let prizes: Prize[] = [];
+        const prizeList = document.getElementById('prize-list')!;
+        const prizeFormHost = document.getElementById('prize-form-host')!;
+        const addPrizeBtn = document.getElementById('add-prize-btn') as HTMLButtonElement;
 
-            statusEl.textContent = 'Compressing…';
-            statusEl.className = 'upload-status';
-
-            try {
-              const compressed = await compressImage(file, 1200, 0.82);
-              statusEl.textContent = 'Uploading…';
-              const data_b64 = await blobToBase64(compressed);
-              const res = await callFunction('upload-event-photo', {
-                slug,
-                edit_token: key,
-                kind: 'prize',
-                filename: 'photo.jpg',
-                data: data_b64,
-              });
-              const url = res.url as string;
-              previewEl.innerHTML = `<img src="${escapeHtml(url)}" alt="" />`;
-              labelEl.textContent = 'Replace photo';
-              statusEl.textContent = 'Uploaded ✓';
-              statusEl.className = 'upload-status ok';
-              prizePhotoInput.value = '';
-            } catch (err) {
-              const msg = (err as Error).message;
-              statusEl.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
-              statusEl.className = 'upload-status err';
-            }
-          });
+        function prizeFormHtml(p?: Prize): string {
+          const v = p || ({} as Partial<Prize>);
+          // Photo upload only renders when editing — for new prizes we
+          // create the row first, then surface the photo slot in the
+          // re-opened edit form (same trick speakers/transformations use).
+          const photoBlock = p
+            ? `
+              <div class="photo-slot prize-slot" data-prize-slot="${escapeHtml(p.id)}">
+                <span class="slot-label">Prize photo <span class="opt">(optional)</span></span>
+                <div class="photo-preview prize-preview">
+                  ${v.photo_url
+                    ? `<img src="${escapeHtml(v.photo_url)}" alt="" />`
+                    : '<div class="empty">No photo</div>'}
+                </div>
+                <label class="upload-btn">
+                  <input type="file" accept="image/*" data-prize-slot="${escapeHtml(p.id)}" hidden />
+                  <span class="upload-label">${v.photo_url ? 'Replace photo' : 'Upload photo'}</span>
+                </label>
+                <span class="upload-status" data-prize-slot="${escapeHtml(p.id)}"></span>
+              </div>`
+            : '<p class="opt" style="font-size:11px;color:#95a5a6;font-style:italic;">Photo can be added after you create the prize.</p>';
+          return `
+            <form class="t-form prize-form" ${p ? `data-id="${p.id}"` : ''} novalidate>
+              <h3>${p ? 'Edit prize' : 'New prize'}</h3>
+              <label>
+                Name
+                <input name="name" required maxlength="120" value="${escapeHtml(v.name || '')}" placeholder="FitBit Charge / 90-day program" />
+              </label>
+              <label>
+                Description <span class="opt">(optional)</span>
+                <textarea name="description" rows="2" maxlength="500" placeholder="What is it, how is it delivered, any restrictions">${escapeHtml(v.description || '')}</textarea>
+              </label>
+              <label class="checkbox-line">
+                <input type="checkbox" name="is_grand" ${v.is_grand ? 'checked' : ''} />
+                <span>This is the <strong>GRAND PRIZE</strong> (max one per event)</span>
+              </label>
+              ${photoBlock}
+              <div class="row">
+                <button type="submit">${p ? 'Save changes' : 'Create'}</button>
+                <button type="button" class="cancel">${p ? 'Done' : 'Cancel'}</button>
+                <span class="t-status" role="status" aria-live="polite"></span>
+              </div>
+            </form>`;
         }
+
+        function prizeRowHtml(p: Prize): string {
+          const winnerName = p.drawn_winner_id
+            ? (entriesCache.find((e) => e.id === p.drawn_winner_id)?.name || '(winner)')
+            : null;
+          return `
+            <li class="prize-row ${p.is_grand ? 'is-grand' : ''}" data-id="${p.id}">
+              ${p.photo_url
+                ? `<img class="prize-thumb" src="${escapeHtml(p.photo_url)}" alt="" />`
+                : '<div class="prize-thumb empty"></div>'}
+              <div class="prize-info">
+                <strong>${escapeHtml(p.name)}</strong>
+                ${p.is_grand ? '<span class="prize-badge grand">🏆 GRAND</span>' : ''}
+                ${winnerName ? `<span class="prize-meta">✓ ${escapeHtml(winnerName)}</span>` : '<span class="prize-meta dim">— not drawn yet</span>'}
+                ${p.description ? `<span class="prize-meta">${escapeHtml(p.description.slice(0, 80))}${p.description.length > 80 ? '…' : ''}</span>` : ''}
+              </div>
+              <div class="prize-actions">
+                <button type="button" class="edit" data-id="${p.id}">Edit</button>
+                <button type="button" class="del" data-id="${p.id}">Delete</button>
+              </div>
+            </li>`;
+        }
+
+        function renderPrizeList() {
+          if (prizes.length === 0) {
+            prizeList.innerHTML = '<li class="prize-empty">No prizes yet. Add one above.</li>';
+          } else {
+            prizeList.innerHTML = prizes.map(prizeRowHtml).join('');
+          }
+        }
+
+        function showPrizeForm(p?: Prize) {
+          prizeFormHost.innerHTML = prizeFormHtml(p);
+          addPrizeBtn.style.display = 'none';
+          const form = prizeFormHost.querySelector('form.prize-form') as HTMLFormElement;
+          form.addEventListener('submit', (e) => handlePrizeSubmit(e, p));
+          form.querySelector('button.cancel')!.addEventListener('click', hidePrizeForm);
+          // Wire the per-prize photo input only when editing.
+          if (p) {
+            const fileInput = form.querySelector('input[type=file][data-prize-slot]') as HTMLInputElement | null;
+            if (fileInput) fileInput.addEventListener('change', (e) => handlePrizePhotoUpload(e, p));
+          }
+          if (!p) (form.querySelector('input[name=name]') as HTMLInputElement).focus();
+        }
+
+        function hidePrizeForm() {
+          prizeFormHost.innerHTML = '';
+          addPrizeBtn.style.display = '';
+        }
+
+        async function handlePrizeSubmit(submitEv: Event, editing?: Prize) {
+          submitEv.preventDefault();
+          const formEl = submitEv.target as HTMLFormElement;
+          const fd = new FormData(formEl);
+          const tStatus = formEl.querySelector('.t-status') as HTMLSpanElement;
+          const submit = formEl.querySelector('button[type=submit]') as HTMLButtonElement;
+          submit.disabled = true;
+          tStatus.textContent = 'Saving…';
+          tStatus.className = 't-status';
+
+          try {
+            const action = editing ? 'update_prize' : 'add_prize';
+            const payload: Record<string, unknown> = {
+              slug, edit_token: key, action,
+              name: fd.get('name'),
+              description: fd.get('description') || null,
+              is_grand: fd.get('is_grand') === 'on',
+            };
+            if (editing) payload.prize_id = editing.id;
+
+            const res = await callFunction('manage-raffle', payload);
+            const saved = res.prize as Prize;
+
+            if (editing) {
+              prizes = prizes.map((x) => (x.id === saved.id ? { ...x, ...saved } : x));
+            } else {
+              prizes = [...prizes, saved];
+            }
+            // If the saved prize is now grand, clear is_grand on others
+            // locally so the list reflects the server state immediately.
+            if (saved.is_grand) {
+              prizes = prizes.map((x) => x.id === saved.id ? x : { ...x, is_grand: false });
+            }
+            renderPrizeList();
+
+            if (editing) {
+              tStatus.textContent = 'Saved ✓';
+              tStatus.className = 't-status ok';
+              submit.disabled = false;
+            } else {
+              // Re-open the form in edit mode so the user can immediately
+              // upload a photo for the prize they just created.
+              showPrizeForm(saved);
+              const reopen = prizeFormHost.querySelector('.t-status') as HTMLSpanElement;
+              if (reopen) {
+                reopen.textContent = 'Created ✓ — add a photo if you want';
+                reopen.className = 't-status ok';
+              }
+            }
+          } catch (err) {
+            const msg = (err as Error).message;
+            tStatus.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+            tStatus.className = 't-status err';
+            submit.disabled = false;
+          }
+        }
+
+        async function handlePrizePhotoUpload(changeEv: Event, p: Prize) {
+          const input = changeEv.target as HTMLInputElement;
+          const file = input.files?.[0];
+          if (!file) return;
+          const slotEl = input.closest('.prize-slot') as HTMLElement;
+          const previewEl = slotEl.querySelector('.photo-preview') as HTMLElement;
+          const labelEl = slotEl.querySelector('.upload-label') as HTMLElement;
+          const statusEl = slotEl.querySelector('.upload-status') as HTMLElement;
+          input.value = '';
+          statusEl.textContent = 'Compressing…';
+          statusEl.className = 'upload-status';
+          try {
+            const compressed = await compressImage(file, 1200, 0.82);
+            statusEl.textContent = 'Uploading…';
+            const data_b64 = await blobToBase64(compressed);
+            const res = await callFunction('upload-event-photo', {
+              slug, edit_token: key,
+              kind: 'prize_item',
+              prize_id: p.id,
+              filename: 'photo.jpg',
+              data: data_b64,
+            });
+            const url = res.url as string;
+            prizes = prizes.map((x) => (x.id === p.id ? { ...x, photo_url: url } : x));
+            p.photo_url = url;
+            previewEl.innerHTML = `<img src="${escapeHtml(url)}" alt="" />`;
+            labelEl.textContent = 'Replace photo';
+            statusEl.textContent = 'Uploaded ✓';
+            statusEl.className = 'upload-status ok';
+            renderPrizeList();
+          } catch (err) {
+            const msg = (err as Error).message;
+            statusEl.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+            statusEl.className = 'upload-status err';
+          }
+        }
+
+        async function handlePrizeDelete(id: string) {
+          const p = prizes.find((x) => x.id === id);
+          if (!p) return;
+          if (p.drawn_winner_id) {
+            if (!confirm(`"${p.name}" already has a winner. Deleting it will clear that winner's prize attribution. Delete anyway?`)) return;
+          } else {
+            if (!confirm(`Delete the "${p.name}" prize?`)) return;
+          }
+          try {
+            await callFunction('manage-raffle', {
+              slug, edit_token: key, action: 'remove_prize', prize_id: id,
+            });
+            prizes = prizes.filter((x) => x.id !== id);
+            renderPrizeList();
+          } catch (err) {
+            alert('Could not delete: ' + (err as Error).message);
+          }
+        }
+
+        async function loadPrizes() {
+          try {
+            const res = await callFunction('manage-raffle', {
+              slug, edit_token: key, action: 'list_prizes',
+            });
+            prizes = (res.prizes || []) as Prize[];
+            renderPrizeList();
+          } catch (err) {
+            prizeList.innerHTML =
+              `<li class="prize-empty err">Could not load prizes: ${escapeHtml((err as Error).message)}</li>`;
+          }
+        }
+
+        addPrizeBtn.addEventListener('click', () => showPrizeForm());
+        prizeList.addEventListener('click', (clickEv) => {
+          const target = clickEv.target as HTMLElement;
+          if (target.tagName !== 'BUTTON') return;
+          const id = target.getAttribute('data-id');
+          if (!id) return;
+          if (target.classList.contains('edit')) {
+            const p = prizes.find((x) => x.id === id);
+            if (p) showPrizeForm(p);
+          } else if (target.classList.contains('del')) {
+            handlePrizeDelete(id);
+          }
+        });
+        loadPrizes();
 
         raffleForm.addEventListener('submit', async (submitEv) => {
           submitEv.preventDefault();
@@ -1240,7 +1459,6 @@ import Base from '../layouts/Base.astro';
               slug,
               edit_token: key,
               raffle_status: fd.get('raffle_status'),
-              raffle_prize: fd.get('raffle_prize') || null,
             });
             raffleStatus = String(fd.get('raffle_status')) === 'open' ? 'open' : 'closed';
             raffleSaveStatus.textContent = 'Saved ✓';
@@ -1340,6 +1558,10 @@ import Base from '../layouts/Base.astro';
             });
             entriesCache = res.entries || [];
             renderEntries(entriesCache);
+            // Prize rows show the winner's name inline ("✓ Sarah J.") which
+            // looks up entriesCache. Re-render the prize list each time
+            // entries refresh so the lookup picks up newly loaded entries.
+            renderPrizeList();
             const total = entriesCache.length;
             const eligible = entriesCache.filter((e: { drawn: boolean }) => !e.drawn).length;
             const ePill = document.getElementById('pill-entries');
@@ -2836,6 +3058,67 @@ import Base from '../layouts/Base.astro';
 
   /* Prize photo: arbitrary aspect ratio (a product shot, not a portrait). */
   .prize-photo-slot { display: grid; gap: 6px; margin-top: 4px; }
+
+  /* Multi-prize raffle list — one row per defined prize, with thumbnail,
+     name, grand-prize badge, and per-row edit/delete. Drawn-prize rows
+     show "✓ Winner Name" inline; un-drawn show "— not drawn yet". */
+  ul.prize-list {
+    list-style: none; padding: 0; margin: 12px 0 0;
+    display: grid; gap: 8px;
+  }
+  .prize-row {
+    display: grid;
+    grid-template-columns: 56px 1fr auto;
+    gap: 12px; align-items: center;
+    padding: 10px 12px;
+    background: rgba(0,0,0,0.20);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+  }
+  .prize-row.is-grand {
+    border-color: rgba(243,156,18,0.5);
+    background: rgba(243,156,18,0.06);
+  }
+  .prize-thumb {
+    width: 56px; height: 56px; border-radius: 6px;
+    object-fit: cover; background: rgba(0,0,0,0.4);
+  }
+  .prize-thumb.empty { border: 1px dashed rgba(255,255,255,0.14); }
+  .prize-info {
+    display: flex; flex-direction: column; gap: 4px; min-width: 0;
+  }
+  .prize-info strong {
+    font-size: 14px; color: #ecf0f1; font-weight: 700;
+    overflow-wrap: anywhere;
+  }
+  .prize-badge.grand {
+    display: inline-block; align-self: flex-start;
+    font-size: 9px; font-weight: 800; letter-spacing: 1px;
+    padding: 2px 7px; border-radius: 999px;
+    background: rgba(243,156,18,0.20); color: var(--accent, #f39c12);
+    border: 1px solid rgba(243,156,18,0.5);
+    margin-top: 1px;
+  }
+  .prize-meta { font-size: 12px; color: #ecf0f1; }
+  .prize-meta.dim { color: #95a5a6; font-style: italic; }
+  .prize-actions {
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .prize-actions button {
+    font-size: 11px; padding: 4px 8px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 4px; color: #ecf0f1; cursor: pointer;
+    font-family: inherit;
+  }
+  .prize-actions button.del { color: #e74c3c; }
+  .prize-empty {
+    padding: 20px; text-align: center;
+    color: #95a5a6; font-style: italic; font-size: 13px;
+  }
+  .prize-empty.err { color: #e74c3c; font-style: normal; }
+  .prize-loading { padding: 16px; text-align: center; color: #95a5a6; font-size: 12px; }
+  .photo-slot.prize-slot { margin-top: 4px; }
   .photo-preview.prize-preview {
     aspect-ratio: auto;
     min-height: 120px; max-height: 220px;

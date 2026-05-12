@@ -86,6 +86,15 @@ export async function fetchAgendaItems(eventId) {
   );
 }
 
+// Public read of the prize list for an event — used by the entry form,
+// the wheel page (prize ladder between spins), and the live dashboard.
+// Includes drawn-winner back-link so callers can render "won by X" inline.
+export async function fetchRafflePrizes(eventId) {
+  return request(
+    `/rest/v1/raffle_prizes?event_id=eq.${eventId}&select=*&order=display_order.asc,created_at.asc`
+  );
+}
+
 // Calls a Supabase Edge Function (writes go here so the function can verify
 // the edit_token). See docs/SUPABASE_SETUP.md for the function templates.
 export async function callFunction(name, body) {

@@ -63,6 +63,16 @@ Deno.serve(async (req) => {
     prize_won: r.prize_won,
   }));
 
+  // Multi-prize raffle: also return the prize list so the wheel page can
+  // show "Spinning for: X" during a draw and a prize ladder between draws.
+  // Empty list = single-prize legacy mode (events.raffle_prize text only).
+  const { data: prizes } = await supabase
+    .from('raffle_prizes')
+    .select('id, name, photo_url, is_grand, drawn_winner_id')
+    .eq('event_id', ev.id)
+    .order('display_order', { ascending: true })
+    .order('created_at', { ascending: true });
+
   return ok({
     event: {
       name: ev.name,
@@ -72,5 +82,6 @@ Deno.serve(async (req) => {
     },
     pool,
     winners,
+    prizes: prizes || [],
   });
 });

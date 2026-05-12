@@ -22,12 +22,17 @@ import Base from '../layouts/Base.astro';
   // imperceptible against a 7-second spin. v0.2 could send a server
   // timestamp and have viewers fast-forward, but the simple version
   // looks great in practice.
-  import { callFunction, getConfig } from '../lib/supabase.js';
+  import { callFunction, getConfig, fetchRafflePrizes } from '../lib/supabase.js';
   import { eventUrl } from '../lib/urls.js';
   import { createClient } from '@supabase/supabase-js';
 
   type PoolEntry = { id: string; first_name: string };
   type Winner = { id: string; first_name: string; prize_won: string | null };
+  type Prize = {
+    id: string; name: string; photo_url: string | null;
+    is_grand: boolean;
+    drawn_winner_id: string | null;
+  };
 
   const root = document.getElementById('wheel-root')!;
   const base = import.meta.env.BASE_URL;
@@ -50,6 +55,7 @@ import Base from '../layouts/Base.astro';
 
   let pool: PoolEntry[] = [];
   let winners: Winner[] = [];
+  let prizes: Prize[] = [];
   let eventInfo: { name: string; accent_color: string | null; raffle_prize: string | null } = {
     name: '',
     accent_color: null,
@@ -59,6 +65,10 @@ import Base from '../layouts/Base.astro';
   let spinning = false;
   let canvas: HTMLCanvasElement | null = null;
   let ctx: CanvasRenderingContext2D | null = null;
+  // Tracks the prize we're currently spinning for, populated by the
+  // incoming broadcast payload. Drives the "Spinning for: X" header
+  // and the post-spin winner overlay's prize line.
+  let currentSpinPrize: { name: string | null; is_grand: boolean } | null = null;
 
   if (!slug) {
     root.innerHTML = '<p class="loading err">No event specified.</p>';
@@ -71,6 +81,7 @@ import Base from '../layouts/Base.astro';
       const data = await callFunction('get-raffle-pool', { slug });
       pool = data.pool as PoolEntry[];
       winners = data.winners as Winner[];
+      prizes = (data.prizes || []) as Prize[];
       eventInfo = data.event;
       const accent = eventInfo.accent_color || '#f39c12';
       document.documentElement.style.setProperty('--accent', accent);
@@ -92,19 +103,58 @@ import Base from '../layouts/Base.astro';
           ).join('')}</ul>
         </section>`
       : '';
-    const spinControls = isHost
-      ? `<div class="controls">
-          <button id="spin-btn" type="button" ${pool.length === 0 ? 'disabled' : ''}>🎲 Spin the Wheel</button>
-          <p class="status" id="spin-status" role="status" aria-live="polite"></p>
-        </div>`
+
+    // Multi-prize raffle: prize ladder shows what's still up for grabs
+    // (and what's already been won) so attendees can see the stakes
+    // between spins. Hidden in legacy single-prize mode (prizes is []).
+    const prizeLadderBlock = prizes.length > 0
+      ? `<section class="wheel-prize-ladder">
+          <h2>Today's prizes</h2>
+          <ul>${prizes.map((p) => {
+            const won = !!p.drawn_winner_id;
+            return `
+              <li class="${p.is_grand ? 'grand' : ''} ${won ? 'won' : ''}">
+                ${p.photo_url
+                  ? `<img src="${escapeHtml(p.photo_url)}" alt="" />`
+                  : '<span class="ph"></span>'}
+                <span class="pname">
+                  ${escapeHtml(p.name)}
+                  ${p.is_grand ? '<span class="badge">GRAND</span>' : ''}
+                </span>
+                <span class="pstatus">${won ? '✓ won' : '— up for grabs'}</span>
+              </li>`;
+          }).join('')}</ul>
+        </section>`
       : '';
+
+    // Local-mode Spin button only renders in single-prize legacy mode.
+    // When prizes are defined, the host launches each spin from the live
+    // dashboard (which broadcasts to this page). Multi-prize mode shows a
+    // dim hint instead.
+    const spinControls = !isHost ? '' : (
+      prizes.length > 0
+        ? `<div class="controls multi-prize-hint">
+            <p class="status" id="spin-status" role="status" aria-live="polite"></p>
+            <p class="multi-prize-note">🎯 This event uses multiple prizes — launch each draw from the <strong>Live dashboard</strong> on your phone. The wheel here animates automatically when you do.</p>
+          </div>`
+        : `<div class="controls">
+            <button id="spin-btn" type="button" ${pool.length === 0 ? 'disabled' : ''}>🎲 Spin the Wheel</button>
+            <p class="status" id="spin-status" role="status" aria-live="polite"></p>
+          </div>`
+    );
+
+    // Header prize line: in single-prize mode show the legacy text; in
+    // multi-prize mode the prize ladder below carries this info instead.
+    const headerPrize = (prizes.length === 0 && eventInfo.raffle_prize)
+      ? `<p class="prize">🎁 <strong>${escapeHtml(eventInfo.raffle_prize)}</strong></p>`
+      : '';
+
     root.innerHTML = `
       <header class="top">
         <p class="eyebrow">Live Drawing</p>
         <h1>${escapeHtml(eventInfo.name)}</h1>
-        ${eventInfo.raffle_prize
-          ? `<p class="prize">🎁 <strong>${escapeHtml(eventInfo.raffle_prize)}</strong></p>`
-          : ''}
+        ${headerPrize}
+        <p id="spin-for" class="spin-for" style="display:none;"></p>
       </header>
 
       <div class="wheel-stage">
@@ -114,6 +164,7 @@ import Base from '../layouts/Base.astro';
       <p class="entry-count">${pool.length} ${pool.length === 1 ? 'entry' : 'entries'} eligible</p>
 
       ${spinControls}
+      ${prizeLadderBlock}
       ${winnersBlock}
 
       <div class="footer-cta">
@@ -122,7 +173,7 @@ import Base from '../layouts/Base.astro';
     `;
     canvas = document.getElementById('wheel-canvas') as HTMLCanvasElement;
     ctx = canvas.getContext('2d');
-    if (isHost) {
+    if (isHost && prizes.length === 0) {
       document.getElementById('spin-btn')!.addEventListener('click', handleSpin);
     }
   }
@@ -224,19 +275,23 @@ import Base from '../layouts/Base.astro';
     requestAnimationFrame(frame);
   }
 
-  function showWinnerOverlay(winner: { first_name: string; prize_won?: string | null }) {
+  function showWinnerOverlay(winner: {
+    first_name: string; prize_won?: string | null; is_grand?: boolean;
+  }) {
     const overlay = document.createElement('div');
-    overlay.className = 'winner-overlay';
+    overlay.className = 'winner-overlay' + (winner.is_grand ? ' grand' : '');
+    const headline = winner.is_grand ? '🏆 GRAND PRIZE WINNER!' : '🎉 Winner!';
     overlay.innerHTML = `
-      <div class="winner-card">
-        <p class="big">🎉 Winner!</p>
+      <div class="winner-card ${winner.is_grand ? 'grand' : ''}">
+        <p class="big">${headline}</p>
         <p class="winner-name">${escapeHtml(winner.first_name)}</p>
         ${winner.prize_won ? `<p class="winner-prize">${escapeHtml(winner.prize_won)}</p>` : ''}
         <button type="button" class="winner-close">Close</button>
       </div>`;
     document.body.appendChild(overlay);
     overlay.querySelector('.winner-close')!.addEventListener('click', () => overlay.remove());
-    setTimeout(() => overlay.remove(), 12000);
+    // Grand prize gets longer auto-dismiss so the moment lands.
+    setTimeout(() => overlay.remove(), winner.is_grand ? 18000 : 12000);
   }
 
   // Channel reused for both directions; viewers receive, hosts also send.
@@ -306,12 +361,17 @@ import Base from '../layouts/Base.astro';
     runSpin(payload, winnerIndex);
   }
 
-  function handleIncomingSpin(payload: {
+  type SpinPayload = {
     winner_id: string;
     winner_first_name: string;
     winner_prize: string | null;
+    prize_id?: string | null;
+    prize_name?: string | null;
+    is_grand?: boolean;
     duration_ms: number;
-  }) {
+  };
+
+  function handleIncomingSpin(payload: SpinPayload) {
     const winnerIndex = pool.findIndex((p) => p.id === payload.winner_id);
     if (winnerIndex < 0) {
       // Pool drift — refetch then animate based on the refreshed state.
@@ -326,22 +386,35 @@ import Base from '../layouts/Base.astro';
     runSpin(payload, winnerIndex);
   }
 
-  function runSpin(
-    payload: { winner_first_name: string; winner_prize: string | null; duration_ms: number },
-    winnerIndex: number
-  ) {
+  function runSpin(payload: SpinPayload, winnerIndex: number) {
+    // Surface the "Spinning for: X" header for the duration of the spin.
+    currentSpinPrize = {
+      name: payload.prize_name || payload.winner_prize || null,
+      is_grand: !!payload.is_grand,
+    };
+    const spinFor = document.getElementById('spin-for');
+    if (spinFor && currentSpinPrize.name) {
+      const grandBadge = currentSpinPrize.is_grand ? ' <span class="grand-badge">GRAND PRIZE</span>' : '';
+      spinFor.innerHTML = `Spinning for: <strong>${escapeHtml(currentSpinPrize.name)}</strong>${grandBadge}`;
+      spinFor.style.display = '';
+      spinFor.classList.toggle('grand', !!currentSpinPrize.is_grand);
+    }
     animateSpin(winnerIndex, payload.duration_ms, async () => {
       showWinnerOverlay({
         first_name: payload.winner_first_name,
-        prize_won: payload.winner_prize,
+        prize_won: payload.prize_name || payload.winner_prize,
+        is_grand: !!payload.is_grand,
       });
-      // Refresh pool + winners after the spin so the next round renders
-      // with the winner removed and the winners-so-far list updated.
+      // Refresh pool + winners + prize-ladder state after the spin so the
+      // next round renders with the winner removed, the winners-so-far
+      // list updated, and the just-won prize marked ✓ on the ladder.
       try {
         const data = await callFunction('get-raffle-pool', { slug });
         pool = data.pool as PoolEntry[];
         winners = data.winners as Winner[];
+        prizes = (data.prizes || []) as Prize[];
         currentRotation = 0;
+        currentSpinPrize = null;
         render();
         drawWheel();
       } catch {
@@ -371,6 +444,90 @@ import Base from '../layouts/Base.astro';
     font-size: 14px; color: #ecf0f1;
   }
   .top .prize strong { color: var(--accent); }
+
+  /* "Spinning for: <prize name>" header — set by runSpin during a spin
+     and cleared after the post-spin refresh. */
+  .spin-for {
+    margin-top: 10px;
+    font-size: 16px; color: #ecf0f1; line-height: 1.4;
+  }
+  .spin-for strong { color: var(--accent); }
+  .spin-for.grand {
+    color: #f1c40f; font-weight: 700; font-size: 18px;
+  }
+  .spin-for.grand strong { color: #f1c40f; }
+  .spin-for .grand-badge {
+    display: inline-block;
+    font-size: 10px; font-weight: 800; letter-spacing: 1.2px;
+    padding: 2px 8px; margin-left: 6px;
+    border-radius: 999px;
+    background: rgba(241,196,15,0.18);
+    color: #f1c40f;
+    border: 1px solid rgba(241,196,15,0.5);
+    vertical-align: middle;
+  }
+
+  .multi-prize-hint {
+    background: rgba(243,156,18,0.06);
+    border: 1px dashed rgba(243,156,18,0.4);
+    border-radius: 8px;
+    padding: 10px 14px;
+  }
+  .multi-prize-note {
+    font-size: 12px; color: #bdc3c7;
+    line-height: 1.5; margin: 6px 0 0;
+  }
+  .multi-prize-note strong { color: var(--accent); }
+
+  /* Prize ladder (multi-prize mode) — shown beneath the wheel so
+     attendees see what's still up for grabs between spins. */
+  .wheel-prize-ladder {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 14px 16px; margin: 16px 0 0;
+    text-align: left;
+  }
+  .wheel-prize-ladder h2 {
+    font-size: 12px; color: var(--accent);
+    text-transform: uppercase; letter-spacing: 1.5px;
+    margin-bottom: 10px;
+  }
+  .wheel-prize-ladder ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+  .wheel-prize-ladder li {
+    display: grid;
+    grid-template-columns: 36px 1fr auto;
+    gap: 10px; align-items: center;
+    padding: 6px 8px; border-radius: 6px;
+    background: rgba(0,0,0,0.20);
+    font-size: 13px; color: #ecf0f1;
+  }
+  .wheel-prize-ladder li.grand {
+    background: rgba(243,156,18,0.08);
+    border: 1px solid rgba(243,156,18,0.4);
+  }
+  .wheel-prize-ladder li.won { opacity: 0.55; }
+  .wheel-prize-ladder li img {
+    width: 36px; height: 36px; border-radius: 4px;
+    object-fit: cover; background: rgba(0,0,0,0.4);
+  }
+  .wheel-prize-ladder li .ph {
+    width: 36px; height: 36px; border-radius: 4px;
+    border: 1px dashed rgba(255,255,255,0.14);
+    display: block;
+  }
+  .wheel-prize-ladder li .pname { font-weight: 700; color: #ecf0f1; }
+  .wheel-prize-ladder li .pname .badge {
+    display: inline-block; margin-left: 4px;
+    font-size: 9px; font-weight: 800; letter-spacing: 1px;
+    padding: 1px 6px; border-radius: 999px;
+    background: rgba(243,156,18,0.20); color: var(--accent);
+    border: 1px solid rgba(243,156,18,0.5);
+  }
+  .wheel-prize-ladder li .pstatus {
+    font-size: 11px; color: #95a5a6; font-style: italic;
+  }
+  .wheel-prize-ladder li.won .pstatus { color: #2ecc71; font-style: normal; font-weight: 700; }
 
   .wheel-stage {
     position: relative;
@@ -447,6 +604,13 @@ import Base from '../layouts/Base.astro';
     max-width: 90vw;
     box-shadow: 0 20px 60px rgba(0,0,0,0.6);
   }
+  .winner-card.grand {
+    border-color: #f1c40f;
+    box-shadow: 0 0 60px rgba(241,196,15,0.4), 0 20px 60px rgba(0,0,0,0.7);
+  }
+  .winner-card.grand .big { color: #f1c40f; font-size: 26px; }
+  .winner-card.grand .winner-prize { color: #f1c40f; font-weight: 700; font-size: 18px; }
+  .winner-card.grand button { background: #f1c40f; }
   .winner-card .big { font-size: 22px; color: var(--accent); font-weight: 800; margin-bottom: 12px; }
   .winner-card .winner-name {
     font-size: 42px; color: #fff; font-weight: 800;
