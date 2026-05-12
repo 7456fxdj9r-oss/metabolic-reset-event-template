@@ -42,6 +42,22 @@ import Base from '../layouts/Base.astro';
     );
   }
 
+  // TODO: promote to a per-event (or per-agenda-item) `presenter_notes`
+  // schema column when a second event needs different references.
+  // Hardcoded for the May 2026 Portland event for now.
+  const PRESENTER_NOTES: Array<{ label: string; url: string; hint?: string }> = [
+    {
+      label: 'Metabolic Dysfunction',
+      url: 'https://7456fxdj9r-oss.github.io/Spokane-MREvent/notes/metabolic-dysfunction.html',
+      hint: 'Background notes — opens in a new tab',
+    },
+    {
+      label: 'Arterburn 2019',
+      url: 'https://7456fxdj9r-oss.github.io/Spokane-MREvent/notes/arterburn-2019.html',
+      hint: 'Study reference — opens in a new tab',
+    },
+  ];
+
   if (!slug || !key) {
     root.innerHTML = '<p class="loading err">Missing slug or key — open this from the edit page.</p>';
   } else {
@@ -180,6 +196,20 @@ import Base from '../layouts/Base.astro';
               <h2>Tap to jump</h2>
               <ul>${agendaListHtml()}</ul>
             </section>
+            ${PRESENTER_NOTES.length === 0 ? '' : `
+              <section class="notes-list">
+                <h2>📝 Presenter notes</h2>
+                <ul>
+                  ${PRESENTER_NOTES.map((n) => `
+                    <li>
+                      <a href="${escapeHtml(n.url)}" target="_blank" rel="noopener">
+                        <strong>${escapeHtml(n.label)}</strong>
+                        ${n.hint ? `<span class="note-hint">${escapeHtml(n.hint)}</span>` : ''}
+                      </a>
+                    </li>
+                  `).join('')}
+                </ul>
+              </section>`}
             <p class="cx-hint" id="cx-hint">${channel ? 'Synced with projector' : "No realtime config — projector won't follow"}</p>`;
           (document.getElementById('btn-prev') as HTMLButtonElement).addEventListener('click', () => goTo(currentIndex - 1));
           (document.getElementById('btn-next') as HTMLButtonElement).addEventListener('click', () => goTo(currentIndex + 1));
@@ -348,6 +378,36 @@ import Base from '../layouts/Base.astro';
   }
   .agenda-row .row-info .row-speaker {
     font-size: 11px; color: #95a5a6;
+  }
+
+  /* Presenter notes — tappable reference links for whoever is on the
+     mic. Open in a new tab so the console stays put. */
+  .notes-list {
+    margin-top: 16px;
+  }
+  .notes-list h2 {
+    font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+    color: #95a5a6; font-weight: 700; margin-bottom: 8px;
+  }
+  .notes-list ul {
+    list-style: none; padding: 0; margin: 0;
+    display: grid; gap: 6px;
+  }
+  .notes-list a {
+    display: flex; flex-direction: column; gap: 2px;
+    padding: 12px 14px;
+    background: rgba(243,156,18,0.06);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    border-radius: 8px;
+    color: var(--accent); text-decoration: none;
+  }
+  .notes-list a:hover { background: rgba(243,156,18,0.10); }
+  .notes-list a strong {
+    font-size: 14px; font-weight: 800;
+  }
+  .notes-list .note-hint {
+    font-size: 11px; color: #95a5a6; font-weight: 500;
+    font-style: italic;
   }
 
   .cx-hint {
