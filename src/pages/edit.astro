@@ -1212,28 +1212,39 @@ import Base from '../layouts/Base.astro';
         const prizeList = document.getElementById('prize-list')!;
         const prizeFormHost = document.getElementById('prize-form-host')!;
         const addPrizeBtn = document.getElementById('add-prize-btn') as HTMLButtonElement;
+        // Holds a queued photo blob during the new-prize flow — uploaded
+        // after the prize row exists (uploads need prize_id). Mirrors
+        // pendingSpeakerPhoto in the Speakers section.
+        let pendingPrizePhoto: File | null = null;
 
         function prizeFormHtml(p?: Prize): string {
           const v = p || ({} as Partial<Prize>);
-          // Photo upload only renders when editing — for new prizes we
-          // create the row first, then surface the photo slot in the
-          // re-opened edit form (same trick speakers/transformations use).
-          const photoBlock = p
-            ? `
-              <div class="photo-slot prize-slot" data-prize-slot="${escapeHtml(p.id)}">
-                <span class="slot-label">Prize photo <span class="opt">(optional)</span></span>
+          // Photo slot renders in BOTH new and edit modes. New-prize
+          // uploads queue into pendingPrizePhoto (in-memory blob) and
+          // upload via upload-event-photo as soon as the row exists.
+          // Edit-prize uploads go straight through (the prize_id is known).
+          const slotIdAttr = p ? `data-prize-slot="${escapeHtml(p.id)}"` : 'data-prize-slot="new"';
+          const photoBlock = `
+              <div class="photo-slot prize-slot" ${slotIdAttr}>
+                <span class="slot-label">
+                  Prize photo <span class="opt">(optional)</span>
+                </span>
+                <p class="opt" style="font-size:11px;color:#95a5a6;font-style:italic;line-height:1.45;margin:-2px 0 4px;">
+                  💡 If this is the <strong style="color:var(--accent);">GRAND PRIZE</strong>, this photo
+                  appears on the <strong>raffle entry page</strong> (the QR sign-up sheet attendees scan).
+                  Spot prizes don't need a photo if you'll be showing them in the room.
+                </p>
                 <div class="photo-preview prize-preview">
                   ${v.photo_url
                     ? `<img src="${escapeHtml(v.photo_url)}" alt="" />`
                     : '<div class="empty">No photo</div>'}
                 </div>
                 <label class="upload-btn">
-                  <input type="file" accept="image/*" data-prize-slot="${escapeHtml(p.id)}" hidden />
+                  <input type="file" accept="image/*" ${slotIdAttr} hidden />
                   <span class="upload-label">${v.photo_url ? 'Replace photo' : 'Upload photo'}</span>
                 </label>
-                <span class="upload-status" data-prize-slot="${escapeHtml(p.id)}"></span>
-              </div>`
-            : '<p class="opt" style="font-size:11px;color:#95a5a6;font-style:italic;">Photo can be added after you create the prize.</p>';
+                <span class="upload-status" ${slotIdAttr}></span>
+              </div>`;
           return `
             <form class="t-form prize-form" ${p ? `data-id="${p.id}"` : ''} novalidate>
               <h3>${p ? 'Edit prize' : 'New prize'}</h3>
@@ -1262,6 +1273,12 @@ import Base from '../layouts/Base.astro';
           const winnerName = p.drawn_winner_id
             ? (entriesCache.find((e) => e.id === p.drawn_winner_id)?.name || '(winner)')
             : null;
+          // Grand prize without a photo is a soft warning — that photo
+          // is what shows on the raffle entry page (QR sign-up sheet).
+          // Empty spot prize photos are fine; those are shown live.
+          const grandNoPhotoWarn = p.is_grand && !p.photo_url
+            ? '<span class="prize-meta warn">⚠️ No photo for the entry page — tap Edit to add one</span>'
+            : '';
           return `
             <li class="prize-row ${p.is_grand ? 'is-grand' : ''}" data-id="${p.id}">
               ${p.photo_url
@@ -1272,6 +1289,7 @@ import Base from '../layouts/Base.astro';
                 ${p.is_grand ? '<span class="prize-badge grand">🏆 GRAND</span>' : ''}
                 ${winnerName ? `<span class="prize-meta">✓ ${escapeHtml(winnerName)}</span>` : '<span class="prize-meta dim">— not drawn yet</span>'}
                 ${p.description ? `<span class="prize-meta">${escapeHtml(p.description.slice(0, 80))}${p.description.length > 80 ? '…' : ''}</span>` : ''}
+                ${grandNoPhotoWarn}
               </div>
               <div class="prize-actions">
                 <button type="button" class="edit" data-id="${p.id}">Edit</button>
@@ -1291,13 +1309,16 @@ import Base from '../layouts/Base.astro';
         function showPrizeForm(p?: Prize) {
           prizeFormHost.innerHTML = prizeFormHtml(p);
           addPrizeBtn.style.display = 'none';
+          pendingPrizePhoto = null;
           const form = prizeFormHost.querySelector('form.prize-form') as HTMLFormElement;
           form.addEventListener('submit', (e) => handlePrizeSubmit(e, p));
           form.querySelector('button.cancel')!.addEventListener('click', hidePrizeForm);
-          // Wire the per-prize photo input only when editing.
-          if (p) {
-            const fileInput = form.querySelector('input[type=file][data-prize-slot]') as HTMLInputElement | null;
-            if (fileInput) fileInput.addEventListener('change', (e) => handlePrizePhotoUpload(e, p));
+          const fileInput = form.querySelector('input[type=file][data-prize-slot]') as HTMLInputElement | null;
+          if (fileInput) {
+            fileInput.addEventListener('change', (e) => {
+              if (p) handlePrizePhotoUpload(e, p);
+              else handlePendingPrizePhoto(e);
+            });
           }
           if (!p) (form.querySelector('input[name=name]') as HTMLInputElement).focus();
         }
@@ -1305,6 +1326,29 @@ import Base from '../layouts/Base.astro';
         function hidePrizeForm() {
           prizeFormHost.innerHTML = '';
           addPrizeBtn.style.display = '';
+          pendingPrizePhoto = null;
+        }
+
+        // New-prize photo flow: queue the file in memory, show a preview,
+        // upload after the prize row is saved (we need the prize_id first).
+        function handlePendingPrizePhoto(changeEv: Event) {
+          const input = changeEv.target as HTMLInputElement;
+          const file = input.files?.[0];
+          if (!file) return;
+          const slotEl = input.closest('.prize-slot') as HTMLElement;
+          const previewEl = slotEl.querySelector('.photo-preview') as HTMLElement;
+          const labelEl = slotEl.querySelector('.upload-label') as HTMLElement;
+          const statusEl = slotEl.querySelector('.upload-status') as HTMLElement;
+          input.value = '';
+          pendingPrizePhoto = file;
+          const reader = new FileReader();
+          reader.onload = () => {
+            previewEl.innerHTML = `<img src="${reader.result}" alt="" />`;
+            labelEl.textContent = 'Replace photo';
+            statusEl.textContent = 'Will upload after Create';
+            statusEl.className = 'upload-status';
+          };
+          reader.readAsDataURL(file);
         }
 
         async function handlePrizeSubmit(submitEv: Event, editing?: Prize) {
@@ -1328,7 +1372,30 @@ import Base from '../layouts/Base.astro';
             if (editing) payload.prize_id = editing.id;
 
             const res = await callFunction('manage-raffle', payload);
-            const saved = res.prize as Prize;
+            let saved = res.prize as Prize;
+
+            // If the new-prize form had a queued photo, upload it now
+            // that the prize row exists. Failure here is non-fatal — the
+            // prize is still saved; user can retry the upload from the
+            // edit-mode form.
+            if (!editing && pendingPrizePhoto) {
+              tStatus.textContent = 'Uploading photo…';
+              try {
+                const compressed = await compressImage(pendingPrizePhoto, 1200, 0.82);
+                const data_b64 = await blobToBase64(compressed);
+                const upRes = await callFunction('upload-event-photo', {
+                  slug, edit_token: key,
+                  kind: 'prize_item',
+                  prize_id: saved.id,
+                  filename: 'photo.jpg',
+                  data: data_b64,
+                });
+                saved = { ...saved, photo_url: upRes.url as string };
+              } catch (err) {
+                console.error('Failed to upload prize photo:', err);
+              }
+              pendingPrizePhoto = null;
+            }
 
             if (editing) {
               prizes = prizes.map((x) => (x.id === saved.id ? { ...x, ...saved } : x));
@@ -1347,12 +1414,12 @@ import Base from '../layouts/Base.astro';
               tStatus.className = 't-status ok';
               submit.disabled = false;
             } else {
-              // Re-open the form in edit mode so the user can immediately
-              // upload a photo for the prize they just created.
+              // Re-open the form in edit mode so the user can replace the
+              // photo or tweak the row without losing context.
               showPrizeForm(saved);
               const reopen = prizeFormHost.querySelector('.t-status') as HTMLSpanElement;
               if (reopen) {
-                reopen.textContent = 'Created ✓ — add a photo if you want';
+                reopen.textContent = saved.photo_url ? 'Created ✓' : 'Created ✓ — add a photo if you want';
                 reopen.className = 't-status ok';
               }
             }
@@ -3101,6 +3168,15 @@ import Base from '../layouts/Base.astro';
   }
   .prize-meta { font-size: 12px; color: #ecf0f1; }
   .prize-meta.dim { color: #95a5a6; font-style: italic; }
+  .prize-meta.warn {
+    color: #f39c12; font-weight: 600;
+    background: rgba(243,156,18,0.10);
+    border: 1px solid rgba(243,156,18,0.4);
+    border-radius: 4px;
+    padding: 3px 6px;
+    align-self: flex-start;
+    line-height: 1.35;
+  }
   .prize-actions {
     display: flex; flex-direction: column; gap: 4px;
   }

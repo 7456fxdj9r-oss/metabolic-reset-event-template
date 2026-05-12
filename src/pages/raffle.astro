@@ -8,8 +8,14 @@ import Base from '../layouts/Base.astro';
 </Base>
 
 <script>
-  import { fetchEventBySlug, callFunction } from '../lib/supabase.js';
+  import { fetchEventBySlug, callFunction, fetchRafflePrizes } from '../lib/supabase.js';
   import { eventUrl, raffleMeUrl } from '../lib/urls.js';
+
+  type Prize = {
+    id: string; name: string; description: string | null;
+    photo_url: string | null;
+    is_grand: boolean;
+  };
 
   const root = document.getElementById('raffle-root')!;
   const base = import.meta.env.BASE_URL;
@@ -36,6 +42,34 @@ import Base from '../layouts/Base.astro';
         const accent = event.accent_color || '#f39c12';
         document.documentElement.style.setProperty('--accent', accent);
 
+        // Multi-prize raffle: pull the grand prize for the headline image
+        // and name on the entry page (the QR sign-up sheet). Spot prizes
+        // are listed by name below as a "plus N more" line. Falls back to
+        // the legacy event.raffle_prize / raffle_prize_photo_url fields
+        // if no raffle_prizes rows exist (events created before the
+        // multi-prize migration).
+        let prizeImageUrl: string | null = event.raffle_prize_photo_url || null;
+        let headlinePrizeName: string | null = event.raffle_prize || null;
+        let spotPrizeNames: string[] = [];
+        try {
+          const prizes = (await fetchRafflePrizes(event.id)) as Prize[];
+          if (prizes.length > 0) {
+            const grand = prizes.find((p) => p.is_grand);
+            if (grand) {
+              prizeImageUrl = grand.photo_url || prizeImageUrl;
+              headlinePrizeName = grand.name;
+            } else {
+              // No grand designated — use the first prize as the headline.
+              const first = prizes[0];
+              prizeImageUrl = first.photo_url || prizeImageUrl;
+              headlinePrizeName = first.name;
+            }
+            spotPrizeNames = prizes
+              .filter((p) => !p.is_grand)
+              .map((p) => p.name);
+          }
+        } catch { /* non-fatal — fall back to legacy fields */ }
+
         const today = new Date().toISOString().slice(0, 10);
         const autoClosed = event.event_date && today > event.event_date;
         if (event.raffle_status !== 'open' || autoClosed) {
@@ -52,16 +86,27 @@ import Base from '../layouts/Base.astro';
           return;
         }
 
+        // Spot prize line — comma-separated list, capped at 4 to keep the
+        // header tight. Anything past that becomes "and N more" so a
+        // 12-prize event doesn't blow out the layout.
+        let spotLine = '';
+        if (spotPrizeNames.length > 0) {
+          const visible = spotPrizeNames.slice(0, 4).map(escapeHtml).join(', ');
+          const extra = spotPrizeNames.length > 4 ? ` and ${spotPrizeNames.length - 4} more` : '';
+          spotLine = `<p class="spot-line">+ spot prizes drawn live: ${visible}${extra}</p>`;
+        }
+
         root.innerHTML = `
           <header class="top">
             <p class="eyebrow">Raffle Entry</p>
             <h1>🎟️ ${escapeHtml(event.name)}</h1>
-            ${event.raffle_prize_photo_url
-              ? `<img class="prize-photo" src="${escapeHtml(event.raffle_prize_photo_url)}" alt="${escapeHtml(event.raffle_prize || 'Prize')}" />`
+            ${prizeImageUrl
+              ? `<img class="prize-photo" src="${escapeHtml(prizeImageUrl)}" alt="${escapeHtml(headlinePrizeName || 'Prize')}" />`
               : ''}
-            ${event.raffle_prize
-              ? `<p class="prize">🎁 <strong>${escapeHtml(event.raffle_prize)}</strong></p>`
+            ${headlinePrizeName
+              ? `<p class="prize">🏆 <strong>${escapeHtml(headlinePrizeName)}</strong></p>`
               : ''}
+            ${spotLine}
             <p class="lede">Enter to win — and tell us a bit about where you're at.</p>
           </header>
 
@@ -277,6 +322,11 @@ import Base from '../layouts/Base.astro';
     font-size: 15px; color: #ecf0f1;
   }
   .top .prize strong { color: var(--accent); }
+  .top .spot-line {
+    margin-top: 8px;
+    font-size: 12px; color: #95a5a6; line-height: 1.45;
+    font-style: italic;
+  }
 
   .card {
     background: rgba(255,255,255,0.04);
