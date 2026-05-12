@@ -14,6 +14,8 @@
 /live/:slug/:key         /live/?slug=:slug&key=:key           200
 /raffle-poster/:slug/:key /raffle-poster/?slug=:slug&key=:key 200
 /cue/:slug/:key          /cue/?slug=:slug&key=:key            200
+/deck/:slug/:key         /deck/?slug=:slug&key=:key           200
+/deck-console/:slug/:key /deck-console/?slug=:slug&key=:key   200
 /wheel/:slug/:key        /wheel/?slug=:slug&key=:key          200
 /hosts/:slug/:key        /hosts/?slug=:slug&key=:key          200
 /t/:slug/:tslug          /t/?slug=:slug&t=:tslug              200

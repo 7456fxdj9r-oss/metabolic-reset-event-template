@@ -54,3 +54,7 @@ export const editUrl         = (base, slug, key) => `${base}edit/${enc(slug)}/${
 export const liveUrl         = (base, slug, key) => `${base}live/${enc(slug)}/${enc(key)}`;
 export const rafflePosterUrl = (base, slug, key) => `${base}raffle-poster/${enc(slug)}/${enc(key)}`;
 export const cueUrl          = (base, slug, key) => `${base}cue/${enc(slug)}/${enc(key)}`;
+// Slide deck — projector display and the presenter's phone controller.
+// Same realtime channel name: deck:<slug>. Both URLs require the key.
+export const deckUrl         = (base, slug, key) => `${base}deck/${enc(slug)}/${enc(key)}`;
+export const deckConsoleUrl  = (base, slug, key) => `${base}deck-console/${enc(slug)}/${enc(key)}`;

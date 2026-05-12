@@ -27,7 +27,7 @@ import Base from '../layouts/Base.astro';
   import { buildRaffleEntriesCsv, downloadCsv } from '../lib/csv.js';
   import {
     eventUrl, editUrl as editUrlOf, liveUrl, wheelUrl,
-    rafflePosterUrl, cueUrl, raffleUrl,
+    rafflePosterUrl, cueUrl, raffleUrl, deckUrl, deckConsoleUrl,
   } from '../lib/urls.js';
   import QRCode from 'qrcode';
   import Cropper from 'cropperjs';
@@ -610,6 +610,8 @@ import Base from '../layouts/Base.astro';
               <a class="wheel-link live" href="${liveUrl(base, slug, key)}" target="_blank" rel="noopener">📊 Live event dashboard</a>
               <a class="wheel-link host" href="${wheelUrl(base, slug, key)}" target="_blank" rel="noopener">🎡 Open the wheel (host)</a>
               <a class="wheel-link viewer" href="${wheelUrl(base, slug)}" target="_blank" rel="noopener">👀 Raffle audience view</a>
+              <a class="wheel-link poster" href="${deckUrl(base, slug, key)}" target="_blank" rel="noopener">🎬 Open slide deck (projector)</a>
+              <a class="wheel-link host" href="${deckConsoleUrl(base, slug, key)}" target="_blank" rel="noopener">📱 Presenter console</a>
               <a class="wheel-link poster" href="${rafflePosterUrl(base, slug, key)}" target="_blank" rel="noopener">🖨 Print raffle poster</a>
               <a class="wheel-link poster" href="${cueUrl(base, slug, key)}" target="_blank" rel="noopener">📋 Print cue sheet</a>
             </div>

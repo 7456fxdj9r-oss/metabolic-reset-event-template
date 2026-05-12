@@ -1,0 +1,361 @@
+---
+// Presenter's phone controller for the slide deck. Pairs with deck.astro
+// over a Supabase realtime channel (deck:<slug>). Shows a thumbnail-style
+// preview of the current slide, big Next/Prev buttons, and a tap-to-jump
+// agenda list. Same auth model as the rest of the day-of toolkit: needs
+// the master/cohost edit key.
+import Base from '../layouts/Base.astro';
+---
+<Base title="Presenter console">
+  <main class="console" id="console-root">
+    <p class="loading">Loading console…</p>
+  </main>
+</Base>
+
+<script>
+  import { fetchEventBySlug, fetchSpeakers, fetchAgendaItems, getConfig } from '../lib/supabase.js';
+  import { createClient } from '@supabase/supabase-js';
+  import { editUrl } from '../lib/urls.js';
+
+  type Speaker = {
+    id: string; name: string;
+    photo_url: string | null;
+  };
+  type AgendaItem = {
+    id: string;
+    time_label: string;
+    segment: string;
+    speaker: string | null;
+    details: string | null;
+    display_order: number;
+  };
+
+  const root = document.getElementById('console-root')!;
+  const base = import.meta.env.BASE_URL;
+  const params = new URLSearchParams(window.location.search);
+  const slug = params.get('slug');
+  const key = params.get('key');
+
+  function escapeHtml(s: unknown): string {
+    return String(s ?? '').replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
+    );
+  }
+
+  if (!slug || !key) {
+    root.innerHTML = '<p class="loading err">Missing slug or key — open this from the edit page.</p>';
+  } else {
+    (async () => {
+      try {
+        const event = await fetchEventBySlug(slug);
+        if (!event) {
+          root.innerHTML = '<p class="loading err">Event not found.</p>';
+          return;
+        }
+        document.title = `Console — ${event.name}`;
+        const accent = event.accent_color || '#f39c12';
+        document.documentElement.style.setProperty('--accent', accent);
+
+        const [speakers, agenda] = await Promise.all([
+          fetchSpeakers(event.id) as Promise<Speaker[]>,
+          fetchAgendaItems(event.id) as Promise<AgendaItem[]>,
+        ]);
+
+        // Same speaker-lookup rule as deck.astro: case-insensitive exact
+        // match. Keep them in sync if the rule ever changes.
+        const speakerByName = new Map<string, Speaker>();
+        for (const sp of speakers) {
+          if (sp.name) speakerByName.set(sp.name.trim().toLowerCase(), sp);
+        }
+
+        // Slide model: index 0 is cover, 1..N agenda items.
+        type SlideEntry =
+          | { kind: 'cover' }
+          | { kind: 'item'; item: AgendaItem; speaker: Speaker | null };
+        const slides: SlideEntry[] = [
+          { kind: 'cover' },
+          ...agenda.map((it) => ({
+            kind: 'item' as const,
+            item: it,
+            speaker: it.speaker
+              ? (speakerByName.get(it.speaker.trim().toLowerCase()) || null)
+              : null,
+          })),
+        ];
+
+        let currentIndex = 0;
+
+        // Realtime: sender. Open the channel first so the broadcast fires
+        // even if it's the first message of the session.
+        const cfg = getConfig();
+        let channel: ReturnType<ReturnType<typeof createClient>['channel']> | null = null;
+        if (cfg.url && cfg.anonKey) {
+          const client = createClient(cfg.url, cfg.anonKey);
+          channel = client.channel(`deck:${slug}`, {
+            config: { broadcast: { self: false } },
+          });
+          channel.subscribe();
+        }
+
+        function broadcast(): void {
+          if (!channel) return;
+          channel.send({
+            type: 'broadcast', event: 'advance',
+            payload: { index: currentIndex },
+          });
+        }
+
+        function previewHtml(idx: number): string {
+          const slide = slides[idx];
+          if (slide.kind === 'cover') {
+            return `
+              <div class="preview cover">
+                <p class="preview-kicker">Welcome to</p>
+                <p class="preview-title">${escapeHtml(event.name)}</p>
+                ${event.event_date ? `<p class="preview-date">${escapeHtml(event.event_date)}</p>` : ''}
+              </div>`;
+          }
+          const it = slide.item;
+          if (slide.speaker) {
+            const sp = slide.speaker;
+            const photo = sp.photo_url
+              ? `<img class="preview-photo" src="${escapeHtml(sp.photo_url)}" alt="" />`
+              : '<div class="preview-photo empty">📷</div>';
+            return `
+              <div class="preview speaker">
+                ${photo}
+                <div class="preview-meta">
+                  <p class="preview-time">${escapeHtml(it.time_label)}</p>
+                  <p class="preview-name">${escapeHtml(sp.name)}</p>
+                  <p class="preview-topic">${escapeHtml(it.segment)}</p>
+                </div>
+              </div>`;
+          }
+          return `
+            <div class="preview section">
+              <p class="preview-time">${escapeHtml(it.time_label)}</p>
+              <p class="preview-title">${escapeHtml(it.segment)}</p>
+              ${it.speaker ? `<p class="preview-lead">${escapeHtml(it.speaker)}</p>` : ''}
+            </div>`;
+        }
+
+        function agendaListHtml(): string {
+          return slides.map((s, i) => {
+            const active = i === currentIndex ? ' active' : '';
+            if (s.kind === 'cover') {
+              return `<li class="agenda-row${active}" data-idx="0">
+                <span class="row-time">Cover</span>
+                <span class="row-info"><strong>${escapeHtml(event.name)}</strong></span>
+              </li>`;
+            }
+            const sp = s.speaker;
+            const speakerName = sp ? sp.name : (s.item.speaker || '');
+            return `<li class="agenda-row${active}" data-idx="${i}">
+              <span class="row-time">${escapeHtml(s.item.time_label)}</span>
+              <span class="row-info">
+                <strong>${escapeHtml(s.item.segment)}</strong>
+                ${speakerName ? `<span class="row-speaker">${escapeHtml(speakerName)}</span>` : ''}
+              </span>
+            </li>`;
+          }).join('');
+        }
+
+        function render(): void {
+          const total = slides.length;
+          const atStart = currentIndex === 0;
+          const atEnd = currentIndex === total - 1;
+          root.innerHTML = `
+            <a class="back" href="${escapeHtml(editUrl(base, slug!, key!))}">← Back to edit</a>
+            <header class="head">
+              <p class="eyebrow">Presenter console</p>
+              <h1>${escapeHtml(event.name)}</h1>
+              <p class="counter">Slide <strong>${currentIndex + 1}</strong> of ${total}</p>
+            </header>
+            <section class="preview-wrap">${previewHtml(currentIndex)}</section>
+            <section class="controls">
+              <button type="button" id="btn-prev" class="ctl prev" ${atStart ? 'disabled' : ''}>← Previous</button>
+              <button type="button" id="btn-next" class="ctl next" ${atEnd ? 'disabled' : ''}>${atEnd ? 'End of deck' : 'Next ▶'}</button>
+            </section>
+            <section class="agenda-list">
+              <h2>Tap to jump</h2>
+              <ul>${agendaListHtml()}</ul>
+            </section>
+            <p class="cx-hint" id="cx-hint">${channel ? 'Synced with projector' : "No realtime config — projector won't follow"}</p>`;
+          (document.getElementById('btn-prev') as HTMLButtonElement).addEventListener('click', () => goTo(currentIndex - 1));
+          (document.getElementById('btn-next') as HTMLButtonElement).addEventListener('click', () => goTo(currentIndex + 1));
+          document.querySelectorAll('.agenda-row').forEach((row) => {
+            row.addEventListener('click', () => {
+              const i = Number((row as HTMLElement).getAttribute('data-idx') || '0');
+              goTo(i);
+            });
+          });
+        }
+
+        function goTo(i: number): void {
+          const clamped = Math.max(0, Math.min(slides.length - 1, i));
+          if (clamped === currentIndex) return;
+          currentIndex = clamped;
+          render();
+          broadcast();
+        }
+
+        render();
+
+        // Keyboard nav on the phone is unusual but harmless — supports a
+        // laptop pretending to be the controller for testing / dry-runs.
+        document.addEventListener('keydown', (ev) => {
+          if (ev.key === 'ArrowRight' || ev.key === ' ' || ev.key === 'PageDown') {
+            ev.preventDefault(); goTo(currentIndex + 1);
+          } else if (ev.key === 'ArrowLeft' || ev.key === 'PageUp') {
+            ev.preventDefault(); goTo(currentIndex - 1);
+          } else if (ev.key === 'Home') {
+            ev.preventDefault(); goTo(0);
+          }
+        });
+      } catch (err) {
+        root.innerHTML = `<p class="loading err">${escapeHtml((err as Error).message)}</p>`;
+      }
+    })();
+  }
+</script>
+
+<style is:global>
+  :root { --accent: #f39c12; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: #1a252f; color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  }
+  body { padding: 14px 12px 30px; line-height: 1.4; }
+  main.console { max-width: 560px; margin: 0 auto; }
+
+  a.back {
+    display: inline-block;
+    padding: 6px 10px;
+    color: #95a5a6; text-decoration: none;
+    font-size: 12px; font-weight: 600;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 6px;
+    margin-bottom: 10px;
+  }
+
+  .head { text-align: center; margin-bottom: 14px; }
+  .head .eyebrow {
+    font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; margin-bottom: 4px;
+  }
+  .head h1 { font-size: 18px; color: #ecf0f1; line-height: 1.25; }
+  .head .counter {
+    font-size: 12px; color: #95a5a6; margin-top: 6px;
+  }
+  .head .counter strong { color: #ecf0f1; font-weight: 800; }
+
+  /* Slide preview card — compact mirror of what the projector shows */
+  .preview-wrap {
+    background: rgba(0,0,0,0.30);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 12px;
+    min-height: 130px;
+  }
+  .preview { display: flex; gap: 14px; align-items: center; }
+  .preview.cover { flex-direction: column; align-items: stretch; text-align: center; }
+  .preview.section { flex-direction: column; align-items: stretch; text-align: center; }
+  .preview-kicker {
+    font-size: 10px; letter-spacing: 3px; text-transform: uppercase;
+    color: var(--accent); font-weight: 700;
+  }
+  .preview-title { font-size: 18px; font-weight: 800; color: #ecf0f1; }
+  .preview-date { font-size: 13px; color: #95a5a6; }
+  .preview-photo {
+    width: 92px; height: 92px;
+    object-fit: cover; border-radius: 10px;
+    background: rgba(255,255,255,0.05);
+    flex-shrink: 0;
+  }
+  .preview-photo.empty {
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px; color: rgba(255,255,255,0.30);
+    border: 1px dashed rgba(255,255,255,0.15);
+  }
+  .preview-meta { min-width: 0; flex: 1; }
+  .preview-time {
+    font-size: 10px; letter-spacing: 3px; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; margin-bottom: 4px;
+  }
+  .preview-name { font-size: 16px; font-weight: 800; color: #fff; line-height: 1.2; }
+  .preview-topic { font-size: 14px; color: var(--accent); font-weight: 700; margin-top: 2px; line-height: 1.3; }
+  .preview-lead { font-size: 13px; color: var(--accent); font-weight: 700; }
+
+  /* Controls — big Next button, smaller Previous */
+  .controls {
+    display: grid;
+    grid-template-columns: 1fr 1.6fr;
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+  .ctl {
+    padding: 18px 14px;
+    border-radius: 10px;
+    font-weight: 800; font-size: 15px;
+    cursor: pointer; font-family: inherit;
+    border: 1px solid rgba(255,255,255,0.10);
+    background: rgba(255,255,255,0.06); color: #ecf0f1;
+  }
+  .ctl.next {
+    background: var(--accent); color: #1a252f;
+    border-color: var(--accent);
+    font-size: 18px;
+  }
+  .ctl:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  /* Agenda list — tap to jump */
+  .agenda-list h2 {
+    font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+    color: #95a5a6; font-weight: 700; margin-bottom: 8px;
+  }
+  .agenda-list ul {
+    list-style: none; padding: 0; margin: 0;
+    display: grid; gap: 6px;
+  }
+  .agenda-row {
+    display: grid;
+    grid-template-columns: 70px 1fr;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: rgba(0,0,0,0.20);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .agenda-row:hover { background: rgba(255,255,255,0.05); }
+  .agenda-row.active {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  }
+  .agenda-row .row-time {
+    font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--accent); font-weight: 700;
+  }
+  .agenda-row .row-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .agenda-row .row-info strong {
+    font-size: 13px; color: #ecf0f1; font-weight: 700;
+    overflow-wrap: anywhere;
+  }
+  .agenda-row .row-info .row-speaker {
+    font-size: 11px; color: #95a5a6;
+  }
+
+  .cx-hint {
+    margin-top: 18px;
+    font-size: 11px; color: #95a5a6;
+    text-align: center; font-style: italic;
+  }
+
+  .loading { color: #95a5a6; text-align: center; padding: 60px 0; font-size: 14px; }
+  .loading.err { color: #e74c3c; }
+</style>
