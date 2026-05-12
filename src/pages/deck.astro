@@ -108,10 +108,6 @@ import Base from '../layouts/Base.astro';
 
         function renderSlide(): void {
           const slide = slides[currentIndex];
-          const total = slides.length;
-          const hint = currentIndex === 0
-            ? `slide 1 of ${total}`
-            : `slide ${currentIndex + 1} of ${total}`;
           let body = '';
           if (slide.kind === 'cover') {
             // Suppress the location line when its first word already
@@ -154,12 +150,7 @@ import Base from '../layouts/Base.astro';
           }
           root.innerHTML = `
             <div class="accent-stripe"></div>
-            ${body}
-            <p class="slide-hint">
-              <span class="hint-side">← prev</span>
-              <span class="hint-count">${escapeHtml(hint)}</span>
-              <span class="hint-side">next →</span>
-            </p>`;
+            ${body}`;
         }
 
         function setIndex(i: number): void {
@@ -326,18 +317,6 @@ import Base from '../layouts/Base.astro';
   .section-lead {
     font-size: clamp(20px, 3.2vh, 36px);
     color: var(--accent); font-weight: 700;
-  }
-
-  /* Bottom hint — slide N of M with prev/next directional cues */
-  .slide-hint {
-    position: absolute; bottom: 14px; left: 0; right: 0;
-    display: flex; justify-content: center; gap: 22px;
-    font-size: 12px; letter-spacing: 3px; text-transform: uppercase;
-    color: rgba(255,255,255,0.40); font-weight: 600;
-  }
-  .slide-hint .hint-side { opacity: 0.7; }
-  .slide-hint .hint-count {
-    color: var(--accent);
   }
 
   .loading { color: #95a5a6; padding: 60px 20px; text-align: center; font-size: 14px; }
