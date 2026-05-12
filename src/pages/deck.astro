@@ -150,7 +150,6 @@ import Base from '../layouts/Base.astro';
                 <p class="section-time">${escapeHtml(it.time_label)}</p>
                 <h2 class="section-title">${escapeHtml(it.segment)}</h2>
                 ${it.speaker ? `<p class="section-lead">${escapeHtml(it.speaker)}</p>` : ''}
-                ${it.details ? `<p class="section-detail">${escapeHtml(it.details.slice(0, 240))}${it.details.length > 240 ? '…' : ''}</p>` : ''}
               </div>`;
           }
           root.innerHTML = `
@@ -327,12 +326,6 @@ import Base from '../layouts/Base.astro';
   .section-lead {
     font-size: clamp(20px, 3.2vh, 36px);
     color: var(--accent); font-weight: 700;
-  }
-  .section-detail {
-    margin: 14px auto 0;
-    max-width: 44em;
-    font-size: clamp(14px, 2.2vh, 22px);
-    color: #bdc3c7; line-height: 1.5;
   }
 
   /* Bottom hint — slide N of M with prev/next directional cues */
