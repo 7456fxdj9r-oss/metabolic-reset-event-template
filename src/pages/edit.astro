@@ -22,7 +22,7 @@ import Base from '../layouts/Base.astro';
 </Base>
 
 <script>
-  import { fetchEventBySlug, fetchTransformations, fetchDataPoints, fetchSpeakers, fetchAgendaItems, callFunction } from '../lib/supabase.js';
+  import { fetchEventBySlug, fetchTransformations, fetchDataPoints, fetchSpeakers, fetchAgendaItems, callFunction as baseCallFunction } from '../lib/supabase.js';
   import { drawMultiChart } from '../lib/chart.js';
   import { buildRaffleEntriesCsv, downloadCsv } from '../lib/csv.js';
   import {
@@ -475,6 +475,52 @@ import Base from '../layouts/Base.astro';
       '<p class="loading err">Missing slug or key. Use the edit URL you saved at Build time.</p>';
   } else {
     (async () => {
+      // Page-level save indicator: a small pill in the status bar that
+      // reflects whether any save is in flight, settled, or errored.
+      // Wraps callFunction so every edge-function write call increments
+      // the inflight counter; reads (get-* and the list/list_prizes
+      // actions) pass through untouched.
+      let inflight = 0;
+      let lastError: string | null = null;
+      function updateSavePill() {
+        const pill = document.getElementById('save-pill');
+        if (!pill) return;
+        if (inflight > 0) {
+          pill.textContent = '💾 Saving…';
+          pill.className = 'stat-pill saving';
+          pill.title = '';
+        } else if (lastError) {
+          pill.textContent = '⚠️ Save error';
+          pill.className = 'stat-pill error';
+          pill.title = lastError;
+        } else {
+          pill.textContent = '✓ All saved';
+          pill.className = 'stat-pill saved';
+          pill.title = '';
+        }
+      }
+      // deno-lint-ignore no-explicit-any
+      const callFunction = (name: string, body: any): Promise<any> => {
+        const action = body?.action;
+        const isRead =
+          name.startsWith('get-') ||
+          action === 'list' ||
+          action === 'list_prizes';
+        if (isRead) return baseCallFunction(name, body);
+        inflight++;
+        lastError = null;
+        updateSavePill();
+        return baseCallFunction(name, body).then(
+          (res) => { inflight--; updateSavePill(); return res; },
+          (err) => {
+            inflight--;
+            lastError = (err as Error).message || String(err);
+            updateSavePill();
+            throw err;
+          },
+        );
+      };
+
       try {
         const ev = await fetchEventBySlug(slug);
         if (!ev) {
@@ -493,6 +539,7 @@ import Base from '../layouts/Base.astro';
               <span class="stat-pill" id="pill-speakers">🎤 — speakers</span>
               <span class="stat-pill" id="pill-raffle">🎟️ raffle ${ev.raffle_status === 'open' ? '<span class="dot open"></span>open' : '<span class="dot closed"></span>closed'}</span>
               <span class="stat-pill" id="pill-entries">— entries</span>
+              <span class="stat-pill saved" id="save-pill">✓ All saved</span>
             </div>
             <div class="head-cta">
               <a class="cta-view" href="${publicHref}" target="_blank">👀 View public event page</a>
@@ -3176,6 +3223,23 @@ import Base from '../layouts/Base.astro';
     background: rgba(243,156,18,0.15);
     color: #f39c12;
     border-color: rgba(243,156,18,0.4);
+  }
+  /* Page-level save indicator */
+  .stat-pill.saved {
+    background: rgba(46,204,113,0.14);
+    color: #2ecc71;
+    border-color: rgba(46,204,113,0.4);
+  }
+  .stat-pill.saving {
+    background: rgba(241,196,15,0.16);
+    color: #f1c40f;
+    border-color: rgba(241,196,15,0.45);
+  }
+  .stat-pill.error {
+    background: rgba(231,76,60,0.18);
+    color: #e74c3c;
+    border-color: rgba(231,76,60,0.5);
+    cursor: help;
   }
   .stat-pill .dot {
     width: 8px; height: 8px; border-radius: 50%;
