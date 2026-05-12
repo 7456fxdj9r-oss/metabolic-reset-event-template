@@ -114,12 +114,18 @@ import Base from '../layouts/Base.astro';
             : `slide ${currentIndex + 1} of ${total}`;
           let body = '';
           if (slide.kind === 'cover') {
+            // Suppress the location line when its first word already
+            // appears in the event title (avoids "Foo Event - Portland"
+            // + "📍 Portland, OR" repetition).
+            const titleLower = slide.eventName.toLowerCase();
+            const locFirstWord = slide.location?.split(/[,\s]+/)[0]?.trim().toLowerCase() || '';
+            const showLocation = !!slide.location && !!locFirstWord && !titleLower.includes(locFirstWord);
             body = `
               <div class="slide cover-slide">
                 <p class="cover-kicker">Welcome to</p>
                 <h1 class="cover-title">${escapeHtml(slide.eventName)}</h1>
                 ${slide.dateText ? `<p class="cover-date">${escapeHtml(slide.dateText)}</p>` : ''}
-                ${slide.location ? `<p class="cover-loc">📍 ${escapeHtml(slide.location)}</p>` : ''}
+                ${showLocation ? `<p class="cover-loc">📍 ${escapeHtml(slide.location)}</p>` : ''}
                 <p class="cover-cta">Starting soon…</p>
               </div>`;
           } else if (slide.kind === 'speaker') {
