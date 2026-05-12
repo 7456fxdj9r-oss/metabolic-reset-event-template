@@ -167,7 +167,6 @@ import Base from '../layouts/Base.astro';
               <div class="slide speaker-slide">
                 ${photo}
                 <div class="speaker-meta">
-                  <p class="speaker-time">${escapeHtml(it.time_label)}</p>
                   <h2 class="speaker-name">${escapeHtml(sp.name)}</h2>
                   <p class="speaker-topic">${escapeHtml(it.segment)}</p>
                 </div>
@@ -186,7 +185,6 @@ import Base from '../layouts/Base.astro';
             }).join('');
             body = `
               <div class="slide multi-slide" data-count="${slide.speakers.length}">
-                <p class="multi-time">${escapeHtml(it.time_label)}</p>
                 <div class="multi-tiles">${tiles}</div>
                 <h2 class="multi-topic">${escapeHtml(it.segment)}</h2>
               </div>`;
@@ -194,7 +192,6 @@ import Base from '../layouts/Base.astro';
             const it = slide.item;
             body = `
               <div class="slide section-slide">
-                <p class="section-time">${escapeHtml(it.time_label)}</p>
                 <h2 class="section-title">${escapeHtml(it.segment)}</h2>
                 ${it.speaker ? `<p class="section-lead">${escapeHtml(it.speaker)}</p>` : ''}
               </div>`;
@@ -331,11 +328,6 @@ import Base from '../layouts/Base.astro';
     border: 2px dashed rgba(255,255,255,0.15);
   }
   .speaker-meta { text-align: left; min-width: 0; }
-  .speaker-time {
-    font-size: clamp(14px, 2vh, 22px);
-    letter-spacing: 4px; text-transform: uppercase;
-    color: var(--accent); font-weight: 700; margin-bottom: 12px;
-  }
   .speaker-name {
     font-size: clamp(32px, 6vh, 64px);
     font-weight: 900; line-height: 1.1; letter-spacing: -1px;
@@ -359,11 +351,6 @@ import Base from '../layouts/Base.astro';
     display: flex; flex-direction: column;
     align-items: center;
     gap: clamp(16px, 3vh, 30px);
-  }
-  .multi-time {
-    font-size: clamp(14px, 2vh, 22px);
-    letter-spacing: 4px; text-transform: uppercase;
-    color: var(--accent); font-weight: 700;
   }
   .multi-tiles {
     display: grid;
@@ -412,11 +399,6 @@ import Base from '../layouts/Base.astro';
 
   /* Section slide (no matched speaker) */
   .section-slide { display: flex; flex-direction: column; gap: 18px; }
-  .section-time {
-    font-size: clamp(16px, 2.6vh, 28px);
-    letter-spacing: 4px; text-transform: uppercase;
-    color: var(--accent); font-weight: 700;
-  }
   .section-title {
     font-size: clamp(40px, 9vh, 110px);
     font-weight: 900; line-height: 1.05; letter-spacing: -1px;
