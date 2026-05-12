@@ -445,8 +445,60 @@ import Base from '../layouts/Base.astro';
             </div>
           </header>
 
+          <details class="section-guide">
+            <summary>🗺 Section guide — what each part of this page becomes on the public event</summary>
+            <div class="guide-body">
+              <p class="guide-intro">
+                This page edits four kinds of <em>people</em> and a few extras.
+                Each one becomes a different surface on your public event page.
+                The same human can belong to more than one section — add them
+                separately in each, that's normal:
+              </p>
+              <ul class="guide-list">
+                <li>
+                  <strong>🤝 Hosts</strong> — you (the master / event creator)
+                  plus any co-hosts you grant edit access. Public:
+                  <em>“Connect with the hosts”</em> button → contact card
+                  for each. The master can pass the <strong>ORGANIZER</strong>
+                  badge to any co-host.
+                </li>
+                <li>
+                  <strong>🎤 Speakers</strong> — anyone giving a talk at the
+                  event. Public: <em>“Speaker Bios”</em> button → headshots,
+                  bios, and contact info for each.
+                </li>
+                <li>
+                  <strong>🎯 Transformation Stories</strong> — featured
+                  before/after journeys (past clients). Public:
+                  <em>“Today's Transformation Stories”</em> button → list of
+                  participants → tap one for the photos, biometric chart,
+                  and takeaway.
+                </li>
+                <li>
+                  <strong>📅 Agenda</strong> — the run-of-show. Not shown
+                  to attendees; powers the printable cue sheet you bring
+                  to the venue.
+                </li>
+                <li>
+                  <strong>🎟️ Raffle</strong> — entry form, live wheel,
+                  winners. Public: <em>“Enter the Raffle”</em> button while
+                  open; <em>“Go to the raffle wheel”</em> always.
+                </li>
+              </ul>
+              <p class="guide-overlap">
+                <strong>Overlap is fine + common.</strong> If a transformation
+                participant is also speaking, add them in <em>both</em>
+                Speakers and Transformations — separate sections give you
+                control over which "hat" they wear on each public surface.
+                A speaker who's also a co-host gets entries in <em>both</em>
+                Hosts and Speakers, and so on. (Today the data is per-section;
+                a future version may link them to save typing.)
+              </p>
+            </div>
+          </details>
+
           <section class="card">
-            <h2>Event details</h2>
+            <h2>Event details <span class="audience-tag">Public</span></h2>
             <form id="event-form" novalidate>
               <label>
                 Event name
@@ -473,18 +525,31 @@ import Base from '../layouts/Base.astro';
           </section>
 
           <section class="card">
-            <h2>Speaker Transformation Stories</h2>
+            <h2>Transformation Stories <span class="audience-tag">Public</span></h2>
+            <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;line-height:1.5;">
+              Featured before/after stories. Each gets its own detail page
+              with photos, biometric chart, and a takeaway, and they roll
+              up into a single <strong>“Today's Transformation Stories”</strong>
+              button on your public event page.
+              <strong>If a transformation participant is also speaking, also
+              add them under Speakers below</strong> — separate sections so
+              you control which hat they wear on each surface.
+            </p>
             <button id="add-t-btn" type="button" class="add-btn">+ Add transformation</button>
             <div id="t-form-host"></div>
             <ul id="t-list" class="t-list"></ul>
           </section>
 
           <section class="card">
-            <h2>Speakers</h2>
-            <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;">
-              Speaker bios appear on a "Speaker Bios" button on your public event page,
-              which links to a list of speakers with photos. Adding zero speakers hides
-              the button entirely.
+            <h2>Speakers <span class="audience-tag">Public</span></h2>
+            <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;line-height:1.5;">
+              Headshot, bio, and contact for everyone presenting at your
+              event. Listed behind the <strong>“Speaker Bios”</strong>
+              button on your public event page. Adding zero speakers hides
+              that button entirely.
+              <strong>If a speaker also has a transformation story, add
+              them under Transformation Stories above too</strong> — they're
+              separate sections so you decide which is featured where.
             </p>
             <button id="add-s-btn" type="button" class="add-btn">+ Add speaker</button>
             <div id="s-form-host"></div>
@@ -492,11 +557,14 @@ import Base from '../layouts/Base.astro';
           </section>
 
           <section class="card">
-            <h2>Agenda / Run of Show</h2>
-            <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;">
-              Used by the printable cue sheet (host's run-of-show). Each row gets a time, a
-              segment name, an optional speaker/lead, and free-form details. Empty agenda
-              hides the cue sheet button.
+            <h2>Agenda / Run of Show <span class="audience-tag host-only">Host only</span></h2>
+            <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;line-height:1.5;">
+              The minute-by-minute run-of-show — <strong>not shown to
+              attendees</strong>; powers the printable cue sheet you bring
+              to the venue. Each row gets a time, a segment name, an
+              optional speaker/lead (free-text — type a name from your
+              Speakers list), and free-form details. Empty agenda hides
+              the cue-sheet print button.
             </p>
             <div class="agenda-actions">
               <button id="add-a-btn" type="button" class="add-btn">+ Add agenda item</button>
@@ -507,7 +575,7 @@ import Base from '../layouts/Base.astro';
           </section>
 
           <section class="card day-of-card">
-            <h2>Day-of toolkit</h2>
+            <h2>Day-of toolkit <span class="audience-tag host-only">Host only</span></h2>
             <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;">
               Everything you'll open the morning of your event. Live dashboard
               tracks entries; the wheel is for drawings; print materials go on
@@ -523,7 +591,7 @@ import Base from '../layouts/Base.astro';
           </section>
 
           <section class="card">
-            <h2>Raffle</h2>
+            <h2>Raffle <span class="audience-tag">Public</span></h2>
             <form id="raffle-form" novalidate>
               <label>
                 Status
@@ -568,12 +636,20 @@ import Base from '../layouts/Base.astro';
           </section>
 
           <section class="card hosts-card">
-            <h2>Hosts</h2>
-            <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;">
-              The "Connect with the hosts" button on your public event page
-              opens a list of everyone here — you plus any co-hosts you add.
-              Tap a host card on that page to call, email, or visit their
-              site. Every field is optional; empty fields just don't render.
+            <h2>Hosts <span class="audience-tag">Public</span></h2>
+            <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;line-height:1.5;">
+              <strong>Master</strong> = you, the original event creator (this
+              edit link is yours). <strong>Co-hosts</strong> = anyone else
+              you grant edit access to via their own private link.
+              Both appear together on your public event page behind the
+              <strong>“Connect with the hosts”</strong> button — attendees
+              tap a card to call, email, or visit their site. Only the
+              master can pass the <strong>ORGANIZER</strong> badge to a
+              co-host. Every field is optional; empty fields just don't
+              render.
+              <strong>If a co-host is also speaking, also add them under
+              Speakers above</strong> — separate sections so the bios page
+              and the hosts page can show different things.
             </p>
 
             <div class="hosts-subhead">You (the master)</div>
@@ -2508,7 +2584,75 @@ import Base from '../layouts/Base.astro';
     font-size: 13px; color: #ecf0f1;
     text-transform: uppercase; letter-spacing: 1.5px;
     margin-bottom: 14px;
+    display: flex; align-items: center; gap: 8px;
+    flex-wrap: wrap;
   }
+  /* Audience tag — at-a-glance "where does this show up?" pill that
+     rides on each card's h2. Green = visible to attendees on the
+     public event page; gray = host-only (cue sheet, day-of toolkit). */
+  .audience-tag {
+    font-size: 9px; font-weight: 700;
+    letter-spacing: 1px;
+    padding: 2px 7px; border-radius: 999px;
+    background: rgba(46, 204, 113, 0.18);
+    color: #2ecc71;
+    border: 1px solid rgba(46, 204, 113, 0.4);
+    text-transform: uppercase;
+  }
+  .audience-tag.host-only {
+    background: rgba(149, 165, 166, 0.18);
+    color: #95a5a6;
+    border-color: rgba(149, 165, 166, 0.4);
+  }
+
+  /* Section guide — collapsible "where does each section appear publicly"
+     map at the top of the edit page. Closed by default to keep the page
+     scannable; tapping summary opens it. */
+  details.section-guide {
+    background: rgba(243, 156, 18, 0.08);
+    border: 1px solid rgba(243, 156, 18, 0.30);
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin-bottom: 18px;
+  }
+  details.section-guide > summary {
+    cursor: pointer;
+    font-size: 13px; font-weight: 700;
+    color: var(--accent, #f39c12);
+    list-style: none;
+  }
+  details.section-guide > summary::-webkit-details-marker { display: none; }
+  details.section-guide > summary::after {
+    content: ' ▾'; opacity: 0.6;
+  }
+  details.section-guide[open] > summary::after { content: ' ▴'; }
+  .guide-body { margin-top: 12px; }
+  .guide-intro {
+    font-size: 13px; color: #ecf0f1; line-height: 1.55; margin-bottom: 10px;
+  }
+  .guide-intro em { color: var(--accent, #f39c12); font-style: normal; font-weight: 700; }
+  ul.guide-list {
+    list-style: none; padding: 0; margin: 0 0 12px;
+    display: grid; gap: 8px;
+  }
+  ul.guide-list li {
+    font-size: 13px; line-height: 1.55; color: #ecf0f1;
+    padding: 8px 12px;
+    background: rgba(0,0,0,0.20);
+    border-radius: 6px;
+  }
+  ul.guide-list strong { color: #fff; }
+  ul.guide-list em {
+    font-style: italic; color: #2ecc71;
+  }
+  .guide-overlap {
+    font-size: 12px; color: #bdc3c7; line-height: 1.55;
+    background: rgba(0,0,0,0.20);
+    border-left: 3px solid var(--accent, #f39c12);
+    padding: 8px 12px;
+    border-radius: 0 6px 6px 0;
+  }
+  .guide-overlap strong { color: var(--accent, #f39c12); }
 
   form { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
   label { display: grid; gap: 6px; font-size: 13px; color: #ecf0f1; font-weight: 600; min-width: 0; }
