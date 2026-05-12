@@ -2812,6 +2812,13 @@ import Base from '../layouts/Base.astro';
 
         function agendaFormHtml(it?: AgendaItem): string {
           const v = it || ({} as Partial<AgendaItem>);
+          // Speaker / Lead is a free-text input with a native <datalist>
+          // populated from the Speakers section. Users get autocomplete
+          // suggestions when they focus the field, but can still type a
+          // co-host or organizer name that's not in the Speakers list.
+          const speakerOptions = speakers
+            .map((sp) => `<option value="${escapeHtml(sp.name)}"></option>`)
+            .join('');
           return `
             <form class="t-form" ${it ? `data-id="${it.id}"` : ''} novalidate>
               <h3>${it ? 'Edit agenda item' : 'New agenda item'}</h3>
@@ -2822,7 +2829,8 @@ import Base from '../layouts/Base.astro';
                 </label>
                 <label>
                   Speaker / Lead
-                  <input name="speaker" maxlength="120" value="${escapeHtml(v.speaker || '')}" placeholder="Matt" />
+                  <input name="speaker" list="agenda-speaker-options" maxlength="120" value="${escapeHtml(v.speaker || '')}" placeholder="Matt" autocomplete="off" />
+                  <datalist id="agenda-speaker-options">${speakerOptions}</datalist>
                 </label>
               </div>
               <label>
