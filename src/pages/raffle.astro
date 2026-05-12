@@ -44,14 +44,14 @@ import Base from '../layouts/Base.astro';
         document.documentElement.style.setProperty('--accent', accent);
 
         // Multi-prize raffle: pull the grand prize for the headline image
-        // and name on the entry page (the QR sign-up sheet). Spot prizes
-        // are listed by name below as a "plus N more" line. Falls back to
+        // + name (top of the page) and the rest as spot prizes for a full
+        // "what you could win" gallery below the headline. Falls back to
         // the legacy event.raffle_prize / raffle_prize_photo_url fields
         // if no raffle_prizes rows exist (events created before the
         // multi-prize migration).
         let prizeImageUrl: string | null = event.raffle_prize_photo_url || null;
         let headlinePrizeName: string | null = event.raffle_prize || null;
-        let spotPrizeNames: string[] = [];
+        let spotPrizes: Prize[] = [];
         try {
           const prizes = (await fetchRafflePrizes(event.id)) as Prize[];
           if (prizes.length > 0) {
@@ -59,18 +59,13 @@ import Base from '../layouts/Base.astro';
             if (grand) {
               prizeImageUrl = grand.photo_url || prizeImageUrl;
               headlinePrizeName = grand.name;
+              spotPrizes = prizes.filter((p) => !p.is_grand);
             } else {
-              // No grand designated — use the first prize as the headline.
-              const first = prizes[0];
-              prizeImageUrl = first.photo_url || prizeImageUrl;
-              headlinePrizeName = first.name;
+              // No grand designated — promote the first prize to headline.
+              prizeImageUrl = prizes[0].photo_url || prizeImageUrl;
+              headlinePrizeName = prizes[0].name;
+              spotPrizes = prizes.slice(1);
             }
-            spotPrizeNames = prizes
-              .filter((p) => !p.is_grand)
-              .map((p) => {
-                const q = p.quantity && p.quantity > 1 ? ` × ${p.quantity}` : '';
-                return p.name + q;
-              });
           }
         } catch { /* non-fatal — fall back to legacy fields */ }
 
@@ -90,15 +85,33 @@ import Base from '../layouts/Base.astro';
           return;
         }
 
-        // Spot prize line — comma-separated list, capped at 4 to keep the
-        // header tight. Anything past that becomes "and N more" so a
-        // 12-prize event doesn't blow out the layout.
-        let spotLine = '';
-        if (spotPrizeNames.length > 0) {
-          const visible = spotPrizeNames.slice(0, 4).map(escapeHtml).join(', ');
-          const extra = spotPrizeNames.length > 4 ? ` and ${spotPrizeNames.length - 4} more` : '';
-          spotLine = `<p class="spot-line">+ spot prizes drawn live: ${visible}${extra}</p>`;
-        }
+        // Spot-prize gallery — full list with thumbnails + quantity badges,
+        // shown below the headline grand prize. Renders only when there
+        // are non-headline prizes; events with only a grand drop this
+        // section entirely.
+        const spotGallery = spotPrizes.length === 0 ? '' : `
+          <section class="prize-gallery" aria-label="Other prizes drawn live">
+            <h2>Also up for grabs (drawn live)</h2>
+            <ul>
+              ${spotPrizes.map((p) => {
+                const qty = p.quantity && p.quantity > 1 ? `<span class="qty">× ${p.quantity}</span>` : '';
+                const thumb = p.photo_url
+                  ? `<img class="thumb" src="${escapeHtml(p.photo_url)}" alt="" />`
+                  : '<div class="thumb empty" aria-hidden="true"></div>';
+                const desc = p.description
+                  ? `<span class="desc">${escapeHtml(p.description.length > 80 ? p.description.slice(0, 80) + '…' : p.description)}</span>`
+                  : '';
+                return `
+                  <li>
+                    ${thumb}
+                    <div class="info">
+                      <strong>${escapeHtml(p.name)}${qty}</strong>
+                      ${desc}
+                    </div>
+                  </li>`;
+              }).join('')}
+            </ul>
+          </section>`;
 
         root.innerHTML = `
           <header class="top">
@@ -110,9 +123,10 @@ import Base from '../layouts/Base.astro';
             ${headlinePrizeName
               ? `<p class="prize">🏆 <strong>${escapeHtml(headlinePrizeName)}</strong></p>`
               : ''}
-            ${spotLine}
             <p class="lede">Enter to win — and tell us a bit about where you're at.</p>
           </header>
+
+          ${spotGallery}
 
           <form id="entry-form" class="card" novalidate>
             <h2>Your info</h2>
@@ -326,10 +340,59 @@ import Base from '../layouts/Base.astro';
     font-size: 15px; color: #ecf0f1;
   }
   .top .prize strong { color: var(--accent); }
-  .top .spot-line {
-    margin-top: 8px;
-    font-size: 12px; color: #95a5a6; line-height: 1.45;
-    font-style: italic;
+
+  /* "Also up for grabs" gallery — compact rows beneath the grand-prize
+     headline. Hidden entirely when the event has only a grand prize. */
+  .prize-gallery {
+    margin-bottom: 18px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .prize-gallery h2 {
+    font-size: 11px; color: var(--accent);
+    text-transform: uppercase; letter-spacing: 1.5px;
+    font-weight: 700;
+    margin-bottom: 10px;
+  }
+  .prize-gallery ul {
+    list-style: none; padding: 0; margin: 0;
+    display: grid; gap: 8px;
+  }
+  .prize-gallery li {
+    display: grid;
+    grid-template-columns: 48px 1fr;
+    align-items: center; gap: 12px;
+    padding: 6px 4px;
+  }
+  .prize-gallery .thumb {
+    width: 48px; height: 48px;
+    object-fit: cover;
+    border-radius: 8px;
+    background: rgba(0,0,0,0.35);
+  }
+  .prize-gallery .thumb.empty {
+    border: 1px dashed rgba(255,255,255,0.18);
+  }
+  .prize-gallery .info {
+    display: flex; flex-direction: column; gap: 2px;
+    min-width: 0;
+  }
+  .prize-gallery .info strong {
+    font-size: 14px; color: #ecf0f1; font-weight: 700;
+    overflow-wrap: anywhere;
+  }
+  .prize-gallery .info .qty {
+    display: inline-block; vertical-align: middle;
+    margin-left: 6px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.3px;
+    padding: 1px 7px; border-radius: 8px;
+    background: rgba(243,156,18,0.18); color: var(--accent);
+    border: 1px solid rgba(243,156,18,0.4);
+  }
+  .prize-gallery .info .desc {
+    font-size: 12px; color: #95a5a6; line-height: 1.4;
   }
 
   .card {
