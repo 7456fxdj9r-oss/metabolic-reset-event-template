@@ -287,27 +287,26 @@ import Base from '../layouts/Base.astro';
     requestAnimationFrame(frame);
   }
 
-  // "Coming up next" interstitial — shown for ~3s between the host's
-  // Draw click and the wheel actually spinning, so the room can see the
-  // prize before the spin starts. Resolves once the overlay fades, so
-  // the caller can await it and then start the spin.
+  // "Coming up next" interstitial — shown between the host's Draw click
+  // and the wheel actually spinning, so the room sees the prize before
+  // the spin starts. Returns a promise that resolves when the overlay
+  // is gone, so the caller can await it and then start the spin.
   const COMING_UP_MS = 2800;
-  function showComingUpOverlay(prize: {
-    name: string;
-    photo_url: string | null;
-    is_grand: boolean;
-    quantity: number;
-    drawn_count: number;
-  }): Promise<void> {
+  const COMING_UP_FADE_MS = 300;
+  function showComingUpOverlay(
+    prize: Pick<Prize, 'name' | 'photo_url' | 'is_grand' | 'quantity' | 'drawn_count'>
+  ): Promise<void> {
     return new Promise((resolve) => {
       const overlay = document.createElement('div');
       overlay.className = 'coming-up-overlay' + (prize.is_grand ? ' grand' : '');
+      // CSS bar animation reads --coming-up-bar-ms; setting it here keeps
+      // the bar's drain time locked to the JS lifetime no matter what
+      // COMING_UP_MS gets bumped to.
+      overlay.style.setProperty('--coming-up-bar-ms', `${COMING_UP_MS - COMING_UP_FADE_MS}ms`);
       const label = prize.is_grand ? '🏆 The Grand Prize' : '🎯 Coming up next';
       const qty = prize.quantity || 1;
       const drawn = prize.drawn_count || 0;
       const remaining = Math.max(1, qty - drawn);
-      // For multi-quantity, surface which slot we're drawing (e.g. "2 of 3")
-      // so the audience sees we're not done with this prize yet.
       const qtyLine = qty > 1
         ? `<p class="coming-up-qty">Drawing ${drawn + 1} of ${qty} · ${remaining} ${remaining === 1 ? 'left' : 'remaining'}</p>`
         : '';
@@ -323,8 +322,7 @@ import Base from '../layouts/Base.astro';
           <div class="coming-up-bar"><div class="coming-up-bar-fill"></div></div>
         </div>`;
       document.body.appendChild(overlay);
-      // Fade out a hair before removal so the spin doesn't pop in.
-      setTimeout(() => overlay.classList.add('fading'), COMING_UP_MS - 300);
+      setTimeout(() => overlay.classList.add('fading'), COMING_UP_MS - COMING_UP_FADE_MS);
       setTimeout(() => { overlay.remove(); resolve(); }, COMING_UP_MS);
     });
   }
@@ -401,10 +399,17 @@ import Base from '../layouts/Base.astro';
     winnerIndex: number
   ) {
     const firstName = (winner.name || '').trim().split(/\s+/)[0] || 'Anon';
+    // Legacy single-prize host path: there's no raffle_prizes row to look
+    // up, but the event itself carries the prize text + photo. Treat it as
+    // the (singular) grand prize so the interstitial gets the gold treatment.
     const payload = {
       winner_id: winner.id,
       winner_first_name: firstName,
       winner_prize: winner.prize_won,
+      prize_id: null,
+      prize_name: eventInfo.raffle_prize || winner.prize_won || null,
+      prize_photo_url: eventInfo.raffle_prize_photo_url || null,
+      is_grand: true,
       duration_ms: SPIN_DURATION_MS,
     };
     if (channel) {
@@ -421,6 +426,7 @@ import Base from '../layouts/Base.astro';
     winner_prize: string | null;
     prize_id?: string | null;
     prize_name?: string | null;
+    prize_photo_url?: string | null;
     is_grand?: boolean;
     duration_ms: number;
   };
@@ -446,7 +452,7 @@ import Base from '../layouts/Base.astro';
       : null;
     await showComingUpOverlay({
       name: cached?.name || payload.prize_name || payload.winner_prize || 'Prize',
-      photo_url: cached?.photo_url || null,
+      photo_url: cached?.photo_url || payload.prize_photo_url || null,
       is_grand: cached?.is_grand ?? !!payload.is_grand,
       quantity: cached?.quantity || 1,
       drawn_count: cached?.drawn_count || 0,
@@ -775,7 +781,7 @@ import Base from '../layouts/Base.astro';
     height: 100%; width: 100%;
     background: var(--accent);
     transform-origin: left center;
-    animation: comingUpBar 2.5s linear forwards;
+    animation: comingUpBar var(--coming-up-bar-ms, 2500ms) linear forwards;
   }
   .coming-up-overlay.grand .coming-up-bar-fill { background: #f1c40f; }
   @keyframes comingUpBar {

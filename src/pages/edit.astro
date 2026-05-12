@@ -34,18 +34,12 @@ import Base from '../layouts/Base.astro';
   import 'cropperjs/dist/cropper.css';
   import Sortable from 'sortablejs';
 
-  // Drag handle for sortable .t-row lists (speakers, transformations,
-  // hosts). The handle is the only draggable area — clicking edit/delete
-  // buttons elsewhere on the row stays a click, not a drag.
+  // Handle is the only draggable surface so edit/delete clicks elsewhere
+  // on the row don't initiate drags.
   function dragHandleHtml(): string {
     return '<button type="button" class="drag-handle" aria-label="Drag to reorder" title="Drag to reorder">⋮⋮</button>';
   }
 
-  // Wire Sortable on a list. onReorder receives an array of
-  // { id, display_order } pairs ordered by their new position; the
-  // caller is responsible for persisting them (and ideally updating
-  // local state optimistically). Returns the Sortable instance so the
-  // caller can destroy it before re-rendering the list.
   function wireSortable(
     list: HTMLElement,
     onReorder: (order: Array<{ id: string; display_order: number }>) => void,
@@ -66,6 +60,31 @@ import Base from '../layouts/Base.astro';
         onReorder(items);
       },
     });
+  }
+
+  // Shared reorder-persist pattern: optimistically reorder the local
+  // array, fire one PATCH per row in parallel, and on failure refetch +
+  // re-render so the UI lines up with the server's truth. Each section
+  // supplies its own patchOne builder (different manage-* shapes).
+  type IdOrder = { id: string; display_order: number };
+  async function applyReorder<T extends { id: string }>(opts: {
+    order: IdOrder[];
+    items: T[];
+    setItems: (next: T[]) => void;
+    patchOne: (o: IdOrder) => Promise<unknown>;
+    onFailure: () => Promise<void> | void;
+  }): Promise<void> {
+    const byId = new Map(opts.items.map((it) => [it.id, it]));
+    opts.setItems(opts.order.map((o) => ({
+      ...byId.get(o.id)!,
+      display_order: o.display_order,
+    })));
+    try {
+      await Promise.all(opts.order.map(opts.patchOne));
+    } catch (err) {
+      console.error('Reorder failed:', err);
+      await opts.onFailure();
+    }
   }
 
   type DataPoint = { metric: 'weight' | 'bf' | 'lean'; date: string; value: number };
@@ -827,27 +846,19 @@ import Base from '../layouts/Base.astro';
             list.innerHTML = '<li class="t-empty">No transformations yet. Add one above.</li>';
           } else {
             list.innerHTML = transformations.map(transformationRowHtml).join('');
-            tSortable = wireSortable(list, async (order) => {
-              // Optimistic local reorder.
-              const byId = new Map(transformations.map((t) => [t.id, t]));
-              transformations = order.map((o) => {
-                const t = byId.get(o.id)!;
-                return { ...t, display_order: o.display_order };
-              });
-              try {
-                await Promise.all(order.map((o) =>
-                  callFunction('manage-transformation', {
-                    slug, edit_token: key, action: 'update',
-                    transformation: { id: o.id, display_order: o.display_order },
-                  })
-                ));
-              } catch (err) {
-                console.error('Reorder transformations failed:', err);
-                // Restore by refetch on failure.
+            tSortable = wireSortable(list, (order) => applyReorder({
+              order,
+              items: transformations,
+              setItems: (next) => { transformations = next; },
+              patchOne: (o) => callFunction('manage-transformation', {
+                slug, edit_token: key, action: 'update',
+                transformation: { id: o.id, display_order: o.display_order },
+              }),
+              onFailure: async () => {
                 transformations = await fetchTransformations(ev.id);
                 renderList();
-              }
-            });
+              },
+            }));
           }
           updateStatusPills();
         }
@@ -1906,25 +1917,19 @@ import Base from '../layouts/Base.astro';
             sList.innerHTML = '<li class="t-empty">No speakers yet.</li>';
           } else {
             sList.innerHTML = speakers.map(speakerRowHtml).join('');
-            sSortable = wireSortable(sList, async (order) => {
-              const byId = new Map(speakers.map((sp) => [sp.id, sp]));
-              speakers = order.map((o) => {
-                const sp = byId.get(o.id)!;
-                return { ...sp, display_order: o.display_order };
-              });
-              try {
-                await Promise.all(order.map((o) =>
-                  callFunction('manage-speakers', {
-                    slug, edit_token: key, action: 'update',
-                    speaker: { id: o.id, display_order: o.display_order },
-                  })
-                ));
-              } catch (err) {
-                console.error('Reorder speakers failed:', err);
+            sSortable = wireSortable(sList, (order) => applyReorder({
+              order,
+              items: speakers,
+              setItems: (next) => { speakers = next; },
+              patchOne: (o) => callFunction('manage-speakers', {
+                slug, edit_token: key, action: 'update',
+                speaker: { id: o.id, display_order: o.display_order },
+              }),
+              onFailure: async () => {
                 speakers = await fetchSpeakers(ev.id);
                 renderSpeakerList();
-              }
-            });
+              },
+            }));
           }
           updateStatusPills();
         }
@@ -2359,10 +2364,9 @@ import Base from '../layouts/Base.astro';
           }
         }
 
-        // Re-crop the already-saved host photo without re-uploading the
-        // original. Same trade-off as the speaker re-crop: works from the
-        // already-cropped JPEG, so the user can tighten the framing but
-        // can't recover area outside the original crop.
+        // Same trade-off as handleSpeakerRecrop — re-crops from the saved
+        // 1200px JPEG, so framing can be tightened but area outside the
+        // original crop can't be recovered.
         async function handleHostRecrop(h: Host) {
           if (!h.photo_url) return;
           const slotEl = hostsAddSection.querySelector('.host-slot') as HTMLElement;
@@ -2478,29 +2482,20 @@ import Base from '../layouts/Base.astro';
                   : ''}
               </li>`;
           }).join('');
-          // Drag-to-reorder is master-only (only the master can update the
-          // hosts table). Skip Sortable wiring for co-host viewers — their
-          // rows render without a drag handle anyway.
+          // Drag-to-reorder is master-only. Co-host viewers see no handle
+          // and no Sortable instance gets wired on this list.
           if (hostsSortable) { hostsSortable.destroy(); hostsSortable = null; }
           if (isMaster && hosts.length > 1) {
-            hostsSortable = wireSortable(hostsList as HTMLElement, async (order) => {
-              const byId = new Map(hostsCache.map((h) => [h.id, h]));
-              hostsCache = order.map((o) => {
-                const h = byId.get(o.id)!;
-                return { ...h, display_order: o.display_order };
-              });
-              try {
-                await Promise.all(order.map((o) =>
-                  callFunction('manage-hosts', {
-                    slug, edit_token: key, action: 'update',
-                    host_id: o.id, display_order: o.display_order,
-                  })
-                ));
-              } catch (err) {
-                console.error('Reorder hosts failed:', err);
-                await loadHosts();
-              }
-            });
+            hostsSortable = wireSortable(hostsList as HTMLElement, (order) => applyReorder({
+              order,
+              items: hostsCache,
+              setItems: (next) => { hostsCache = next; },
+              patchOne: (o) => callFunction('manage-hosts', {
+                slug, edit_token: key, action: 'update',
+                host_id: o.id, display_order: o.display_order,
+              }),
+              onFailure: loadHosts,
+            }));
           }
         }
 

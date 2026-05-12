@@ -323,23 +323,32 @@ async function handleDraw(
     ? String(body.prize_label).trim()
     : (ev.raffle_prize || '');
 
+  // Prize check + eligible-pool fetch are independent; run them in
+  // parallel to shave latency off every Draw click.
+  const prizeLookup = prize_id
+    ? supabase.from('raffle_prizes')
+        .select('id, name, is_grand, quantity, drawn_winner_id')
+        .eq('id', prize_id).eq('event_id', ev.id).maybeSingle()
+    : Promise.resolve({ data: null });
+  const drawnCount = prize_id
+    ? supabase.from('raffle_entries').select('id', { count: 'exact', head: true })
+        .eq('event_id', ev.id).eq('drawn', true).eq('prize_id', prize_id)
+    : Promise.resolve({ count: 0 });
+  const poolQuery = supabase.from('raffle_entries').select('id, name')
+    .eq('event_id', ev.id).eq('drawn', false);
+  const [pResult, drawnResult, poolResult] = await Promise.all([prizeLookup, drawnCount, poolQuery]);
+
   if (prize_id) {
-    const { data: p } = await supabase
-      .from('raffle_prizes').select('id, name, is_grand, quantity, drawn_winner_id')
-      .eq('id', prize_id).eq('event_id', ev.id).maybeSingle();
-    if (!p) return errResp(404, 'prize not found in this event');
+    if (!pResult.data) return errResp(404, 'prize not found in this event');
     // Gate by drawn count vs quantity, not by drawn_winner_id (which now
-    // tracks the LATEST winner, not "any winner exists"). A prize with
-    // quantity 3 can be drawn three times.
-    const { count: alreadyDrawn } = await supabase
-      .from('raffle_entries').select('id', { count: 'exact', head: true })
-      .eq('event_id', ev.id).eq('drawn', true).eq('prize_id', prize_id);
-    const qty = Number(p.quantity) || 1;
-    if ((alreadyDrawn || 0) >= qty) {
+    // tracks the LATEST winner only). A prize with quantity 3 can be
+    // drawn three times.
+    const qty = Number(pResult.data.quantity) || 1;
+    if ((drawnResult.count || 0) >= qty) {
       return errResp(409, 'all winners already drawn for this prize — use redraw_prize to re-roll the latest');
     }
-    prizeRow = p;
-    prize_label = p.name;
+    prizeRow = pResult.data;
+    prize_label = pResult.data.name;
   }
 
   // Eligibility: any entry not yet drawn for this event. Spot-prize
@@ -347,10 +356,7 @@ async function handleDraw(
   // marked them drawn=true. The grand prize follows the same rule
   // — every drawn entry (regardless of which prize they won) is out
   // of the pool. This is the "everyone gets a fair shot" model.
-  const { data: pool, error: poolErr } = await supabase
-    .from('raffle_entries').select('id, name')
-    .eq('event_id', ev.id)
-    .eq('drawn', false);
+  const { data: pool, error: poolErr } = poolResult;
   if (poolErr) return errResp(500, poolErr.message);
   if (!pool || pool.length === 0) {
     return errResp(409, 'no eligible entries to draw');

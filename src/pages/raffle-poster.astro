@@ -77,27 +77,28 @@ import Base from '../layouts/Base.astro';
         back.href = key ? editUrl(base, slug, key) : eventUrl(base, slug);
         back.textContent = key ? '← Back to edit page' : '← Back to event';
 
+        // Prizes + hosts are independent reads; fire them in parallel so
+        // poster open is one round-trip instead of three.
+        const [prizesRes, hostsRes] = await Promise.all([
+          fetchRafflePrizes(event.id).catch(() => [] as Prize[]),
+          callFunction('get-event-hosts', { slug }).catch(() => null),
+        ]);
+
         // Pick the grand prize (or first prize) for the headline image +
         // name. Falls back to the legacy event.raffle_prize columns for
         // events that haven't migrated to multi-prize.
         let prizePhotoUrl: string | null = event.raffle_prize_photo_url || null;
         let prizeName: string | null = event.raffle_prize || null;
-        try {
-          const prizes = (await fetchRafflePrizes(event.id)) as Prize[];
-          if (prizes.length > 0) {
-            const headline = prizes.find((p) => p.is_grand) || prizes[0];
-            prizePhotoUrl = headline.photo_url || prizePhotoUrl;
-            prizeName = headline.name;
-          }
-        } catch { /* non-fatal — fall back */ }
+        const prizes = prizesRes as Prize[];
+        if (prizes.length > 0) {
+          const headline = prizes.find((p) => p.is_grand) || prizes[0];
+          prizePhotoUrl = headline.photo_url || prizePhotoUrl;
+          prizeName = headline.name;
+        }
 
-        // Pull team to attribute "Hosted by …" in the footer.
         let primary: { name: string | null; phone: string | null } = { name: null, phone: null };
-        try {
-          const hostsRes = await callFunction('get-event-hosts', { slug });
-          const primaryHost = (hostsRes.hosts || []).find((h: { primary?: boolean }) => h.primary);
-          if (primaryHost) primary = { name: primaryHost.name, phone: primaryHost.phone };
-        } catch { /* non-fatal */ }
+        const primaryHost = (hostsRes?.hosts || []).find((h: { primary?: boolean }) => h.primary);
+        if (primaryHost) primary = { name: primaryHost.name, phone: primaryHost.phone };
 
         const datePretty = fmtEventDate(event.event_date);
 
