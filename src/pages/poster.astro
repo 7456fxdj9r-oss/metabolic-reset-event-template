@@ -19,6 +19,7 @@ import Base from '../layouts/Base.astro';
 
 <script>
   import { fetchEventBySlug, callFunction } from '../lib/supabase.js';
+  import { eventUrl, editUrl } from '../lib/urls.js';
   import { cleanUrl } from '../lib/urls.js';
   import QRCode from 'qrcode';
 
@@ -60,8 +61,8 @@ import Base from '../layouts/Base.astro';
         // Back link goes to edit page if we have a key, else the public event.
         const back = document.getElementById('back-link') as HTMLAnchorElement;
         back.href = key
-          ? `${base}edit?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}`
-          : `${base}event?slug=${encodeURIComponent(slug)}`;
+          ? editUrl(base, slug, key)
+          : eventUrl(base, slug);
         back.textContent = key ? '← Back to edit page' : '← Back to event';
 
         // Pull team list to render organizer name + phone in the footer.

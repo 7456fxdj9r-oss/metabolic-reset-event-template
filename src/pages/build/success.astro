@@ -72,7 +72,7 @@ import Base from '../../layouts/Base.astro';
 
 <script>
   import QRCode from 'qrcode';
-  import { cleanUrl } from '../../lib/urls.js';
+  import { eventUrl, editUrl as editUrlOf } from '../../lib/urls.js';
 
   const params = new URLSearchParams(window.location.search);
   const slug = params.get('slug');
@@ -87,8 +87,8 @@ import Base from '../../layouts/Base.astro';
     // Public URL is the clean form (resolves via 404 SPA-redirect on
     // GitHub Pages). Edit URL stays in ?slug=&key= form so the host
     // token is reliably preserved as a query param.
-    const publicUrl = cleanUrl(base, 'event', slug);
-    const editUrl = `${origin}${base}edit?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}`;
+    const publicUrl = origin + eventUrl(base, slug);
+    const editUrl = origin + editUrlOf(base, slug, key);
     (document.getElementById('public-url') as HTMLInputElement).value = publicUrl;
     (document.getElementById('edit-url') as HTMLInputElement).value = editUrl;
     (document.getElementById('open-edit') as HTMLAnchorElement).href = editUrl;

@@ -83,7 +83,12 @@ Deno.serve(async (req) => {
     slug = `${baseSlug}-${randomToken(3).toLowerCase()}`;
   }
 
-  const edit_token = randomToken(32);
+  // 16 chars from a 62-symbol alphabet ≈ 95 bits of entropy. Tokens are
+  // scoped to a single event slug, never indexed, and timing-safe compared,
+  // so brute-force is infeasible long before that number matters. The
+  // previous 32-char tokens were overkill and added 16 chars to every
+  // edit/cohost link.
+  const edit_token = randomToken(16);
   const { error } = await supabase.from('events').insert({
     slug,
     edit_token,

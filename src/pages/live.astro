@@ -16,7 +16,7 @@ import Base from '../layouts/Base.astro';
   // accepts the token (master edit_token or a co-host's host_token).
   import { fetchEventBySlug, callFunction } from '../lib/supabase.js';
   import { buildRaffleEntriesCsv, downloadCsv } from '../lib/csv.js';
-  import { cleanUrl } from '../lib/urls.js';
+  import { raffleUrl as raffleClean, wheelUrl, editUrl as editUrlOf, posterUrl } from '../lib/urls.js';
   import QRCode from 'qrcode';
 
   type Entry = {
@@ -73,10 +73,10 @@ import Base from '../layouts/Base.astro';
       // Public URLs use the clean /raffle/<slug>, /wheel/<slug> form so
       // they read cleanly when projected on a screen at the event.
       // Internal admin URLs keep ?slug=&key= since they carry secrets.
-      raffleUrl = cleanUrl(base, 'raffle', slug!);
-      wheelViewerUrl = cleanUrl(base, 'wheel', slug!);
-      wheelHostUrl = `${origin}${base}wheel?slug=${encodeURIComponent(slug!)}&key=${encodeURIComponent(key!)}`;
-      editUrl = `${origin}${base}edit?slug=${encodeURIComponent(slug!)}&key=${encodeURIComponent(key!)}`;
+      raffleUrl = origin + raffleClean(base, slug!);
+      wheelViewerUrl = origin + wheelUrl(base, slug!);
+      wheelHostUrl = origin + wheelUrl(base, slug!, key!);
+      editUrl = origin + editUrlOf(base, slug!, key!);
 
       renderShell(event);
 
@@ -125,7 +125,7 @@ import Base from '../layouts/Base.astro';
         <button type="button" id="draw-action" class="action draw" disabled>🎲 Draw next winner</button>
         <a class="action wheel" href="${wheelHostUrl}" target="_blank" rel="noopener">🎡 Open the wheel (host)</a>
         <a class="action wheel-view" href="${wheelViewerUrl}" target="_blank" rel="noopener">👀 Audience wheel</a>
-        <a class="action poster" href="${base}poster?slug=${encodeURIComponent(slug!)}&key=${encodeURIComponent(key!)}" target="_blank" rel="noopener">🖨 Print poster</a>
+        <a class="action poster" href="${posterUrl(base, slug!, key!)}" target="_blank" rel="noopener">🖨 Print poster</a>
         <button type="button" id="export-action" class="action export" disabled>📥 Export entries (CSV)</button>
         <a class="action edit" href="${editUrl}">⚙️ Full edit page</a>
       </section>

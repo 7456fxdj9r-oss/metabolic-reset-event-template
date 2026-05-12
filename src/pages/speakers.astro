@@ -9,6 +9,7 @@ import Base from '../layouts/Base.astro';
 
 <script>
   import { fetchEventBySlug, fetchSpeakers } from '../lib/supabase.js';
+  import { eventUrl } from '../lib/urls.js';
 
   const root = document.getElementById('speakers-root')!;
   const base = import.meta.env.BASE_URL;
@@ -71,7 +72,7 @@ import Base from '../layouts/Base.astro';
             ? `<section class="speaker-list">${cards}</section>`
             : '<p class="empty">No speaker bios added yet.</p>'}
           <div class="footer-cta">
-            <a class="secondary" href="${base}event?slug=${encodeURIComponent(slug)}">← Back to the event</a>
+            <a class="secondary" href="${eventUrl(base, slug)}">← Back to the event</a>
           </div>
         `;
       } catch (err) {

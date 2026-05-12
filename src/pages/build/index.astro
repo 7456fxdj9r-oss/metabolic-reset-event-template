@@ -13,7 +13,11 @@ const turnstileSiteKey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY || '';
     <form id="build-form" novalidate>
       <label>
         Event name
-        <input name="name" required maxlength="80" placeholder="Coach Mike's Transformation Event" />
+        <input name="name" required maxlength="80" placeholder="May PDX Event" />
+        <span class="opt" style="font-size:11px;display:block;margin-top:4px;color:#95a5a6;line-height:1.4;">
+          This becomes part of every share link (e.g. <code>/event/may-pdx-event</code>).
+          Short + memorable beats long — you can put a longer description in the location field below.
+        </span>
       </label>
 
       <label>

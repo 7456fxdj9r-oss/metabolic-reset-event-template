@@ -19,32 +19,71 @@
   <script>
     // Clean-URL → query-string redirect for static GitHub Pages hosting.
     //
-    // GitHub Pages serves /metabolic-reset-event-template/event/mike → 404
-    // → this page. We parse the path, detect that "event" is one of our
-    // pages and "mike" is a slug, then redirect to
-    // /metabolic-reset-event-template/event/?slug=mike. Same for raffle,
-    // science, speakers, poster, live, wheel.
+    // We want share links like /event/mike or /edit/mike/sMMF instead of
+    // /event/?slug=mike or /edit/?slug=mike&key=sMMF. GitHub Pages 404s
+    // the clean form (no file at that path), serves THIS page, and we
+    // rewrite the URL into the query-string form the page actually reads.
     //
-    // Net effect: hosts can hand out https://…/event/mike on a poster /
-    // QR and it Just Works.
+    // On Cloudflare Pages, public/_redirects handles this server-side as
+    // a 200 rewrite — the clean URL stays in the address bar with no flash.
+    // This file is only the GitHub Pages fallback path.
+    //
+    // Route table: page name → list of query-string param names, in the
+    // same order as the path segments after the page. So `t` consumes the
+    // next two segments and writes them as ?slug=…&t=… ; `event` consumes
+    // one segment and writes ?slug=…
     (function () {
+      var routes = {
+        'event':     ['slug'],
+        'science':   ['slug'],
+        'speakers':  ['slug'],
+        'stories':   ['slug'],
+        'journey':   ['slug'],
+        'raffle':    ['slug'],
+        'hosts':     ['slug', 'key'],   // key optional (admin mode)
+        'wheel':     ['slug', 'key'],   // key optional (host controller)
+        'edit':      ['slug', 'key'],
+        'live':      ['slug', 'key'],
+        'poster':    ['slug', 'key'],
+        'cue':       ['slug', 'key'],
+        't':         ['slug', 't'],
+        'raffle/me': ['slug', 'token'],
+      };
+
       var l = window.location;
       var parts = l.pathname.split('/').filter(Boolean);
-      var pages = ['event', 'raffle', 'science', 'speakers', 'poster', 'live', 'wheel'];
 
-      // The path looks like [...basePath, page, slug] OR
-      // [...basePath, page, slug, sub] for /t/<slug>/<tslug> in the future.
-      // For now we only handle the single-slug form.
-      if (parts.length >= 2) {
-        var page = parts[parts.length - 2];
-        var slug = parts[parts.length - 1];
-        if (pages.indexOf(page) >= 0) {
-          var basePath = '/' + parts.slice(0, -2).join('/');
+      // Try each route — longest page name first so 'raffle/me' wins over 'raffle'.
+      var pageNames = Object.keys(routes).sort(function (a, b) {
+        return b.split('/').length - a.split('/').length;
+      });
+
+      for (var p = 0; p < pageNames.length; p++) {
+        var page = pageNames[p];
+        var pageSegs = page.split('/');
+        // The page lives at parts[i..i+pageSegs.length-1] for some i, with
+        // some number of args after it. Try every possible position.
+        for (var i = 0; i <= parts.length - pageSegs.length; i++) {
+          var match = true;
+          for (var k = 0; k < pageSegs.length; k++) {
+            if (parts[i + k] !== pageSegs[k]) { match = false; break; }
+          }
+          if (!match) continue;
+
+          var args = parts.slice(i + pageSegs.length);
+          if (args.length === 0) continue; // /edit alone → not a clean URL, skip
+          if (args.length > routes[page].length) continue; // too many args
+
+          // Build the redirect.
+          var basePath = '/' + parts.slice(0, i).join('/');
           if (basePath !== '/' && basePath.charAt(basePath.length - 1) !== '/') basePath += '/';
-          if (basePath === '//') basePath = '/';
-          var existing = l.search ? l.search.substring(1) + '&' : '';
-          var newUrl = basePath + page + '/?' + existing
-            + 'slug=' + encodeURIComponent(slug) + l.hash;
+
+          var existingQs = l.search ? l.search.substring(1) : '';
+          var qsParts = existingQs ? [existingQs] : [];
+          for (var j = 0; j < args.length; j++) {
+            qsParts.push(routes[page][j] + '=' + encodeURIComponent(args[j]));
+          }
+          var newUrl = basePath + page + '/?' + qsParts.join('&') + l.hash;
           l.replace(newUrl);
           return;
         }

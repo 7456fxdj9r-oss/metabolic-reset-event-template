@@ -1,0 +1,29 @@
+# Cloudflare Pages clean-URL rewrites. The `200` status means rewrite
+# (not redirect) — the browser address bar keeps showing the clean
+# /event/<slug> path while the page at /event/?slug=<slug> is served.
+#
+# On GitHub Pages this file is ignored; the public/404.html SPA fallback
+# handles the same rewrites client-side instead (with a brief URL flicker).
+#
+# Order matters: more-specific paths must come BEFORE more-general ones
+# (raffle/me before raffle, host-mode wheel before viewer-mode wheel).
+
+# Two-segment paths (slug + secondary arg)
+/raffle/me/:slug/:token  /raffle/me/?slug=:slug&token=:token  200
+/edit/:slug/:key         /edit/?slug=:slug&key=:key           200
+/live/:slug/:key         /live/?slug=:slug&key=:key           200
+/poster/:slug/:key       /poster/?slug=:slug&key=:key         200
+/cue/:slug/:key          /cue/?slug=:slug&key=:key            200
+/wheel/:slug/:key        /wheel/?slug=:slug&key=:key          200
+/hosts/:slug/:key        /hosts/?slug=:slug&key=:key          200
+/t/:slug/:tslug          /t/?slug=:slug&t=:tslug              200
+
+# One-segment paths (slug only)
+/event/:slug             /event/?slug=:slug                   200
+/science/:slug           /science/?slug=:slug                 200
+/speakers/:slug          /speakers/?slug=:slug                200
+/stories/:slug           /stories/?slug=:slug                 200
+/journey/:slug           /journey/?slug=:slug                 200
+/raffle/:slug            /raffle/?slug=:slug                  200
+/hosts/:slug             /hosts/?slug=:slug                   200
+/wheel/:slug             /wheel/?slug=:slug                   200

@@ -16,6 +16,7 @@ import Base from '../layouts/Base.astro';
 
 <script>
   import { fetchEventBySlug, callFunction } from '../lib/supabase.js';
+  import { eventUrl, editUrl } from '../lib/urls.js';
 
   type TeamHost = {
     name: string | null; phone: string | null;
@@ -107,8 +108,8 @@ import Base from '../layouts/Base.astro';
         const teamHosts = (teamRes.hosts || []) as TeamHost[];
 
         const backHref = adminKey
-          ? `${base}edit?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(adminKey)}`
-          : `${base}event?slug=${encodeURIComponent(slug)}`;
+          ? editUrl(base, slug, adminKey)
+          : eventUrl(base, slug);
         const backLabel = adminKey ? '← Back to edit page' : '← Back to the event';
 
         root.innerHTML = `

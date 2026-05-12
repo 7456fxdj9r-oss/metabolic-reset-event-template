@@ -121,11 +121,12 @@ import Base from '../layouts/Base.astro';
   // adopt the event's accent color so the journey screen matches the
   // event's branding instead of always rendering orange.
   import { fetchEventBySlug } from '../lib/supabase.js';
+  import { eventUrl } from '../lib/urls.js';
 
   const params = new URLSearchParams(window.location.search);
   const slug = params.get('slug');
   const base = import.meta.env.BASE_URL;
-  const backHref = slug ? `${base}event?slug=${encodeURIComponent(slug)}` : base;
+  const backHref = slug ? eventUrl(base, slug) : base;
   const backLabel = slug ? '← Back to the event' : '← Home';
   document.getElementById('top-back-host')!.innerHTML =
     `<a href="${backHref}" class="back-link">${backLabel}</a>`;

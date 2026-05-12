@@ -112,7 +112,9 @@ Deno.serve(async (req) => {
     const phone = body.phone ? String(body.phone).trim() : null;
     const bio = body.bio ? String(body.bio).trim() : null;
     const website = body.website ? String(body.website).trim() : null;
-    const host_token = randomToken(32);
+    // 16 chars from a 62-symbol alphabet ≈ 95 bits of entropy. Matches
+    // the master edit_token format and keeps cohost edit links short.
+    const host_token = randomToken(16);
     const { data: inserted, error } = await supabase
       .from('hosts')
       .insert({ event_id: ev.id, host_token, name, email, phone, bio, website })

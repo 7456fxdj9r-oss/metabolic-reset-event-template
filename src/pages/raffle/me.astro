@@ -9,6 +9,7 @@ import Base from '../../layouts/Base.astro';
 
 <script>
   import { callFunction } from '../../lib/supabase.js';
+  import { eventUrl, scienceUrl } from '../../lib/urls.js';
 
   const root = document.getElementById('me-root')!;
   const base = import.meta.env.BASE_URL;
@@ -145,8 +146,8 @@ import Base from '../../layouts/Base.astro';
           </section>
 
           <div class="footer-cta">
-            <a class="secondary" href="${base}event?slug=${encodeURIComponent(slug!)}">← Back to the event</a>
-            <a class="secondary" href="${base}science?slug=${encodeURIComponent(slug!)}">The Science →</a>
+            <a class="secondary" href="${eventUrl(base, slug!)}">← Back to the event</a>
+            <a class="secondary" href="${scienceUrl(base, slug!)}">The Science →</a>
           </div>
         `;
       } catch (err) {

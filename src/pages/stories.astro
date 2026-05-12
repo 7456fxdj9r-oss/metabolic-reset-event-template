@@ -17,6 +17,7 @@ import Base from '../layouts/Base.astro';
 
 <script>
   import { fetchEventBySlug, fetchTransformations } from '../lib/supabase.js';
+  import { eventUrl, tUrl } from '../lib/urls.js';
 
   const root = document.getElementById('stories-root')!;
   const base = import.meta.env.BASE_URL;
@@ -61,7 +62,7 @@ import Base from '../layouts/Base.astro';
         const transformations = await fetchTransformations(event.id);
 
         const cards = transformations.map((t: any) => {
-          const tHref = `${base}t?slug=${encodeURIComponent(slug)}&t=${encodeURIComponent(t.slug)}`;
+          const tHref = tUrl(base, slug, t.slug);
           // Prefer the after photo (the wow shot); fall back to before
           // if only one was uploaded; placeholder if neither.
           const photo = t.after_photo_url || t.before_photo_url || '';
@@ -79,7 +80,7 @@ import Base from '../layouts/Base.astro';
         }).join('');
 
         root.innerHTML = `
-          <a class="back-link" href="${base}event?slug=${encodeURIComponent(slug)}">← Back to the event</a>
+          <a class="back-link" href="${eventUrl(base, slug)}">← Back to the event</a>
           <header class="top">
             <p class="eyebrow">Today's Transformation Stories</p>
             <h1>${escapeHtml(event.name)}</h1>
@@ -89,7 +90,7 @@ import Base from '../layouts/Base.astro';
             ? `<section class="story-list">${cards}</section>`
             : '<p class="empty">No transformation stories added yet.</p>'}
           <div class="footer-cta">
-            <a class="secondary" href="${base}event?slug=${encodeURIComponent(slug)}">← Back to the event</a>
+            <a class="secondary" href="${eventUrl(base, slug)}">← Back to the event</a>
           </div>
         `;
       } catch (err) {

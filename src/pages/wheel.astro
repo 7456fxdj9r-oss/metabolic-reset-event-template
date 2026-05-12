@@ -23,6 +23,7 @@ import Base from '../layouts/Base.astro';
   // timestamp and have viewers fast-forward, but the simple version
   // looks great in practice.
   import { callFunction, getConfig } from '../lib/supabase.js';
+  import { eventUrl } from '../lib/urls.js';
   import { createClient } from '@supabase/supabase-js';
 
   type PoolEntry = { id: string; first_name: string };
@@ -116,7 +117,7 @@ import Base from '../layouts/Base.astro';
       ${winnersBlock}
 
       <div class="footer-cta">
-        <a class="secondary" href="${base}event?slug=${encodeURIComponent(slug!)}">← Back to the event</a>
+        <a class="secondary" href="${eventUrl(base, slug!)}">← Back to the event</a>
       </div>
     `;
     canvas = document.getElementById('wheel-canvas') as HTMLCanvasElement;

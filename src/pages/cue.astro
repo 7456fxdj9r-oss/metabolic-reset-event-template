@@ -18,6 +18,7 @@ import Base from '../layouts/Base.astro';
 
 <script>
   import { fetchEventBySlug, fetchAgendaItems } from '../lib/supabase.js';
+  import { eventUrl, editUrl } from '../lib/urls.js';
 
   const root = document.getElementById('cue-root')!;
   const base = import.meta.env.BASE_URL;
@@ -56,8 +57,8 @@ import Base from '../layouts/Base.astro';
 
         const back = document.getElementById('back-link') as HTMLAnchorElement;
         back.href = key
-          ? `${base}edit?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}`
-          : `${base}event?slug=${encodeURIComponent(slug)}`;
+          ? editUrl(base, slug, key)
+          : eventUrl(base, slug);
         back.textContent = key ? '← Back to edit page' : '← Back to event';
 
         const items = await fetchAgendaItems(event.id);

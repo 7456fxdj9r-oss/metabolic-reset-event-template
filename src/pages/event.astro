@@ -9,7 +9,10 @@ import Base from '../layouts/Base.astro';
 
 <script>
   import { fetchEventBySlug, fetchTransformations, fetchSpeakers, callFunction } from '../lib/supabase.js';
-  import { cleanUrl } from '../lib/urls.js';
+  import {
+    eventUrl, raffleUrl, wheelUrl, storiesUrl, speakersUrl,
+    journeyUrl, scienceUrl, hostsUrl,
+  } from '../lib/urls.js';
   import QRCode from 'qrcode';
 
   const root = document.getElementById('event-root')!;
@@ -93,7 +96,7 @@ import Base from '../layouts/Base.astro';
         const buttons: string[] = [];
         if (raffleOpen) {
           buttons.push(
-            `<a class="event-btn raffle" href="${base}raffle?slug=${encodeURIComponent(slug)}">🎟️ Enter the Raffle${event.raffle_prize ? ` — ${escapeHtml(event.raffle_prize)}` : ''}</a>`
+            `<a class="event-btn raffle" href="${raffleUrl(base, slug)}">🎟️ Enter the Raffle${event.raffle_prize ? ` — ${escapeHtml(event.raffle_prize)}` : ''}</a>`
           );
         }
         // Audience-mode raffle wheel: visible whenever the raffle has any
@@ -102,7 +105,7 @@ import Base from '../layouts/Base.astro';
         // No ?key= here — that's the host controller; attendees just watch.
         if (event.raffle_status) {
           buttons.push(
-            `<a class="event-btn wheel" href="${base}wheel?slug=${encodeURIComponent(slug)}">🎡 Go to the raffle wheel</a>`
+            `<a class="event-btn wheel" href="${wheelUrl(base, slug)}">🎡 Go to the raffle wheel</a>`
           );
         }
         // Transformations collapse into a single index button so the hub
@@ -110,29 +113,26 @@ import Base from '../layouts/Base.astro';
         // lists each person; tapping one opens the /t deep-dive.
         if (transformations.length > 0) {
           buttons.push(
-            `<a class="event-btn story" href="${base}stories?slug=${encodeURIComponent(slug)}">🎯 Today's Transformation Stories</a>`
+            `<a class="event-btn story" href="${storiesUrl(base, slug)}">🎯 Today's Transformation Stories</a>`
           );
         }
         if (speakers.length > 0) {
           buttons.push(
-            `<a class="event-btn speakers" href="${base}speakers?slug=${encodeURIComponent(slug)}">🎤 Speaker Bios</a>`
+            `<a class="event-btn speakers" href="${speakersUrl(base, slug)}">🎤 Speaker Bios</a>`
           );
         }
         buttons.push(
-          `<a class="event-btn journey" href="${base}journey?slug=${encodeURIComponent(slug)}">🌱 Reset · Refine · Renew</a>`
+          `<a class="event-btn journey" href="${journeyUrl(base, slug)}">🌱 Reset · Refine · Renew</a>`
         );
         buttons.push(
-          `<a class="event-btn science" href="${base}science?slug=${encodeURIComponent(slug)}">🧠 Why It Works (the science)</a>`
+          `<a class="event-btn science" href="${scienceUrl(base, slug)}">🧠 Why It Works (the science)</a>`
         );
         // Connect-with-the-hosts moved off the main event page into its own
         // route so the hub stays clean. The button preserves the admin key
         // when present so the master keeps the inline-toggle affordance on
         // the next screen.
         if (teamHosts.length > 0) {
-          const hostsHref = adminKey
-            ? `${base}hosts?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(adminKey)}`
-            : `${base}hosts?slug=${encodeURIComponent(slug)}`;
-          buttons.push(`<a class="event-btn hosts" href="${hostsHref}">📞 Connect with the hosts</a>`);
+          buttons.push(`<a class="event-btn hosts" href="${hostsUrl(base, slug, adminKey || undefined)}">📞 Connect with the hosts</a>`);
         }
 
         root.innerHTML = `
@@ -152,7 +152,7 @@ import Base from '../layouts/Base.astro';
         const canvas = document.getElementById('event-qr') as HTMLCanvasElement;
         // QR encodes the clean form (/event/<slug>) so it reads cleanly
         // off a poster. The 404.html SPA-redirect handles the dispatch.
-        const cleanShareUrl = cleanUrl(base, 'event', slug!);
+        const cleanShareUrl = window.location.origin + eventUrl(base, slug!);
         QRCode.toCanvas(canvas, cleanShareUrl, {
           width: 200, margin: 1,
           color: { dark: '#ffffff', light: '#1a252f' },

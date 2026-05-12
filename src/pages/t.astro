@@ -15,6 +15,7 @@ import '../styles/story.css';
     fetchTransformationBySlug,
     fetchDataPoints,
   } from '../lib/supabase.js';
+  import { eventUrl, scienceUrl } from '../lib/urls.js';
 
   const root = document.getElementById('t-root')!;
   const base = import.meta.env.BASE_URL;
@@ -199,8 +200,8 @@ import '../styles/story.css';
           ${t.takeaway_text ? `<p class="takeaway">${escapeHtml(t.takeaway_text)}</p>` : ''}
 
           <div class="footer-cta">
-            <a href="${base}science?slug=${encodeURIComponent(slug)}">The Science →</a>
-            <a href="${base}event?slug=${encodeURIComponent(slug)}" class="secondary">← Back to the event</a>
+            <a href="${scienceUrl(base, slug)}">The Science →</a>
+            <a href="${eventUrl(base, slug)}" class="secondary">← Back to the event</a>
           </div>
         `;
 

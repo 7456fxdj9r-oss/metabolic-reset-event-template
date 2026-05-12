@@ -25,6 +25,10 @@ import Base from '../layouts/Base.astro';
   import { fetchEventBySlug, fetchTransformations, fetchDataPoints, fetchSpeakers, fetchAgendaItems, callFunction } from '../lib/supabase.js';
   import { drawMultiChart } from '../lib/chart.js';
   import { buildRaffleEntriesCsv, downloadCsv } from '../lib/csv.js';
+  import {
+    eventUrl, editUrl as editUrlOf, liveUrl, wheelUrl, posterUrl,
+    cueUrl, raffleUrl,
+  } from '../lib/urls.js';
   import QRCode from 'qrcode';
   import Cropper from 'cropperjs';
   import 'cropperjs/dist/cropper.css';
@@ -424,7 +428,7 @@ import Base from '../layouts/Base.astro';
         }
         let transformations: Transformation[] = await fetchTransformations(ev.id);
 
-        const publicHref = `${base}event?slug=${encodeURIComponent(slug)}`;
+        const publicHref = eventUrl(base, slug);
         root.innerHTML = `
           <header class="head">
             <p class="eyebrow">Event admin</p>
@@ -437,7 +441,7 @@ import Base from '../layouts/Base.astro';
             </div>
             <div class="head-cta">
               <a class="cta-view" href="${publicHref}" target="_blank">👀 View public event page</a>
-              <a class="cta-live" href="${base}live?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}" target="_blank">📊 Live dashboard</a>
+              <a class="cta-live" href="${liveUrl(base, slug, key)}" target="_blank">📊 Live dashboard</a>
             </div>
           </header>
 
@@ -510,11 +514,11 @@ import Base from '../layouts/Base.astro';
               the wall and at the host table.
             </p>
             <div class="wheel-links">
-              <a class="wheel-link live" href="${base}live?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}" target="_blank" rel="noopener">📊 Live event dashboard</a>
-              <a class="wheel-link host" href="${base}wheel?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}" target="_blank" rel="noopener">🎡 Open the wheel (host)</a>
-              <a class="wheel-link viewer" href="${base}wheel?slug=${encodeURIComponent(slug)}" target="_blank" rel="noopener">👀 Audience view</a>
-              <a class="wheel-link poster" href="${base}poster?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}" target="_blank" rel="noopener">🖨 Print poster</a>
-              <a class="wheel-link poster" href="${base}cue?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}" target="_blank" rel="noopener">📋 Print cue sheet</a>
+              <a class="wheel-link live" href="${liveUrl(base, slug, key)}" target="_blank" rel="noopener">📊 Live event dashboard</a>
+              <a class="wheel-link host" href="${wheelUrl(base, slug, key)}" target="_blank" rel="noopener">🎡 Open the wheel (host)</a>
+              <a class="wheel-link viewer" href="${wheelUrl(base, slug)}" target="_blank" rel="noopener">👀 Audience view</a>
+              <a class="wheel-link poster" href="${posterUrl(base, slug, key)}" target="_blank" rel="noopener">🖨 Print poster</a>
+              <a class="wheel-link poster" href="${cueUrl(base, slug, key)}" target="_blank" rel="noopener">📋 Print cue sheet</a>
             </div>
           </section>
 
@@ -1188,7 +1192,7 @@ import Base from '../layouts/Base.astro';
           entryCountEl.textContent = String(entries.length);
           if (entries.length === 0) {
             entriesWrap.innerHTML =
-              `<p class="entries-empty">No entries yet. Open the raffle and share <code>${base}raffle?slug=${escapeHtml(slug || '')}</code>.</p>`;
+              `<p class="entries-empty">No entries yet. Open the raffle and share <code>${escapeHtml(raffleUrl(base, slug || ''))}</code>.</p>`;
             return;
           }
           const flagLabels: Record<string, string> = {
@@ -1671,8 +1675,7 @@ import Base from '../layouts/Base.astro';
         let hostsCache: Host[] = [];
 
         function hostUrl(token: string): string {
-          const params = new URLSearchParams({ slug: slug!, key: token });
-          return `${window.location.origin}${base}edit?${params.toString()}`;
+          return window.location.origin + editUrlOf(base, slug!, token);
         }
 
         function renderHosts(hosts: Host[]) {
@@ -2284,8 +2287,8 @@ import Base from '../layouts/Base.astro';
 
         // ---------- Share & save links section ----------
         const origin = window.location.origin;
-        const publicUrl = `${origin}${base}event?slug=${encodeURIComponent(slug)}`;
-        const editUrl = `${origin}${base}edit?slug=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}`;
+        const publicUrl = origin + eventUrl(base, slug);
+        const editUrl = origin + editUrlOf(base, slug, key);
         (document.getElementById('public-url') as HTMLInputElement).value = publicUrl;
         (document.getElementById('edit-url') as HTMLInputElement).value = editUrl;
 
