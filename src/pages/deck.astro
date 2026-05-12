@@ -135,7 +135,6 @@ import Base from '../layouts/Base.astro';
                   <p class="speaker-time">${escapeHtml(it.time_label)}</p>
                   <h2 class="speaker-name">${escapeHtml(sp.name)}</h2>
                   <p class="speaker-topic">${escapeHtml(it.segment)}</p>
-                  ${it.details ? `<p class="speaker-detail">${escapeHtml(it.details.slice(0, 200))}${it.details.length > 200 ? '…' : ''}</p>` : ''}
                 </div>
               </div>`;
           } else {
@@ -301,17 +300,10 @@ import Base from '../layouts/Base.astro';
     color: var(--accent); font-weight: 700; line-height: 1.2;
     overflow-wrap: anywhere;
   }
-  .speaker-detail {
-    margin-top: 20px;
-    font-size: clamp(14px, 2vh, 20px);
-    color: #bdc3c7; line-height: 1.5;
-    max-width: 36em;
-  }
   @media (max-width: 900px), (orientation: portrait) {
     .speaker-slide { grid-template-columns: 1fr; gap: 30px; }
     .speaker-photo { justify-self: center; max-width: 50vh; }
     .speaker-meta { text-align: center; }
-    .speaker-detail { margin-left: auto; margin-right: auto; }
   }
 
   /* Section slide (no matched speaker) */
