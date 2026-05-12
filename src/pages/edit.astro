@@ -782,6 +782,27 @@ import Base from '../layouts/Base.astro';
                 Website
                 <input type="url" name="organizer_website" value="${escapeHtml(ev.organizer_website || '')}" placeholder="https://example.com" />
               </label>
+              <div class="photo-slot organizer-slot" data-organizer-slot>
+                <span class="slot-label">Photo</span>
+                <div class="photo-preview speaker-preview">
+                  ${ev.organizer_photo_url
+                    ? `<img src="${escapeHtml(ev.organizer_photo_url)}" alt="" />`
+                    : '<div class="empty">No photo</div>'}
+                </div>
+                <div class="photo-actions">
+                  <label class="upload-btn">
+                    <input type="file" accept="image/*" data-organizer-slot hidden />
+                    <span class="upload-label">${ev.organizer_photo_url ? 'Replace photo' : 'Upload photo'}</span>
+                  </label>
+                  ${ev.organizer_photo_url
+                    ? '<button type="button" class="upload-btn recrop-btn" data-recrop-organizer>✂️ Re-crop current</button>'
+                    : ''}
+                </div>
+                ${ev.organizer_photo_url
+                  ? '<span class="recrop-hint">Re-crop adjusts the saved photo (1200px wide). To recover area outside the original crop, use Replace photo with the original file.</span>'
+                  : ''}
+                <span class="upload-status" data-organizer-slot></span>
+              </div>
               <label class="checkbox-line">
                 <input type="checkbox" name="show_organizer_badge" ${ev.show_organizer_badge === false ? '' : 'checked'} />
                 <span>Show <strong>ORGANIZER</strong> badge on the public page</span>
@@ -2275,6 +2296,85 @@ import Base from '../layouts/Base.astro';
             organizerSaveBtn.disabled = false;
           }
         });
+
+        // Organizer photo — uploaded inline (not gated on the Save button)
+        // so the user can fix a crop without committing every text field.
+        // Patches events.organizer_photo_url via upload-event-photo kind=organizer.
+        let organizerPhotoUrl: string | null = ev.organizer_photo_url || null;
+        const organizerSlot = organizerForm.querySelector('.organizer-slot') as HTMLElement;
+        async function uploadOrganizerCrop(file: File, statusEl: HTMLElement, previewEl: HTMLElement, labelEl: HTMLElement, recropExisting: boolean): Promise<void> {
+          statusEl.textContent = 'Opening crop tool…';
+          statusEl.className = 'upload-status';
+          const cropped = await openCropModal(file, 1, recropExisting ? `Re-crop your photo` : `Crop your photo`);
+          if (!cropped) { statusEl.textContent = ''; return; }
+          statusEl.textContent = 'Uploading…';
+          const compressed = await compressImage(new File([cropped], 'photo.jpg', { type: 'image/jpeg' }), 1200, 0.82);
+          const data_b64 = await blobToBase64(compressed);
+          const res = await callFunction('upload-event-photo', {
+            slug, edit_token: key, kind: 'organizer',
+            filename: 'photo.jpg', data: data_b64,
+          });
+          const url = res.url as string;
+          organizerPhotoUrl = url;
+          // Cache-bust so a re-crop renders the new image immediately.
+          previewEl.innerHTML = `<img src="${escapeHtml(url)}?r=${Date.now()}" alt="" />`;
+          labelEl.textContent = 'Replace photo';
+          statusEl.textContent = recropExisting ? 'Re-cropped ✓' : 'Uploaded ✓';
+          statusEl.className = 'upload-status ok';
+          // Surface the re-crop button now that a saved photo exists.
+          if (!organizerSlot.querySelector('[data-recrop-organizer]')) {
+            const actions = organizerSlot.querySelector('.photo-actions');
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'upload-btn recrop-btn';
+            btn.setAttribute('data-recrop-organizer', '');
+            btn.textContent = '✂️ Re-crop current';
+            btn.addEventListener('click', handleOrganizerRecrop);
+            actions?.appendChild(btn);
+          }
+        }
+        const organizerFileInput = organizerSlot.querySelector('input[type=file][data-organizer-slot]') as HTMLInputElement;
+        organizerFileInput.addEventListener('change', async (changeEv) => {
+          const file = (changeEv.target as HTMLInputElement).files?.[0];
+          if (!file) return;
+          (changeEv.target as HTMLInputElement).value = '';
+          const previewEl = organizerSlot.querySelector('.photo-preview') as HTMLElement;
+          const labelEl = organizerSlot.querySelector('.upload-label') as HTMLElement;
+          const statusEl = organizerSlot.querySelector('.upload-status') as HTMLElement;
+          try {
+            await uploadOrganizerCrop(file, statusEl, previewEl, labelEl, false);
+          } catch (err) {
+            const msg = (err as Error).message;
+            statusEl.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+            statusEl.className = 'upload-status err';
+          }
+        });
+        async function handleOrganizerRecrop(): Promise<void> {
+          if (!organizerPhotoUrl) return;
+          const previewEl = organizerSlot.querySelector('.photo-preview') as HTMLElement;
+          const labelEl = organizerSlot.querySelector('.upload-label') as HTMLElement;
+          const statusEl = organizerSlot.querySelector('.upload-status') as HTMLElement;
+          const recropBtn = organizerSlot.querySelector('[data-recrop-organizer]') as HTMLButtonElement | null;
+          if (recropBtn) recropBtn.disabled = true;
+          statusEl.textContent = 'Fetching current photo…';
+          statusEl.className = 'upload-status';
+          try {
+            const fetchUrl = organizerPhotoUrl + (organizerPhotoUrl.includes('?') ? '&' : '?') + 'r=' + Date.now();
+            const fetched = await fetch(fetchUrl);
+            if (!fetched.ok) throw new Error('Could not load the saved photo (HTTP ' + fetched.status + ')');
+            const blob = await fetched.blob();
+            const file = new File([blob], 'photo.jpg', { type: blob.type || 'image/jpeg' });
+            await uploadOrganizerCrop(file, statusEl, previewEl, labelEl, true);
+          } catch (err) {
+            const msg = (err as Error).message;
+            statusEl.textContent = msg.includes('403') ? 'Invalid edit link.' : ('Could not re-crop: ' + msg);
+            statusEl.className = 'upload-status err';
+          } finally {
+            if (recropBtn) recropBtn.disabled = false;
+          }
+        }
+        const initialRecropBtn = organizerSlot.querySelector('[data-recrop-organizer]') as HTMLButtonElement | null;
+        if (initialRecropBtn) initialRecropBtn.addEventListener('click', handleOrganizerRecrop);
 
         // ---------- Co-hosts ----------
         type Host = {

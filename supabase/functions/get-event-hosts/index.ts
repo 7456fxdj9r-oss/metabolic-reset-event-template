@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
 
   const { data: ev } = await supabase
     .from('events')
-    .select('id, primary_host_id, show_organizer_badge, organizer_name, organizer_email, organizer_phone, organizer_website, organizer_bio')
+    .select('id, primary_host_id, show_organizer_badge, organizer_name, organizer_email, organizer_phone, organizer_website, organizer_bio, organizer_photo_url')
     .eq('slug', slug).maybeSingle();
   if (!ev) return errResp(404, 'event not found');
 
@@ -72,6 +72,7 @@ Deno.serve(async (req) => {
           email: ev.organizer_email,
           website: ev.organizer_website,
           bio: ev.organizer_bio,
+          photo_url: ev.organizer_photo_url,
           _is_master: true,
         }
       : null;

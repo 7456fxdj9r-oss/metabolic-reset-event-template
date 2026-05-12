@@ -6,6 +6,8 @@
 //     → legacy single-prize photo, patches events.raffle_prize_photo_url
 //   { slug, edit_token, kind: 'prize_item', prize_id, filename, data }
 //     → multi-prize: patches raffle_prizes.photo_url for the given row
+//   { slug, edit_token, kind: 'organizer',  filename, data }
+//     → master organizer headshot, patches events.organizer_photo_url
 //
 // Writes to event-photos/<event_slug>/<kind>-<id>-<ts>.<ext>.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -29,8 +31,9 @@ const ALLOWED_EXTS: Record<string, string> = {
 // (see below).
 const KIND_COLUMN: Record<string, string> = {
   prize: 'raffle_prize_photo_url',
+  organizer: 'organizer_photo_url',
 };
-const VALID_KINDS = ['prize', 'prize_item'];
+const VALID_KINDS = ['prize', 'prize_item', 'organizer'];
 
 function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;

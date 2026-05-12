@@ -71,6 +71,7 @@ Deno.serve(async (req) => {
   if ('show_organizer_badge' in body) patch.show_organizer_badge = !!body.show_organizer_badge;
   for (const k of [
     'organizer_name', 'organizer_email', 'organizer_phone', 'organizer_website', 'organizer_bio',
+    'organizer_photo_url',
   ]) {
     if (k in body) patch[k] = body[k] || null;
   }
