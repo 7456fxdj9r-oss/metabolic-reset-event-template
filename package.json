@@ -14,8 +14,10 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.3",
+    "@types/sortablejs": "^1.15.9",
     "astro": "^6.2.2",
     "cropperjs": "^1.6.2",
-    "qrcode": "^1.5.4"
+    "qrcode": "^1.5.4",
+    "sortablejs": "^1.15.7"
   }
 }

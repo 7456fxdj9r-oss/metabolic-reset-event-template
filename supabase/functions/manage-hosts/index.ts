@@ -83,8 +83,9 @@ Deno.serve(async (req) => {
   if (action === 'list') {
     const { data: rows, error } = await supabase
       .from('hosts')
-      .select('id, name, email, phone, bio, website, photo_url, host_token, created_at')
+      .select('id, name, email, phone, bio, website, photo_url, display_order, host_token, created_at')
       .eq('event_id', ev.id)
+      .order('display_order', { ascending: true })
       .order('created_at', { ascending: true });
     if (error) return errResp(500, error.message);
     // Co-hosts see other host names but never their tokens.
@@ -96,6 +97,7 @@ Deno.serve(async (req) => {
       bio: row.bio,
       website: row.website,
       photo_url: row.photo_url,
+      display_order: row.display_order,
       created_at: row.created_at,
       host_token: isMaster ? row.host_token : null,
     }));
@@ -116,10 +118,16 @@ Deno.serve(async (req) => {
     // 16 chars from a 62-symbol alphabet ≈ 95 bits of entropy. Matches
     // the master edit_token format and keeps cohost edit links short.
     const host_token = randomToken(16);
+    // Auto-set display_order to (max + 1) so new co-hosts append.
+    const { data: maxOrder } = await supabase
+      .from('hosts').select('display_order')
+      .eq('event_id', ev.id)
+      .order('display_order', { ascending: false }).limit(1).maybeSingle();
+    const display_order = (maxOrder?.display_order ?? -1) + 1;
     const { data: inserted, error } = await supabase
       .from('hosts')
-      .insert({ event_id: ev.id, host_token, name, email, phone, bio, website })
-      .select('id, name, email, phone, bio, website, photo_url, host_token, created_at')
+      .insert({ event_id: ev.id, host_token, name, email, phone, bio, website, display_order })
+      .select('id, name, email, phone, bio, website, photo_url, display_order, host_token, created_at')
       .single();
     if (error) return errResp(500, error.message);
     return ok({ host: inserted });
@@ -160,11 +168,15 @@ Deno.serve(async (req) => {
       const v = body.photo_url == null ? null : String(body.photo_url).trim();
       patch.photo_url = v || null;
     }
+    if ('display_order' in body) {
+      const n = Number(body.display_order);
+      patch.display_order = Number.isFinite(n) ? Math.floor(n) : 0;
+    }
     if (Object.keys(patch).length === 0) return errResp(400, 'no fields to update');
 
     const { data: upd, error } = await supabase
       .from('hosts').update(patch).eq('id', host_id)
-      .select('id, name, email, phone, bio, website, photo_url, host_token, created_at').single();
+      .select('id, name, email, phone, bio, website, photo_url, display_order, host_token, created_at').single();
     if (error) return errResp(500, error.message);
     return ok({ host: upd });
   }

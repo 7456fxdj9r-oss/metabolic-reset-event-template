@@ -44,8 +44,9 @@ Deno.serve(async (req) => {
   if (!ev) return errResp(404, 'event not found');
 
   const { data: cohosts, error } = await supabase
-    .from('hosts').select('id, name, phone, email, bio, website, photo_url')
+    .from('hosts').select('id, name, phone, email, bio, website, photo_url, display_order')
     .eq('event_id', ev.id)
+    .order('display_order', { ascending: true })
     .order('created_at', { ascending: true });
   if (error) return errResp(500, error.message);
 

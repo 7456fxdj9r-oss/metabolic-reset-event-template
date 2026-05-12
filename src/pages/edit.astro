@@ -32,6 +32,41 @@ import Base from '../layouts/Base.astro';
   import QRCode from 'qrcode';
   import Cropper from 'cropperjs';
   import 'cropperjs/dist/cropper.css';
+  import Sortable from 'sortablejs';
+
+  // Drag handle for sortable .t-row lists (speakers, transformations,
+  // hosts). The handle is the only draggable area — clicking edit/delete
+  // buttons elsewhere on the row stays a click, not a drag.
+  function dragHandleHtml(): string {
+    return '<button type="button" class="drag-handle" aria-label="Drag to reorder" title="Drag to reorder">⋮⋮</button>';
+  }
+
+  // Wire Sortable on a list. onReorder receives an array of
+  // { id, display_order } pairs ordered by their new position; the
+  // caller is responsible for persisting them (and ideally updating
+  // local state optimistically). Returns the Sortable instance so the
+  // caller can destroy it before re-rendering the list.
+  function wireSortable(
+    list: HTMLElement,
+    onReorder: (order: Array<{ id: string; display_order: number }>) => void,
+  ): Sortable {
+    return Sortable.create(list, {
+      handle: '.drag-handle',
+      animation: 150,
+      ghostClass: 'sortable-ghost',
+      chosenClass: 'sortable-chosen',
+      dragClass: 'sortable-drag',
+      onEnd: () => {
+        const items = Array.from(list.querySelectorAll(':scope > li[data-id]'))
+          .map((li, idx) => ({
+            id: (li as HTMLElement).getAttribute('data-id') || '',
+            display_order: idx,
+          }))
+          .filter((x) => x.id);
+        onReorder(items);
+      },
+    });
+  }
 
   type DataPoint = { metric: 'weight' | 'bf' | 'lean'; date: string; value: number };
 
@@ -401,6 +436,7 @@ import Base from '../layouts/Base.astro';
     const thumb = t.before_photo_url || t.after_photo_url;
     return `
       <li class="t-row" data-id="${t.id}">
+        ${dragHandleHtml()}
         ${thumb ? `<img class="t-thumb" src="${escapeHtml(thumb)}" alt="" />` : '<div class="t-thumb empty"></div>'}
         <div class="t-info">
           <strong>${escapeHtml(t.name)}</strong>
@@ -784,11 +820,34 @@ import Base from '../layouts/Base.astro';
           }
         }
 
+        let tSortable: Sortable | null = null;
         function renderList() {
+          if (tSortable) { tSortable.destroy(); tSortable = null; }
           if (transformations.length === 0) {
             list.innerHTML = '<li class="t-empty">No transformations yet. Add one above.</li>';
           } else {
             list.innerHTML = transformations.map(transformationRowHtml).join('');
+            tSortable = wireSortable(list, async (order) => {
+              // Optimistic local reorder.
+              const byId = new Map(transformations.map((t) => [t.id, t]));
+              transformations = order.map((o) => {
+                const t = byId.get(o.id)!;
+                return { ...t, display_order: o.display_order };
+              });
+              try {
+                await Promise.all(order.map((o) =>
+                  callFunction('manage-transformation', {
+                    slug, edit_token: key, action: 'update',
+                    transformation: { id: o.id, display_order: o.display_order },
+                  })
+                ));
+              } catch (err) {
+                console.error('Reorder transformations failed:', err);
+                // Restore by refetch on failure.
+                transformations = await fetchTransformations(ev.id);
+                renderList();
+              }
+            });
           }
           updateStatusPills();
         }
@@ -1824,6 +1883,7 @@ import Base from '../layouts/Base.astro';
           if (sp.email) contactBits.push(`✉️ ${escapeHtml(sp.email)}`);
           return `
             <li class="t-row" data-id="${sp.id}">
+              ${dragHandleHtml()}
               ${sp.photo_url
                 ? `<img class="t-thumb" src="${escapeHtml(sp.photo_url)}" alt="" style="border-radius:50%;width:56px;height:56px;" />`
                 : '<div class="t-thumb empty" style="border-radius:50%;width:56px;height:56px;"></div>'}
@@ -1839,11 +1899,32 @@ import Base from '../layouts/Base.astro';
             </li>`;
         }
 
+        let sSortable: Sortable | null = null;
         function renderSpeakerList() {
+          if (sSortable) { sSortable.destroy(); sSortable = null; }
           if (speakers.length === 0) {
             sList.innerHTML = '<li class="t-empty">No speakers yet.</li>';
           } else {
             sList.innerHTML = speakers.map(speakerRowHtml).join('');
+            sSortable = wireSortable(sList, async (order) => {
+              const byId = new Map(speakers.map((sp) => [sp.id, sp]));
+              speakers = order.map((o) => {
+                const sp = byId.get(o.id)!;
+                return { ...sp, display_order: o.display_order };
+              });
+              try {
+                await Promise.all(order.map((o) =>
+                  callFunction('manage-speakers', {
+                    slug, edit_token: key, action: 'update',
+                    speaker: { id: o.id, display_order: o.display_order },
+                  })
+                ));
+              } catch (err) {
+                console.error('Reorder speakers failed:', err);
+                speakers = await fetchSpeakers(ev.id);
+                renderSpeakerList();
+              }
+            });
           }
           updateStatusPills();
         }
@@ -2152,6 +2233,7 @@ import Base from '../layouts/Base.astro';
           bio: string | null;
           website: string | null;
           photo_url: string | null;
+          display_order: number;
           host_token: string | null; // null when the viewer isn't the master
           created_at: string;
         };
@@ -2163,6 +2245,7 @@ import Base from '../layouts/Base.astro';
         let primaryHostId: string | null = null;
         let hostsCache: Host[] = [];
         let pendingHostPhoto: File | null = null;
+        let hostsSortable: Sortable | null = null;
 
         function hostUrl(token: string): string {
           return window.location.origin + editUrlOf(base, slug!, token);
@@ -2365,6 +2448,7 @@ import Base from '../layouts/Base.astro';
             if (h.website) contactBits.push(`🌐 ${escapeHtml(h.website)}`);
             return `
               <li class="t-row host-row ${isCurrentOrganizer ? 'is-organizer' : ''}" data-id="${h.id}">
+                ${isMaster ? dragHandleHtml() : ''}
                 ${h.photo_url
                   ? `<img class="t-thumb" src="${escapeHtml(h.photo_url)}" alt="" style="border-radius:50%;width:56px;height:56px;" />`
                   : '<div class="t-thumb empty" style="border-radius:50%;width:56px;height:56px;"></div>'}
@@ -2394,6 +2478,30 @@ import Base from '../layouts/Base.astro';
                   : ''}
               </li>`;
           }).join('');
+          // Drag-to-reorder is master-only (only the master can update the
+          // hosts table). Skip Sortable wiring for co-host viewers — their
+          // rows render without a drag handle anyway.
+          if (hostsSortable) { hostsSortable.destroy(); hostsSortable = null; }
+          if (isMaster && hosts.length > 1) {
+            hostsSortable = wireSortable(hostsList as HTMLElement, async (order) => {
+              const byId = new Map(hostsCache.map((h) => [h.id, h]));
+              hostsCache = order.map((o) => {
+                const h = byId.get(o.id)!;
+                return { ...h, display_order: o.display_order };
+              });
+              try {
+                await Promise.all(order.map((o) =>
+                  callFunction('manage-hosts', {
+                    slug, edit_token: key, action: 'update',
+                    host_id: o.id, display_order: o.display_order,
+                  })
+                ));
+              } catch (err) {
+                console.error('Reorder hosts failed:', err);
+                await loadHosts();
+              }
+            });
+          }
         }
 
         async function loadHosts() {
@@ -3522,6 +3630,28 @@ import Base from '../layouts/Base.astro';
     border: 1px solid rgba(255,255,255,0.08);
     border-radius: 8px;
   }
+  /* When a row carries a drag handle, the grid grows a 24px leftmost
+     column for it. Agenda rows (no handle yet) keep the original layout. */
+  .t-row:has(> .drag-handle) {
+    grid-template-columns: 24px 56px 1fr auto;
+  }
+  .drag-handle {
+    width: 24px; height: 100%;
+    min-height: 36px;
+    display: flex; align-items: center; justify-content: center;
+    background: transparent; border: none;
+    color: rgba(255,255,255,0.30);
+    font-size: 14px; line-height: 1; font-weight: 700;
+    cursor: grab; user-select: none; touch-action: none;
+    padding: 0;
+    border-radius: 4px;
+  }
+  .drag-handle:hover { color: rgba(255,255,255,0.65); background: rgba(255,255,255,0.05); }
+  .drag-handle:active { cursor: grabbing; }
+  /* Sortable.js state classes */
+  .t-row.sortable-ghost  { opacity: 0.35; background: rgba(243,156,18,0.10); }
+  .t-row.sortable-chosen { border-color: rgba(243,156,18,0.45); }
+  .t-row.sortable-drag   { box-shadow: 0 10px 24px rgba(0,0,0,0.45); }
   .t-thumb {
     width: 56px; height: 72px; object-fit: cover;
     border-radius: 4px; background: rgba(0,0,0,0.4);
