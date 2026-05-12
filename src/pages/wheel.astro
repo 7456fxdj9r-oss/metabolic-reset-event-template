@@ -287,6 +287,48 @@ import Base from '../layouts/Base.astro';
     requestAnimationFrame(frame);
   }
 
+  // "Coming up next" interstitial — shown for ~3s between the host's
+  // Draw click and the wheel actually spinning, so the room can see the
+  // prize before the spin starts. Resolves once the overlay fades, so
+  // the caller can await it and then start the spin.
+  const COMING_UP_MS = 2800;
+  function showComingUpOverlay(prize: {
+    name: string;
+    photo_url: string | null;
+    is_grand: boolean;
+    quantity: number;
+    drawn_count: number;
+  }): Promise<void> {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'coming-up-overlay' + (prize.is_grand ? ' grand' : '');
+      const label = prize.is_grand ? '🏆 The Grand Prize' : '🎯 Coming up next';
+      const qty = prize.quantity || 1;
+      const drawn = prize.drawn_count || 0;
+      const remaining = Math.max(1, qty - drawn);
+      // For multi-quantity, surface which slot we're drawing (e.g. "2 of 3")
+      // so the audience sees we're not done with this prize yet.
+      const qtyLine = qty > 1
+        ? `<p class="coming-up-qty">Drawing ${drawn + 1} of ${qty} · ${remaining} ${remaining === 1 ? 'left' : 'remaining'}</p>`
+        : '';
+      const photoBlock = prize.photo_url
+        ? `<img class="coming-up-photo" src="${escapeHtml(prize.photo_url)}" alt="" />`
+        : '';
+      overlay.innerHTML = `
+        <div class="coming-up-card">
+          <p class="coming-up-label">${label}</p>
+          ${photoBlock}
+          <p class="coming-up-name">${escapeHtml(prize.name)}</p>
+          ${qtyLine}
+          <div class="coming-up-bar"><div class="coming-up-bar-fill"></div></div>
+        </div>`;
+      document.body.appendChild(overlay);
+      // Fade out a hair before removal so the spin doesn't pop in.
+      setTimeout(() => overlay.classList.add('fading'), COMING_UP_MS - 300);
+      setTimeout(() => { overlay.remove(); resolve(); }, COMING_UP_MS);
+    });
+  }
+
   function showWinnerOverlay(winner: {
     first_name: string; prize_won?: string | null; is_grand?: boolean;
   }) {
@@ -383,18 +425,32 @@ import Base from '../layouts/Base.astro';
     duration_ms: number;
   };
 
-  function handleIncomingSpin(payload: SpinPayload) {
-    const winnerIndex = pool.findIndex((p) => p.id === payload.winner_id);
+  async function handleIncomingSpin(payload: SpinPayload) {
+    let winnerIndex = pool.findIndex((p) => p.id === payload.winner_id);
     if (winnerIndex < 0) {
       // Pool drift — refetch then animate based on the refreshed state.
-      callFunction('get-raffle-pool', { slug }).then((data) => {
+      try {
+        const data = await callFunction('get-raffle-pool', { slug });
         pool = data.pool as PoolEntry[];
+        prizes = (data.prizes || []) as Prize[];
         drawWheel();
-        const i2 = pool.findIndex((p) => p.id === payload.winner_id);
-        if (i2 >= 0) runSpin(payload, i2);
-      });
-      return;
+        winnerIndex = pool.findIndex((p) => p.id === payload.winner_id);
+      } catch { /* non-fatal */ }
+      if (winnerIndex < 0) return;
     }
+    // Resolve the prize from cache so the interstitial gets photo + quantity.
+    // Falls back to the broadcast payload alone (legacy single-prize mode
+    // or events without raffle_prizes rows).
+    const cached = payload.prize_id
+      ? prizes.find((p) => p.id === payload.prize_id)
+      : null;
+    await showComingUpOverlay({
+      name: cached?.name || payload.prize_name || payload.winner_prize || 'Prize',
+      photo_url: cached?.photo_url || null,
+      is_grand: cached?.is_grand ?? !!payload.is_grand,
+      quantity: cached?.quantity || 1,
+      drawn_count: cached?.drawn_count || 0,
+    });
     runSpin(payload, winnerIndex);
   }
 
@@ -648,6 +704,83 @@ import Base from '../layouts/Base.astro';
   @keyframes fadein {
     from { opacity: 0; }
     to { opacity: 1; }
+  }
+
+  /* "Coming up next" interstitial — full-screen overlay shown for ~3s
+     between the host's Draw click and the wheel spinning. Auto-removes
+     after the timer; no close button (the spin starts right after). */
+  .coming-up-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.88);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 90;
+    backdrop-filter: blur(8px);
+    animation: comingUpIn 0.35s ease-out;
+    transition: opacity 0.3s ease-out;
+  }
+  .coming-up-overlay.fading { opacity: 0; }
+  @keyframes comingUpIn {
+    from { opacity: 0; transform: scale(0.96); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  .coming-up-card {
+    text-align: center;
+    padding: 24px 28px;
+    max-width: 90vw;
+  }
+  .coming-up-label {
+    font-size: 13px; letter-spacing: 5px; text-transform: uppercase;
+    color: var(--accent); font-weight: 800;
+    margin-bottom: 18px;
+  }
+  .coming-up-overlay.grand .coming-up-label {
+    color: #f1c40f; font-size: 14px;
+  }
+  .coming-up-photo {
+    display: block; margin: 0 auto 18px;
+    max-width: 320px; max-height: 320px;
+    object-fit: contain;
+    border-radius: 14px;
+    background: #fff;
+    padding: 10px;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+  }
+  .coming-up-overlay.grand .coming-up-photo {
+    box-shadow: 0 0 40px rgba(241,196,15,0.35), 0 20px 50px rgba(0,0,0,0.6);
+  }
+  .coming-up-name {
+    font-size: 36px; font-weight: 900;
+    color: #fff; line-height: 1.15;
+    margin-bottom: 10px;
+    overflow-wrap: anywhere;
+  }
+  .coming-up-overlay.grand .coming-up-name {
+    color: #f1c40f; font-size: 42px;
+    text-shadow: 0 0 30px rgba(241,196,15,0.45);
+  }
+  .coming-up-qty {
+    font-size: 14px; color: #bdc3c7; font-weight: 600;
+    margin-bottom: 16px;
+    letter-spacing: 0.5px;
+  }
+  /* Slim progress bar drains from full to empty across the overlay's
+     lifetime — gives the audience a "wheel is about to spin" tell. */
+  .coming-up-bar {
+    width: 220px; height: 4px;
+    margin: 6px auto 0;
+    background: rgba(255,255,255,0.12);
+    border-radius: 2px; overflow: hidden;
+  }
+  .coming-up-bar-fill {
+    height: 100%; width: 100%;
+    background: var(--accent);
+    transform-origin: left center;
+    animation: comingUpBar 2.5s linear forwards;
+  }
+  .coming-up-overlay.grand .coming-up-bar-fill { background: #f1c40f; }
+  @keyframes comingUpBar {
+    from { transform: scaleX(1); }
+    to   { transform: scaleX(0); }
   }
 
   .loading { color: #95a5a6; padding: 60px 0; font-size: 14px; }
