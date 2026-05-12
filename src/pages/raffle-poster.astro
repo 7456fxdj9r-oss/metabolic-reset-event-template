@@ -1,0 +1,309 @@
+---
+// Printable raffle-focused poster. Letter portrait, white background,
+// designed to sit on a table or be taped to a wall. Big prize photo on
+// the left, big QR code on the right — modeled on the Spokane "raffle
+// opener" slide so it reads from across the room.
+//
+// Pulls the grand prize from raffle_prizes (falls back to legacy
+// event.raffle_prize fields for events that haven't migrated). If the
+// raffle is closed OR no prize is defined, still renders — the page is
+// useful for set-up before entries open.
+import Base from '../layouts/Base.astro';
+---
+<Base title="Raffle poster">
+  <div class="page-controls" id="page-controls">
+    <a class="back" id="back-link" href="#">← Back</a>
+    <button id="print-btn" type="button">🖨 Print or Save as PDF</button>
+    <p class="hint">
+      Tip: in the print dialog, set <strong>Background graphics</strong> ON so
+      the orange pill prints. <strong>Portrait</strong> orientation, US Letter.
+      Use <strong>Save as PDF</strong> if you want a file to take to the print shop.
+    </p>
+  </div>
+
+  <main class="poster" id="poster-root">
+    <p class="loading">Loading…</p>
+  </main>
+</Base>
+
+<script>
+  import { fetchEventBySlug, callFunction, fetchRafflePrizes } from '../lib/supabase.js';
+  import { eventUrl, editUrl, raffleUrl } from '../lib/urls.js';
+  import QRCode from 'qrcode';
+
+  type Prize = {
+    id: string; name: string; description: string | null;
+    photo_url: string | null;
+    is_grand: boolean;
+  };
+
+  const root = document.getElementById('poster-root')!;
+  const base = import.meta.env.BASE_URL;
+  const params = new URLSearchParams(window.location.search);
+  const slug = params.get('slug');
+  const key = params.get('key'); // optional — controls the back link
+
+  function escapeHtml(s: unknown): string {
+    return String(s ?? '').replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
+    );
+  }
+
+  if (!slug) {
+    root.innerHTML = '<p class="loading err">No event specified.</p>';
+  } else {
+    (async () => {
+      try {
+        const event = await fetchEventBySlug(slug);
+        if (!event) {
+          root.innerHTML = '<p class="loading err">Event not found.</p>';
+          return;
+        }
+        document.title = `Raffle poster — ${event.name}`;
+        const accent = event.accent_color || '#d35400';
+        document.documentElement.style.setProperty('--accent', accent);
+
+        // Back link goes to edit page if we have a key, else the public event.
+        const back = document.getElementById('back-link') as HTMLAnchorElement;
+        back.href = key ? editUrl(base, slug, key) : eventUrl(base, slug);
+        back.textContent = key ? '← Back to edit page' : '← Back to event';
+
+        // Pick the grand prize (or first prize) for the headline image +
+        // name. Falls back to the legacy event.raffle_prize columns for
+        // events that haven't migrated to multi-prize.
+        let prizePhotoUrl: string | null = event.raffle_prize_photo_url || null;
+        let prizeName: string | null = event.raffle_prize || null;
+        try {
+          const prizes = (await fetchRafflePrizes(event.id)) as Prize[];
+          if (prizes.length > 0) {
+            const headline = prizes.find((p) => p.is_grand) || prizes[0];
+            prizePhotoUrl = headline.photo_url || prizePhotoUrl;
+            prizeName = headline.name;
+          }
+        } catch { /* non-fatal — fall back */ }
+
+        // Pull team to attribute "Hosted by …" in the footer.
+        let primary: { name: string | null; phone: string | null } = { name: null, phone: null };
+        try {
+          const hostsRes = await callFunction('get-event-hosts', { slug });
+          const primaryHost = (hostsRes.hosts || []).find((h: { primary?: boolean }) => h.primary);
+          if (primaryHost) primary = { name: primaryHost.name, phone: primaryHost.phone };
+        } catch { /* non-fatal */ }
+
+        // QR encodes the raffle entry URL (not the event hub) — this poster
+        // exists to drive entries, so scan should land on the entry form.
+        const qrTarget = `${window.location.origin}${raffleUrl(base, slug)}`;
+
+        root.innerHTML = `
+          <article class="sheet">
+            <header class="sheet-top">
+              <p class="kicker">${escapeHtml(event.name)}</p>
+              <h1>Raffle</h1>
+            </header>
+
+            <section class="hero">
+              <div class="prize-side">
+                ${prizePhotoUrl
+                  ? `<img class="prize-photo" src="${escapeHtml(prizePhotoUrl)}" alt="${escapeHtml(prizeName || 'Prize')}" />`
+                  : '<div class="prize-photo placeholder">Prize photo</div>'}
+                <span class="prize-label">Tonight's Prize</span>
+                <p class="prize-name">${escapeHtml(prizeName || '—')}</p>
+              </div>
+
+              <div class="qr-side">
+                <canvas id="qr-canvas"></canvas>
+                <p class="scan-cta">📱 Scan to enter</p>
+                <p class="qr-url">${escapeHtml(qrTarget)}</p>
+              </div>
+            </section>
+
+            <footer class="sheet-bottom">
+              ${primary.name ? `<p class="hosted-by">Hosted by ${escapeHtml(primary.name)}${primary.phone ? ` · ${escapeHtml(primary.phone)}` : ''}</p>` : ''}
+            </footer>
+          </article>
+        `;
+
+        const canvas = document.getElementById('qr-canvas') as HTMLCanvasElement;
+        QRCode.toCanvas(canvas, qrTarget, {
+          width: 600, margin: 2,
+          color: { dark: '#1a252f', light: '#ffffff' },
+        }).catch(() => {});
+
+        document.getElementById('print-btn')!.addEventListener('click', () => window.print());
+      } catch (err) {
+        root.innerHTML = `<p class="loading err">${escapeHtml((err as Error).message)}</p>`;
+      }
+    })();
+  }
+</script>
+
+<style is:global>
+  :root { --accent: #d35400; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: #2c3e50; color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  }
+  body { padding: 20px 14px 60px; line-height: 1.4; }
+
+  /* Screen-only controls; hidden when printing */
+  .page-controls {
+    max-width: 720px; margin: 0 auto 16px;
+    background: rgba(0,0,0,0.30);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 10px; padding: 14px 16px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  }
+  .page-controls .back {
+    color: #ecf0f1; text-decoration: none;
+    padding: 8px 14px; font-size: 13px; font-weight: 600;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.15); border-radius: 6px;
+  }
+  .page-controls #print-btn {
+    padding: 10px 18px; font-size: 14px; font-weight: 800;
+    background: var(--accent); color: #fff;
+    border: none; border-radius: 8px; cursor: pointer;
+  }
+  .page-controls .hint {
+    flex-basis: 100%;
+    font-size: 12px; color: #95a5a6; line-height: 1.5;
+  }
+  .page-controls .hint strong { color: #ecf0f1; }
+
+  /* Letter portrait sheet — the printable page itself */
+  main.poster { display: flex; justify-content: center; }
+  .sheet {
+    width: 8.5in;
+    min-height: 11in;
+    background: #ffffff;
+    color: #2c3e50;
+    padding: 0.7in 0.7in 0.5in;
+    display: flex; flex-direction: column;
+    position: relative;
+    overflow: hidden;
+  }
+  /* Accent stripe at the very top */
+  .sheet::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0;
+    height: 14px; background: var(--accent);
+  }
+
+  .sheet-top { text-align: center; margin: 6px 0 0; }
+  .sheet-top .kicker {
+    font-size: 13px; letter-spacing: 4px;
+    text-transform: uppercase; color: #7f8c8d;
+    font-weight: 700; margin-bottom: 6px;
+  }
+  .sheet-top h1 {
+    font-size: 62px; line-height: 1.0;
+    color: #2c3e50; font-weight: 900;
+    letter-spacing: -1px;
+  }
+
+  /* Hero: prize photo on the left, QR on the right.
+     Stacks on screens narrower than the sheet (only happens in screen
+     preview when the browser is < 8.5in; print is always wide enough). */
+  .hero {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.4in;
+    align-items: center;
+    margin-top: 0.45in;
+    flex: 1;
+  }
+  .prize-side { text-align: center; }
+  .prize-photo {
+    width: 100%;
+    max-height: 4.2in;
+    object-fit: contain;
+    border-radius: 16px;
+    background: #f5f5f5;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+    padding: 8px;
+  }
+  .prize-photo.placeholder {
+    height: 3.6in;
+    display: flex; align-items: center; justify-content: center;
+    color: #bdc3c7; font-style: italic; font-size: 16px;
+    border: 2px dashed #bdc3c7;
+  }
+  .prize-label {
+    display: inline-block;
+    margin: 18px 0 8px;
+    padding: 6px 14px;
+    font-size: 13px; font-weight: 800;
+    letter-spacing: 2.5px; text-transform: uppercase;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, white);
+    border-radius: 14px;
+  }
+  .prize-name {
+    font-size: 22px; font-weight: 700;
+    color: #2c3e50; line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+
+  .qr-side { text-align: center; }
+  .qr-side canvas {
+    width: 100% !important;
+    max-width: 3.4in;
+    height: auto !important;
+    background: #fff;
+    padding: 8px;
+    border: 2px solid #ecf0f1;
+    border-radius: 8px;
+  }
+  .scan-cta {
+    margin-top: 14px;
+    font-size: 26px; font-weight: 800;
+    letter-spacing: 1px;
+    color: var(--accent);
+  }
+  .qr-url {
+    margin-top: 6px;
+    font-size: 11px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #7f8c8d;
+    overflow-wrap: anywhere; word-break: break-all;
+  }
+
+  .sheet-bottom {
+    margin-top: auto;
+    text-align: center;
+    padding-top: 18px;
+    border-top: 1px solid #ecf0f1;
+  }
+  .sheet-bottom .hosted-by {
+    font-size: 13px; color: #7f8c8d;
+    letter-spacing: 0.5px;
+  }
+
+  .loading { color: #95a5a6; text-align: center; padding: 60px 0; font-size: 14px; }
+  .loading.err { color: #e74c3c; }
+
+  /* Print rules: hide the screen controls, drop the dark page chrome,
+     let the .sheet fill the page. */
+  @media print {
+    @page { size: letter portrait; margin: 0; }
+    html, body { background: #fff !important; padding: 0 !important; }
+    .page-controls { display: none !important; }
+    main.poster { display: block; }
+    .sheet {
+      width: 100%;
+      min-height: 100vh;
+      padding: 0.5in 0.6in 0.4in;
+      page-break-after: avoid;
+    }
+    .sheet::before { height: 18px; }
+  }
+
+  /* Tighten on tablet-ish previews (still > sheet width but small) */
+  @media (max-width: 9in) {
+    .sheet { width: 100%; padding: 0.5in 0.4in; }
+    .sheet-top h1 { font-size: 48px; }
+    .hero { gap: 0.3in; }
+    .scan-cta { font-size: 22px; }
+  }
+</style>

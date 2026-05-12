@@ -50,7 +50,8 @@ export const raffleMeUrl = (base, slug, token) =>
   `${base}raffle/me/${enc(slug)}/${enc(token)}`;
 
 // Host-only pages — always require key.
-export const editUrl   = (base, slug, key) => `${base}edit/${enc(slug)}/${enc(key)}`;
-export const liveUrl   = (base, slug, key) => `${base}live/${enc(slug)}/${enc(key)}`;
-export const posterUrl = (base, slug, key) => `${base}poster/${enc(slug)}/${enc(key)}`;
-export const cueUrl    = (base, slug, key) => `${base}cue/${enc(slug)}/${enc(key)}`;
+export const editUrl         = (base, slug, key) => `${base}edit/${enc(slug)}/${enc(key)}`;
+export const liveUrl         = (base, slug, key) => `${base}live/${enc(slug)}/${enc(key)}`;
+export const posterUrl       = (base, slug, key) => `${base}poster/${enc(slug)}/${enc(key)}`;
+export const rafflePosterUrl = (base, slug, key) => `${base}raffle-poster/${enc(slug)}/${enc(key)}`;
+export const cueUrl          = (base, slug, key) => `${base}cue/${enc(slug)}/${enc(key)}`;
