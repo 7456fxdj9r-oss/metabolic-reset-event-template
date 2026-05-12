@@ -3821,6 +3821,22 @@ import Base from '../layouts/Base.astro';
   .t-row.sortable-ghost  { opacity: 0.35; background: rgba(243,156,18,0.10); }
   .t-row.sortable-chosen { border-color: rgba(243,156,18,0.45); }
   .t-row.sortable-drag   { box-shadow: 0 10px 24px rgba(0,0,0,0.45); }
+
+  /* Mobile layout: the per-row actions column (Edit/Delete/etc.) drops
+     to its own row below the info, full-width, right-aligned. Otherwise
+     names + dates get crushed against the buttons at narrow widths. */
+  @media (max-width: 520px) {
+    .t-row { grid-template-columns: 56px 1fr; }
+    .t-row:has(> .drag-handle) { grid-template-columns: 24px 56px 1fr; }
+    .t-row .t-actions {
+      grid-column: 1 / -1;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      padding-top: 8px;
+      margin-top: 2px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+    }
+  }
   .t-thumb {
     width: 56px; height: 72px; object-fit: cover;
     border-radius: 4px; background: rgba(0,0,0,0.4);
