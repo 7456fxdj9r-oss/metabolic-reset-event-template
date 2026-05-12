@@ -497,6 +497,22 @@ import Base from '../layouts/Base.astro';
             </div>
           </details>
 
+          <section class="card day-of-card">
+            <h2>Day-of toolkit <span class="audience-tag host-only">Host only</span></h2>
+            <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;">
+              Everything you'll open the morning of your event. Live dashboard
+              tracks entries; the wheel is for drawings; print materials go on
+              the wall and at the host table.
+            </p>
+            <div class="wheel-links">
+              <a class="wheel-link live" href="${liveUrl(base, slug, key)}" target="_blank" rel="noopener">📊 Live event dashboard</a>
+              <a class="wheel-link host" href="${wheelUrl(base, slug, key)}" target="_blank" rel="noopener">🎡 Open the wheel (host)</a>
+              <a class="wheel-link viewer" href="${wheelUrl(base, slug)}" target="_blank" rel="noopener">👀 Audience view</a>
+              <a class="wheel-link poster" href="${posterUrl(base, slug, key)}" target="_blank" rel="noopener">🖨 Print poster</a>
+              <a class="wheel-link poster" href="${cueUrl(base, slug, key)}" target="_blank" rel="noopener">📋 Print cue sheet</a>
+            </div>
+          </section>
+
           <section class="card">
             <h2>Event details <span class="audience-tag">Public</span></h2>
             <form id="event-form" novalidate>
@@ -572,22 +588,6 @@ import Base from '../layouts/Base.astro';
             </div>
             <div id="a-form-host"></div>
             <ul id="a-list" class="t-list"></ul>
-          </section>
-
-          <section class="card day-of-card">
-            <h2>Day-of toolkit <span class="audience-tag host-only">Host only</span></h2>
-            <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;">
-              Everything you'll open the morning of your event. Live dashboard
-              tracks entries; the wheel is for drawings; print materials go on
-              the wall and at the host table.
-            </p>
-            <div class="wheel-links">
-              <a class="wheel-link live" href="${liveUrl(base, slug, key)}" target="_blank" rel="noopener">📊 Live event dashboard</a>
-              <a class="wheel-link host" href="${wheelUrl(base, slug, key)}" target="_blank" rel="noopener">🎡 Open the wheel (host)</a>
-              <a class="wheel-link viewer" href="${wheelUrl(base, slug)}" target="_blank" rel="noopener">👀 Audience view</a>
-              <a class="wheel-link poster" href="${posterUrl(base, slug, key)}" target="_blank" rel="noopener">🖨 Print poster</a>
-              <a class="wheel-link poster" href="${cueUrl(base, slug, key)}" target="_blank" rel="noopener">📋 Print cue sheet</a>
-            </div>
           </section>
 
           <section class="card">
