@@ -48,7 +48,7 @@ Deno.serve(async (req) => {
 
   const { data: rows, error } = await supabase
     .from('raffle_entries')
-    .select('id, name, drawn, prize_won')
+    .select('id, name, drawn, prize_won, prize_id')
     .eq('event_id', ev.id)
     .order('submitted_at', { ascending: true });
   if (error) return errResp(500, error.message);
@@ -68,10 +68,23 @@ Deno.serve(async (req) => {
   // Empty list = single-prize legacy mode (events.raffle_prize text only).
   const { data: prizes } = await supabase
     .from('raffle_prizes')
-    .select('id, name, photo_url, is_grand, drawn_winner_id')
+    .select('id, name, photo_url, is_grand, quantity, drawn_winner_id')
     .eq('event_id', ev.id)
     .order('display_order', { ascending: true })
     .order('created_at', { ascending: true });
+
+  // Per-prize drawn count from the entries we already pulled — no extra
+  // round-trip. Caller renders "X of N drawn" without doing math.
+  const drawnByPrize: Record<string, number> = {};
+  for (const r of rows || []) {
+    const row = r as { drawn: boolean; prize_id?: string | null };
+    if (row.drawn && row.prize_id) {
+      drawnByPrize[row.prize_id] = (drawnByPrize[row.prize_id] || 0) + 1;
+    }
+  }
+  const prizesOut = (prizes || []).map((p) => ({
+    ...p, drawn_count: drawnByPrize[p.id] || 0,
+  }));
 
   return ok({
     event: {
@@ -82,6 +95,6 @@ Deno.serve(async (req) => {
     },
     pool,
     winners,
-    prizes: prizes || [],
+    prizes: prizesOut,
   });
 });

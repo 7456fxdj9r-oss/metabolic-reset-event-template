@@ -1204,6 +1204,8 @@ import Base from '../layouts/Base.astro';
           photo_url: string | null;
           display_order: number;
           is_grand: boolean;
+          quantity: number;
+          drawn_count: number;
           drawn_winner_id: string | null;
           drawn_at: string | null;
           created_at: string;
@@ -1245,6 +1247,7 @@ import Base from '../layouts/Base.astro';
                 </label>
                 <span class="upload-status" ${slotIdAttr}></span>
               </div>`;
+          const qtyValue = v.quantity || 1;
           return `
             <form class="t-form prize-form" ${p ? `data-id="${p.id}"` : ''} novalidate>
               <h3>${p ? 'Edit prize' : 'New prize'}</h3>
@@ -1255,6 +1258,11 @@ import Base from '../layouts/Base.astro';
               <label>
                 Description <span class="opt">(optional)</span>
                 <textarea name="description" rows="2" maxlength="500" placeholder="What is it, how is it delivered, any restrictions">${escapeHtml(v.description || '')}</textarea>
+              </label>
+              <label class="prize-qty">
+                Quantity <span class="opt">(how many of this prize you have)</span>
+                <input type="number" name="quantity" min="1" max="999" step="1" value="${qtyValue}" ${v.is_grand ? 'disabled' : ''} />
+                <span class="qty-hint">${v.is_grand ? 'Locked to 1 — grand prizes are singular.' : 'Each draw stamps one. The wheel keeps drawing until all are gone.'}</span>
               </label>
               <label class="checkbox-line">
                 <input type="checkbox" name="is_grand" ${v.is_grand ? 'checked' : ''} />
@@ -1270,9 +1278,18 @@ import Base from '../layouts/Base.astro';
         }
 
         function prizeRowHtml(p: Prize): string {
-          const winnerName = p.drawn_winner_id
+          const qty = p.quantity || 1;
+          const drawn = p.drawn_count || 0;
+          const latestWinner = p.drawn_winner_id
             ? (entriesCache.find((e) => e.id === p.drawn_winner_id)?.name || '(winner)')
             : null;
+          // Drawn-status line: "✓ Sara (1 of 3 drawn)" when multi, just
+          // "✓ Sara" when quantity is 1, "— not drawn yet" when none.
+          let drawnLine = '<span class="prize-meta dim">— not drawn yet</span>';
+          if (drawn > 0) {
+            const progress = qty > 1 ? ` (${drawn} of ${qty} drawn)` : '';
+            drawnLine = `<span class="prize-meta">✓ ${escapeHtml(latestWinner || '(winner)')}${progress}</span>`;
+          }
           // Grand prize without a photo is a soft warning — that photo
           // is what shows on the raffle entry page (QR sign-up sheet).
           // Empty spot prize photos are fine; those are shown live.
@@ -1285,9 +1302,12 @@ import Base from '../layouts/Base.astro';
                 ? `<img class="prize-thumb" src="${escapeHtml(p.photo_url)}" alt="" />`
                 : '<div class="prize-thumb empty"></div>'}
               <div class="prize-info">
-                <strong>${escapeHtml(p.name)}</strong>
+                <strong>
+                  ${escapeHtml(p.name)}
+                  ${qty > 1 ? `<span class="prize-badge qty">× ${qty}</span>` : ''}
+                </strong>
                 ${p.is_grand ? '<span class="prize-badge grand">🏆 GRAND</span>' : ''}
-                ${winnerName ? `<span class="prize-meta">✓ ${escapeHtml(winnerName)}</span>` : '<span class="prize-meta dim">— not drawn yet</span>'}
+                ${drawnLine}
                 ${p.description ? `<span class="prize-meta">${escapeHtml(p.description.slice(0, 80))}${p.description.length > 80 ? '…' : ''}</span>` : ''}
                 ${grandNoPhotoWarn}
               </div>
@@ -1318,6 +1338,23 @@ import Base from '../layouts/Base.astro';
             fileInput.addEventListener('change', (e) => {
               if (p) handlePrizePhotoUpload(e, p);
               else handlePendingPrizePhoto(e);
+            });
+          }
+          // Toggle the quantity input live when GRAND PRIZE is checked,
+          // since grand is always singular.
+          const grandCb = form.querySelector('input[name=is_grand]') as HTMLInputElement | null;
+          const qtyInput = form.querySelector('input[name=quantity]') as HTMLInputElement | null;
+          const qtyHint = form.querySelector('.qty-hint') as HTMLElement | null;
+          if (grandCb && qtyInput && qtyHint) {
+            grandCb.addEventListener('change', () => {
+              if (grandCb.checked) {
+                qtyInput.value = '1';
+                qtyInput.disabled = true;
+                qtyHint.textContent = 'Locked to 1 — grand prizes are singular.';
+              } else {
+                qtyInput.disabled = false;
+                qtyHint.textContent = 'Each draw stamps one. The wheel keeps drawing until all are gone.';
+              }
             });
           }
           if (!p) (form.querySelector('input[name=name]') as HTMLInputElement).focus();
@@ -1363,11 +1400,14 @@ import Base from '../layouts/Base.astro';
 
           try {
             const action = editing ? 'update_prize' : 'add_prize';
+            const rawQty = Number(fd.get('quantity'));
+            const qty = Number.isFinite(rawQty) && rawQty >= 1 ? Math.floor(rawQty) : 1;
             const payload: Record<string, unknown> = {
               slug, edit_token: key, action,
               name: fd.get('name'),
               description: fd.get('description') || null,
               is_grand: fd.get('is_grand') === 'on',
+              quantity: qty,
             };
             if (editing) payload.prize_id = editing.id;
 
@@ -1471,8 +1511,9 @@ import Base from '../layouts/Base.astro';
         async function handlePrizeDelete(id: string) {
           const p = prizes.find((x) => x.id === id);
           if (!p) return;
-          if (p.drawn_winner_id) {
-            if (!confirm(`"${p.name}" already has a winner. Deleting it will clear that winner's prize attribution. Delete anyway?`)) return;
+          if (p.drawn_count > 0) {
+            const noun = p.drawn_count === 1 ? 'winner' : 'winners';
+            if (!confirm(`"${p.name}" already has ${p.drawn_count} ${noun}. Deleting it will clear their prize attribution. Delete anyway?`)) return;
           } else {
             if (!confirm(`Delete the "${p.name}" prize?`)) return;
           }
@@ -3357,6 +3398,25 @@ import Base from '../layouts/Base.astro';
     background: rgba(243,156,18,0.20); color: var(--accent, #f39c12);
     border: 1px solid rgba(243,156,18,0.5);
     margin-top: 1px;
+  }
+  /* "× 3" quantity badge next to the prize name when > 1 */
+  .prize-badge.qty {
+    display: inline-block; vertical-align: middle;
+    margin-left: 6px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.5px;
+    padding: 1px 7px; border-radius: 8px;
+    background: rgba(255,255,255,0.10); color: #ecf0f1;
+    border: 1px solid rgba(255,255,255,0.18);
+  }
+  /* Quantity input + helper text inside the prize form */
+  .prize-qty input[type="number"] {
+    max-width: 7em;
+  }
+  .prize-qty input[disabled] { opacity: 0.5; cursor: not-allowed; }
+  .prize-qty .qty-hint {
+    display: block;
+    font-size: 11px; color: #95a5a6; font-style: italic;
+    margin-top: 4px; line-height: 1.4;
   }
   .prize-meta { font-size: 12px; color: #ecf0f1; }
   .prize-meta.dim { color: #95a5a6; font-style: italic; }

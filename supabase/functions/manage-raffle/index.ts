@@ -14,9 +14,12 @@
 //   clear          → wipe all entries (resets between dry-runs).
 //
 // Prize-list actions:
-//   list_prizes
-//   add_prize    { name, description?, photo_url?, is_grand? }
-//   update_prize { prize_id, name?, description?, photo_url?, is_grand?, display_order? }
+//   list_prizes                         returns prizes[] each with drawn_count
+//                                       (number of entries currently stamped
+//                                       to that prize). Caller compares to
+//                                       quantity to know when a prize is done.
+//   add_prize    { name, description?, photo_url?, is_grand?, quantity? }
+//   update_prize { prize_id, name?, description?, photo_url?, is_grand?, display_order?, quantity? }
 //   remove_prize { prize_id }
 //   set_grand    { prize_id | null }   convenience: makes ONE prize the
 //                                       grand and clears the flag on
@@ -143,12 +146,25 @@ Deno.serve(async (req) => {
   if (action === 'list_prizes') {
     const { data: prizes, error } = await supabase
       .from('raffle_prizes')
-      .select('id, name, description, photo_url, display_order, is_grand, drawn_winner_id, drawn_at, created_at')
+      .select('id, name, description, photo_url, display_order, is_grand, quantity, drawn_winner_id, drawn_at, created_at')
       .eq('event_id', ev.id)
       .order('display_order', { ascending: true })
       .order('created_at', { ascending: true });
     if (error) return errResp(500, error.message);
-    return ok({ prizes: prizes || [] });
+    // Tally drawn entries per prize so the caller can render "X of N drawn"
+    // without doing per-prize queries client-side. Bounded by entry count.
+    const { data: drawnRows } = await supabase
+      .from('raffle_entries').select('prize_id')
+      .eq('event_id', ev.id).eq('drawn', true).not('prize_id', 'is', null);
+    const drawnByPrize: Record<string, number> = {};
+    for (const r of drawnRows || []) {
+      const pid = (r as { prize_id: string }).prize_id;
+      drawnByPrize[pid] = (drawnByPrize[pid] || 0) + 1;
+    }
+    const out = (prizes || []).map((p) => ({
+      ...p, drawn_count: drawnByPrize[p.id] || 0,
+    }));
+    return ok({ prizes: out });
   }
 
   if (action === 'add_prize') {
@@ -157,6 +173,12 @@ Deno.serve(async (req) => {
     const description = body.description ? String(body.description).trim() : null;
     const photo_url = body.photo_url ? String(body.photo_url).trim() : null;
     const is_grand = !!body.is_grand;
+    // Grand prizes are singular by definition — clamp to 1 regardless of
+    // what was sent. Spot prizes default to 1, max 999 to keep input sane.
+    let quantity = Math.floor(Number(body.quantity ?? 1));
+    if (!Number.isFinite(quantity) || quantity < 1) quantity = 1;
+    if (quantity > 999) quantity = 999;
+    if (is_grand) quantity = 1;
     // If marking as grand, clear it on every existing prize for this event
     // first so the partial-unique index isn't violated.
     if (is_grand) {
@@ -176,19 +198,19 @@ Deno.serve(async (req) => {
       .from('raffle_prizes')
       .insert({
         event_id: ev.id, name, description, photo_url,
-        is_grand, display_order: nextOrder,
+        is_grand, quantity, display_order: nextOrder,
       })
-      .select('id, name, description, photo_url, display_order, is_grand, drawn_winner_id, drawn_at, created_at')
+      .select('id, name, description, photo_url, display_order, is_grand, quantity, drawn_winner_id, drawn_at, created_at')
       .single();
     if (error) return errResp(500, error.message);
-    return ok({ prize: inserted });
+    return ok({ prize: { ...inserted, drawn_count: 0 } });
   }
 
   if (action === 'update_prize') {
     const prize_id = String(body.prize_id || '').trim();
     if (!prize_id) return errResp(400, 'prize_id required');
     const { data: existing } = await supabase
-      .from('raffle_prizes').select('id, is_grand')
+      .from('raffle_prizes').select('id, is_grand, quantity')
       .eq('id', prize_id).eq('event_id', ev.id).maybeSingle();
     if (!existing) return errResp(404, 'prize not found in this event');
 
@@ -212,14 +234,31 @@ Deno.serve(async (req) => {
       }
       patch.is_grand = wantsGrand;
     }
+    if ('quantity' in body) {
+      let q = Math.floor(Number(body.quantity));
+      if (!Number.isFinite(q) || q < 1) q = 1;
+      if (q > 999) q = 999;
+      patch.quantity = q;
+    }
+    // Grand prizes are always singular. If we're setting is_grand (or it
+    // was already true), clamp quantity to 1 regardless of what was sent.
+    const becomingGrand = 'is_grand' in body
+      ? !!body.is_grand
+      : !!existing.is_grand;
+    if (becomingGrand) patch.quantity = 1;
+
     if (Object.keys(patch).length === 0) return errResp(400, 'no fields to update');
 
     const { data: upd, error } = await supabase
       .from('raffle_prizes').update(patch).eq('id', prize_id)
-      .select('id, name, description, photo_url, display_order, is_grand, drawn_winner_id, drawn_at, created_at')
+      .select('id, name, description, photo_url, display_order, is_grand, quantity, drawn_winner_id, drawn_at, created_at')
       .single();
     if (error) return errResp(500, error.message);
-    return ok({ prize: upd });
+    // Recompute drawn_count for the caller's convenience.
+    const { count: drawnCount } = await supabase
+      .from('raffle_entries').select('id', { count: 'exact', head: true })
+      .eq('event_id', ev.id).eq('drawn', true).eq('prize_id', prize_id);
+    return ok({ prize: { ...upd, drawn_count: drawnCount || 0 } });
   }
 
   if (action === 'remove_prize') {
@@ -277,7 +316,8 @@ async function handleDraw(
   const prize_id = body.prize_id ? String(body.prize_id).trim() : null;
 
   let prizeRow: {
-    id: string; name: string; is_grand: boolean; drawn_winner_id: string | null;
+    id: string; name: string; is_grand: boolean; quantity: number;
+    drawn_winner_id: string | null;
   } | null = null;
   let prize_label = body.prize_label
     ? String(body.prize_label).trim()
@@ -285,11 +325,18 @@ async function handleDraw(
 
   if (prize_id) {
     const { data: p } = await supabase
-      .from('raffle_prizes').select('id, name, is_grand, drawn_winner_id')
+      .from('raffle_prizes').select('id, name, is_grand, quantity, drawn_winner_id')
       .eq('id', prize_id).eq('event_id', ev.id).maybeSingle();
     if (!p) return errResp(404, 'prize not found in this event');
-    if (p.drawn_winner_id) {
-      return errResp(409, 'prize already has a winner — use redraw_prize to re-roll');
+    // Gate by drawn count vs quantity, not by drawn_winner_id (which now
+    // tracks the LATEST winner, not "any winner exists"). A prize with
+    // quantity 3 can be drawn three times.
+    const { count: alreadyDrawn } = await supabase
+      .from('raffle_entries').select('id', { count: 'exact', head: true })
+      .eq('event_id', ev.id).eq('drawn', true).eq('prize_id', prize_id);
+    const qty = Number(p.quantity) || 1;
+    if ((alreadyDrawn || 0) >= qty) {
+      return errResp(409, 'all winners already drawn for this prize — use redraw_prize to re-roll the latest');
     }
     prizeRow = p;
     prize_label = p.name;

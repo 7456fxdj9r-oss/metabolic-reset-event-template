@@ -32,6 +32,8 @@ import Base from '../layouts/Base.astro';
     id: string; name: string; description: string | null;
     photo_url: string | null;
     is_grand: boolean;
+    quantity: number;
+    drawn_count: number;
     drawn_winner_id: string | null;
     drawn_at: string | null;
   };
@@ -234,25 +236,43 @@ import Base from '../layouts/Base.astro';
       return 0; // server already returned in display_order
     });
     body.innerHTML = sorted.map((p) => {
-      const winnerName = p.drawn_winner_id
+      const qty = p.quantity || 1;
+      const drawn = p.drawn_count || 0;
+      const remaining = Math.max(0, qty - drawn);
+      const latestWinner = p.drawn_winner_id
         ? (entriesCache.find((e) => e.id === p.drawn_winner_id)?.name || '(winner)')
         : null;
-      const drawDisabled = !winnerName && eligible === 0;
-      const action = winnerName
-        ? `<button type="button" class="ladder-btn redraw" data-prize-id="${escapeAttr(p.id)}" data-prize-name="${escapeHtml(p.name)}">↻ Re-draw</button>`
-        : `<button type="button" class="ladder-btn draw ${p.is_grand ? 'grand' : ''}" data-prize-id="${escapeAttr(p.id)}" data-prize-name="${escapeHtml(p.name)}" data-is-grand="${p.is_grand ? '1' : '0'}" ${drawDisabled ? 'disabled' : ''}>${p.is_grand ? '🏆 DRAW GRAND' : '🎲 Draw'}</button>`;
+      const allDrawn = drawn >= qty;
+      const drawDisabled = !allDrawn && eligible === 0;
+      // Buttons: Draw is shown until all are drawn; Re-draw is shown
+      // whenever there's a latest winner (lets the host fix a no-show
+      // at any point — final draw or any mid-stream one).
+      const drawBtn = !allDrawn
+        ? `<button type="button" class="ladder-btn draw ${p.is_grand ? 'grand' : ''}" data-prize-id="${escapeAttr(p.id)}" data-prize-name="${escapeHtml(p.name)}" data-is-grand="${p.is_grand ? '1' : '0'}" ${drawDisabled ? 'disabled' : ''}>${p.is_grand ? '🏆 DRAW GRAND' : (drawn > 0 ? `🎲 Draw next (${remaining} left)` : '🎲 Draw')}</button>`
+        : '';
+      const redrawBtn = latestWinner
+        ? `<button type="button" class="ladder-btn redraw" data-prize-id="${escapeAttr(p.id)}" data-prize-name="${escapeHtml(p.name)}">↻ Re-draw last</button>`
+        : '';
+      // Status line: "✓ Sara (1 of 3)" mid-stream, "✓ All drawn" when done,
+      // "— not drawn yet" when fresh. Plural-aware.
+      let statusLine = '<span class="ladder-pending">— not drawn yet</span>';
+      if (drawn > 0 && !allDrawn) {
+        statusLine = `<span class="ladder-winner">✓ ${escapeHtml(latestWinner || '(winner)')} <span class="ladder-progress">(${drawn} of ${qty})</span></span>`;
+      } else if (allDrawn) {
+        statusLine = qty > 1
+          ? `<span class="ladder-winner">✓ All ${qty} drawn (latest: ${escapeHtml(latestWinner || '(winner)')})</span>`
+          : `<span class="ladder-winner">✓ ${escapeHtml(latestWinner || '(winner)')}</span>`;
+      }
       return `
         <div class="ladder-row ${p.is_grand ? 'is-grand' : ''}">
           ${p.photo_url
             ? `<img class="ladder-thumb" src="${escapeHtml(p.photo_url)}" alt="" />`
             : '<div class="ladder-thumb empty"></div>'}
           <div class="ladder-info">
-            <strong>${escapeHtml(p.name)}${p.is_grand ? ' <span class="ladder-grand">GRAND</span>' : ''}</strong>
-            ${winnerName
-              ? `<span class="ladder-winner">✓ ${escapeHtml(winnerName)}</span>`
-              : '<span class="ladder-pending">— not drawn yet</span>'}
+            <strong>${escapeHtml(p.name)}${qty > 1 ? ` <span class="ladder-qty">× ${qty}</span>` : ''}${p.is_grand ? ' <span class="ladder-grand">GRAND</span>' : ''}</strong>
+            ${statusLine}
           </div>
-          <div class="ladder-action">${action}</div>
+          <div class="ladder-action">${drawBtn}${redrawBtn}</div>
         </div>`;
     }).join('');
   }
@@ -483,8 +503,20 @@ import Base from '../layouts/Base.astro';
     border: 1px solid rgba(243,156,18,0.5);
     margin-left: 4px;
   }
+  .ladder-qty {
+    display: inline-block;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.3px;
+    padding: 1px 6px; border-radius: 6px;
+    background: rgba(255,255,255,0.08); color: #ecf0f1;
+    border: 1px solid rgba(255,255,255,0.14);
+    margin-left: 4px;
+  }
   .ladder-winner { color: #2ecc71; font-size: 12px; font-weight: 700; }
+  .ladder-progress { color: #ecf0f1; font-weight: 600; opacity: 0.75; }
   .ladder-pending { color: #95a5a6; font-size: 12px; font-style: italic; }
+  /* Stack Draw + Redraw vertically when both are present (multi-quantity
+     mid-stream). Single-button cases display unchanged. */
+  .ladder-action { display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
   .ladder-action button.ladder-btn {
     padding: 9px 14px; font-size: 12px; font-weight: 800;
     border-radius: 6px; cursor: pointer;

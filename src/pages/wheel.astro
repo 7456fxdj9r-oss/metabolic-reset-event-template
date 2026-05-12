@@ -31,6 +31,8 @@ import Base from '../layouts/Base.astro';
   type Prize = {
     id: string; name: string; photo_url: string | null;
     is_grand: boolean;
+    quantity: number;
+    drawn_count: number;
     drawn_winner_id: string | null;
   };
 
@@ -111,17 +113,27 @@ import Base from '../layouts/Base.astro';
       ? `<section class="wheel-prize-ladder">
           <h2>Today's prizes</h2>
           <ul>${prizes.map((p) => {
-            const won = !!p.drawn_winner_id;
+            const qty = p.quantity || 1;
+            const drawn = p.drawn_count || 0;
+            const allDrawn = drawn >= qty;
+            // Multi-quantity status: "1 of 3 drawn", "all 3 drawn", or the
+            // single-quantity "✓ won" / "— up for grabs" labels.
+            let status = '— up for grabs';
+            if (allDrawn) {
+              status = qty > 1 ? `✓ all ${qty} drawn` : '✓ won';
+            } else if (drawn > 0) {
+              status = `${drawn} of ${qty} drawn`;
+            }
             return `
-              <li class="${p.is_grand ? 'grand' : ''} ${won ? 'won' : ''}">
+              <li class="${p.is_grand ? 'grand' : ''} ${allDrawn ? 'won' : ''}">
                 ${p.photo_url
                   ? `<img src="${escapeHtml(p.photo_url)}" alt="" />`
                   : '<span class="ph"></span>'}
                 <span class="pname">
-                  ${escapeHtml(p.name)}
+                  ${escapeHtml(p.name)}${qty > 1 ? ` <span class="qty">× ${qty}</span>` : ''}
                   ${p.is_grand ? '<span class="badge">GRAND</span>' : ''}
                 </span>
-                <span class="pstatus">${won ? '✓ won' : '— up for grabs'}</span>
+                <span class="pstatus">${status}</span>
               </li>`;
           }).join('')}</ul>
         </section>`
@@ -523,6 +535,13 @@ import Base from '../layouts/Base.astro';
     padding: 1px 6px; border-radius: 999px;
     background: rgba(243,156,18,0.20); color: var(--accent);
     border: 1px solid rgba(243,156,18,0.5);
+  }
+  .wheel-prize-ladder li .pname .qty {
+    display: inline-block;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.3px;
+    padding: 1px 6px; border-radius: 6px;
+    background: rgba(255,255,255,0.10); color: #ecf0f1;
+    border: 1px solid rgba(255,255,255,0.18);
   }
   .wheel-prize-ladder li .pstatus {
     font-size: 11px; color: #95a5a6; font-style: italic;
