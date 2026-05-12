@@ -358,7 +358,7 @@ import Base from '../layouts/Base.astro';
     gap: clamp(14px, 2.5vw, 36px);
     width: 100%;
     max-width: 1100px;
-    align-items: end; justify-items: center;
+    align-items: start; justify-items: center;
   }
   /* When there are exactly 2 speakers, force them side-by-side at
      larger sizes (avoids auto-fit stacking on widescreen projectors). */
@@ -367,9 +367,14 @@ import Base from '../layouts/Base.astro';
     justify-content: center;
   }
   .multi-tile {
-    display: flex; flex-direction: column;
-    align-items: center; gap: 10px;
+    /* Photo row + name row (uniform height) keeps photos aligned even
+       when some names wrap to 2 lines (e.g. "Annie & David Burgeson"). */
+    display: grid;
+    grid-template-rows: auto 1fr;
+    gap: 10px;
+    width: 100%;
     max-width: 320px;
+    justify-items: center;
   }
   .multi-photo {
     width: 100%; aspect-ratio: 1 / 1;
