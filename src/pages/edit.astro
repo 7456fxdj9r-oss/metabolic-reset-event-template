@@ -602,19 +602,36 @@ import Base from '../layouts/Base.astro';
           <section class="card day-of-card" data-tour="day-of-toolkit">
             <h2>Day-of toolkit <span class="audience-tag host-only">Host only</span></h2>
             <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;">
-              Everything you'll open the morning of your event. Raffle control
-              tracks entries and runs the draws; the wheel is the audience-facing
-              spin; print materials go on the wall and at the host table.
+              Everything you'll open the morning of your event, grouped by
+              where each link is meant to be used.
             </p>
-            <div class="wheel-links">
-              <a class="wheel-link live" href="${liveUrl(base, slug, key)}" target="_blank" rel="noopener">🎟️ Raffle control (host phone)</a>
-              <a class="wheel-link host" href="${wheelUrl(base, slug, key)}" target="_blank" rel="noopener">🎡 Open the wheel (host)</a>
-              <a class="wheel-link viewer" href="${wheelUrl(base, slug)}" target="_blank" rel="noopener">👀 Raffle audience view</a>
-              <a class="wheel-link poster" href="${deckUrl(base, slug, key)}" target="_blank" rel="noopener">🎬 Open slide deck (projector)</a>
-              <a class="wheel-link host" href="${deckConsoleUrl(base, slug, key)}" target="_blank" rel="noopener">📱 Presenter console</a>
-              <a class="wheel-link poster" href="${rafflePosterUrl(base, slug, key)}" target="_blank" rel="noopener">🖨 Print raffle poster</a>
-              <a class="wheel-link poster" href="${cueUrl(base, slug, key)}" target="_blank" rel="noopener">📋 Print cue sheet</a>
+            <div class="toolkit-group">
+              <p class="toolkit-group-label">📱 On your phone</p>
+              <div class="wheel-links">
+                <a class="wheel-link live" href="${liveUrl(base, slug, key)}" target="_blank" rel="noopener">🎟️ Raffle control</a>
+                <a class="wheel-link host" href="${deckConsoleUrl(base, slug, key)}" target="_blank" rel="noopener">📱 Presenter console</a>
+              </div>
             </div>
+            <div class="toolkit-group">
+              <p class="toolkit-group-label">📺 On the projector / TV</p>
+              <div class="wheel-links">
+                <a class="wheel-link poster" href="${deckUrl(base, slug, key)}" target="_blank" rel="noopener">🎬 Slide deck</a>
+                <a class="wheel-link viewer" href="${wheelUrl(base, slug)}" target="_blank" rel="noopener">👀 Raffle wheel (audience)</a>
+              </div>
+            </div>
+            <div class="toolkit-group">
+              <p class="toolkit-group-label">🖨 Print before the event</p>
+              <div class="wheel-links">
+                <a class="wheel-link poster" href="${rafflePosterUrl(base, slug, key)}" target="_blank" rel="noopener">🖨 Raffle poster</a>
+                <a class="wheel-link poster" href="${cueUrl(base, slug, key)}" target="_blank" rel="noopener">📋 Cue sheet</a>
+              </div>
+            </div>
+            <details class="toolkit-extra">
+              <summary>Dry-run / debug tools</summary>
+              <div class="wheel-links">
+                <a class="wheel-link host" href="${wheelUrl(base, slug, key)}" target="_blank" rel="noopener">🎡 Open the wheel (host) — for dry-runs only</a>
+              </div>
+            </details>
           </section>
 
           <section class="card" data-tour="event-details">
@@ -4400,6 +4417,27 @@ import Base from '../layouts/Base.astro';
   .entry-drawn {
     font-size: 13px; color: #2ecc71; font-weight: 700;
   }
+
+  /* Day-of toolkit sub-groups — each group of buttons gets a small
+     header so the user reads "where this link is meant to be used"
+     instead of a wall of 7 lookalike pills. */
+  .toolkit-group { margin-bottom: 14px; }
+  .toolkit-group:last-of-type { margin-bottom: 6px; }
+  .toolkit-group-label {
+    font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--accent, #f39c12); font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .toolkit-group .wheel-links { margin-top: 0; }
+  .toolkit-extra { margin-top: 10px; }
+  .toolkit-extra > summary {
+    font-size: 11px; color: #95a5a6;
+    cursor: pointer; list-style: none;
+    padding: 4px 0;
+  }
+  .toolkit-extra > summary::-webkit-details-marker { display: none; }
+  .toolkit-extra > summary::before { content: '▸ '; color: rgba(255,255,255,0.30); }
+  .toolkit-extra[open] > summary::before { content: '▾ '; }
 
   /* Wheel links inside Raffle card */
   .wheel-links { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
