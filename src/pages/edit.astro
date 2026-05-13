@@ -186,6 +186,62 @@ import Base from '../layouts/Base.astro';
     return lines.join('\n') + '\n';
   }
 
+  // Append a cache-busting ?r=<ts> to an arbitrary URL. Used after every
+  // re-crop so the browser fetches the new bytes instead of showing the
+  // cached old image. Tolerant of URLs that already carry query params.
+  function appendCacheBust(url: string): string {
+    return url + (url.includes('?') ? '&' : '?') + 'r=' + Date.now();
+  }
+
+  // Re-crop the photo at `currentUrl`: fetch it (cache-busted), drop it
+  // into the crop modal, upload the cropped result via the caller-
+  // supplied uploadCropped function, then update the preview/label/
+  // status DOM in `slotEl`. Returns the new public URL on success, null
+  // on cancel or failure. Caller is responsible for updating any local
+  // entity cache (speakers[], hostsCache, etc.) with the returned URL.
+  async function recropFromUrl(
+    currentUrl: string,
+    title: string,
+    aspectRatio: number,
+    uploadCropped: (cropped: Blob) => Promise<string>,
+    slotEl: HTMLElement,
+  ): Promise<string | null> {
+    const previewEl = slotEl.querySelector('.photo-preview') as HTMLElement;
+    const labelEl = slotEl.querySelector('.upload-label') as HTMLElement;
+    const statusEl = slotEl.querySelector('.upload-status') as HTMLElement;
+    const recropBtn = slotEl.querySelector(
+      '[data-recrop-speaker], [data-recrop-host], [data-recrop-organizer]',
+    ) as HTMLButtonElement | null;
+    if (recropBtn) recropBtn.disabled = true;
+    statusEl.textContent = 'Fetching current photo…';
+    statusEl.className = 'upload-status';
+    try {
+      const fetched = await fetch(appendCacheBust(currentUrl));
+      if (!fetched.ok) throw new Error('Could not load the saved photo (HTTP ' + fetched.status + ')');
+      const blob = await fetched.blob();
+      const file = new File([blob], 'photo.jpg', { type: blob.type || 'image/jpeg' });
+      statusEl.textContent = 'Opening crop tool…';
+      const cropped = await openCropModal(file, aspectRatio, title);
+      if (!cropped) {
+        statusEl.textContent = '';
+        return null;
+      }
+      statusEl.textContent = 'Uploading…';
+      const newUrl = await uploadCropped(cropped);
+      previewEl.innerHTML = `<img src="${escapeHtml(appendCacheBust(newUrl))}" alt="" />`;
+      labelEl.textContent = 'Replace photo';
+      statusEl.textContent = 'Re-cropped ✓';
+      statusEl.className = 'upload-status ok';
+      return newUrl;
+    } catch (err) {
+      statusEl.textContent = String(fmtError(err));
+      statusEl.className = 'upload-status err';
+      return null;
+    } finally {
+      if (recropBtn) recropBtn.disabled = false;
+    }
+  }
+
   // Crop modal: opens cropper.js on a single shared <img>, returns the
   // cropped JPEG blob (already at the right aspect ratio + capped at
   // 1200x1600). User cancels → resolves null. Used for transformation
@@ -2137,55 +2193,22 @@ import Base from '../layouts/Base.astro';
         async function handleSpeakerRecrop(sp: Speaker) {
           if (!sp.photo_url) return;
           const slotEl = sFormHost.querySelector('.speaker-slot') as HTMLElement;
-          const previewEl = slotEl.querySelector('.photo-preview') as HTMLElement;
-          const labelEl = slotEl.querySelector('.upload-label') as HTMLElement;
-          const statusEl = slotEl.querySelector('.upload-status') as HTMLElement;
-          const recropBtn = slotEl.querySelector('[data-recrop-speaker]') as HTMLButtonElement | null;
-
-          if (recropBtn) recropBtn.disabled = true;
-          statusEl.textContent = 'Fetching current photo…';
-          statusEl.className = 'upload-status';
-
-          try {
-            // Cache-bust so a stale CDN copy doesn't reopen the previous crop
-            // when the user re-crops twice in a row.
-            const fetchUrl = sp.photo_url + (sp.photo_url.includes('?') ? '&' : '?') + 'r=' + Date.now();
-            const fetched = await fetch(fetchUrl);
-            if (!fetched.ok) throw new Error('Could not load the saved photo (HTTP ' + fetched.status + ')');
-            const blob = await fetched.blob();
-            const file = new File([blob], 'photo.jpg', { type: blob.type || 'image/jpeg' });
-
-            statusEl.textContent = 'Opening crop tool…';
-            const cropped = await openCropModal(file, 1, `Re-crop ${sp.name}'s photo`);
-            if (!cropped) {
-              statusEl.textContent = '';
-              if (recropBtn) recropBtn.disabled = false;
-              return;
-            }
-
-            statusEl.textContent = 'Uploading…';
-            const data_b64 = await blobToBase64(cropped);
-            const res = await callFunction('upload-speaker-photo', {
-              slug, edit_token: key,
-              speaker_id: sp.id,
-              filename: 'photo.jpg', data: data_b64,
-            });
-            const url = res.url as string;
-            speakers = speakers.map((x) => (x.id === sp.id ? { ...x, photo_url: url } : x));
-            sp.photo_url = url;
-            // Cache-bust the preview img too so the new crop renders
-            // immediately (browser would otherwise show the cached old URL).
-            previewEl.innerHTML = `<img src="${escapeHtml(url)}?r=${Date.now()}" alt="" />`;
-            labelEl.textContent = 'Replace photo';
-            statusEl.textContent = 'Re-cropped ✓';
-            statusEl.className = 'upload-status ok';
+          const newUrl = await recropFromUrl(
+            sp.photo_url, `Re-crop ${sp.name}'s photo`, 1,
+            async (cropped) => {
+              const data_b64 = await blobToBase64(cropped);
+              const res = await callFunction('upload-speaker-photo', {
+                slug, edit_token: key, speaker_id: sp.id,
+                filename: 'photo.jpg', data: data_b64,
+              });
+              return res.url as string;
+            },
+            slotEl,
+          );
+          if (newUrl) {
+            speakers = speakers.map((x) => (x.id === sp.id ? { ...x, photo_url: newUrl } : x));
+            sp.photo_url = newUrl;
             renderSpeakerList();
-          } catch (err) {
-            const msg = (err as Error).message;
-            statusEl.textContent = fmtError(err);
-            statusEl.className = 'upload-status err';
-          } finally {
-            if (recropBtn) recropBtn.disabled = false;
           }
         }
 
@@ -2375,7 +2398,7 @@ import Base from '../layouts/Base.astro';
           const url = res.url as string;
           organizerPhotoUrl = url;
           // Cache-bust so a re-crop renders the new image immediately.
-          previewEl.innerHTML = `<img src="${escapeHtml(url)}?r=${Date.now()}" alt="" />`;
+          previewEl.innerHTML = `<img src="${escapeHtml(appendCacheBust(url))}" alt="" />`;
           labelEl.textContent = 'Replace photo';
           statusEl.textContent = recropExisting ? 'Re-cropped ✓' : 'Uploaded ✓';
           statusEl.className = 'upload-status ok';
@@ -2417,8 +2440,7 @@ import Base from '../layouts/Base.astro';
           statusEl.textContent = 'Fetching current photo…';
           statusEl.className = 'upload-status';
           try {
-            const fetchUrl = organizerPhotoUrl + (organizerPhotoUrl.includes('?') ? '&' : '?') + 'r=' + Date.now();
-            const fetched = await fetch(fetchUrl);
+            const fetched = await fetch(appendCacheBust(organizerPhotoUrl));
             if (!fetched.ok) throw new Error('Could not load the saved photo (HTTP ' + fetched.status + ')');
             const blob = await fetched.blob();
             const file = new File([blob], 'photo.jpg', { type: blob.type || 'image/jpeg' });
@@ -2575,50 +2597,22 @@ import Base from '../layouts/Base.astro';
         async function handleHostRecrop(h: Host) {
           if (!h.photo_url) return;
           const slotEl = hostsAddSection.querySelector('.host-slot') as HTMLElement;
-          const previewEl = slotEl.querySelector('.photo-preview') as HTMLElement;
-          const labelEl = slotEl.querySelector('.upload-label') as HTMLElement;
-          const statusEl = slotEl.querySelector('.upload-status') as HTMLElement;
-          const recropBtn = slotEl.querySelector('[data-recrop-host]') as HTMLButtonElement | null;
-
-          if (recropBtn) recropBtn.disabled = true;
-          statusEl.textContent = 'Fetching current photo…';
-          statusEl.className = 'upload-status';
-          try {
-            const fetchUrl = h.photo_url + (h.photo_url.includes('?') ? '&' : '?') + 'r=' + Date.now();
-            const fetched = await fetch(fetchUrl);
-            if (!fetched.ok) throw new Error('Could not load the saved photo (HTTP ' + fetched.status + ')');
-            const blob = await fetched.blob();
-            const file = new File([blob], 'photo.jpg', { type: blob.type || 'image/jpeg' });
-
-            statusEl.textContent = 'Opening crop tool…';
-            const cropped = await openCropModal(file, 1, `Re-crop ${h.name || 'co-host'}'s photo`);
-            if (!cropped) {
-              statusEl.textContent = '';
-              if (recropBtn) recropBtn.disabled = false;
-              return;
-            }
-
-            statusEl.textContent = 'Uploading…';
-            const data_b64 = await blobToBase64(cropped);
-            const res = await callFunction('upload-host-photo', {
-              slug, edit_token: key,
-              host_id: h.id,
-              filename: 'photo.jpg', data: data_b64,
-            });
-            const url = res.url as string;
-            hostsCache = hostsCache.map((x) => (x.id === h.id ? { ...x, photo_url: url } : x));
-            h.photo_url = url;
-            previewEl.innerHTML = `<img src="${escapeHtml(url)}?r=${Date.now()}" alt="" />`;
-            labelEl.textContent = 'Replace photo';
-            statusEl.textContent = 'Re-cropped ✓';
-            statusEl.className = 'upload-status ok';
+          const newUrl = await recropFromUrl(
+            h.photo_url, `Re-crop ${h.name || 'co-host'}'s photo`, 1,
+            async (cropped) => {
+              const data_b64 = await blobToBase64(cropped);
+              const res = await callFunction('upload-host-photo', {
+                slug, edit_token: key, host_id: h.id,
+                filename: 'photo.jpg', data: data_b64,
+              });
+              return res.url as string;
+            },
+            slotEl,
+          );
+          if (newUrl) {
+            hostsCache = hostsCache.map((x) => (x.id === h.id ? { ...x, photo_url: newUrl } : x));
+            h.photo_url = newUrl;
             renderHosts(hostsCache);
-          } catch (err) {
-            const msg = (err as Error).message;
-            statusEl.textContent = fmtError(err);
-            statusEl.className = 'upload-status err';
-          } finally {
-            if (recropBtn) recropBtn.disabled = false;
           }
         }
 
