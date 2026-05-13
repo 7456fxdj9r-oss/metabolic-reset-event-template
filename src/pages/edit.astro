@@ -567,7 +567,7 @@ import Base from '../layouts/Base.astro';
                 </li>
                 <li>
                   <strong>🎤 Speakers</strong> — anyone giving a talk at the
-                  event. Public: <em>“Speaker Bios”</em> button → headshots,
+                  event. Public: <em>“Today's Speakers”</em> button → headshots,
                   bios, and contact info for each.
                 </li>
                 <li>
@@ -667,7 +667,7 @@ import Base from '../layouts/Base.astro';
             <h2>Speakers <span class="audience-tag">Public</span></h2>
             <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;line-height:1.5;">
               Headshot, bio, and contact for everyone presenting at your
-              event. Listed behind the <strong>“Speaker Bios”</strong>
+              event. Listed behind the <strong>“Today's Speakers”</strong>
               button on your public event page. Adding zero speakers hides
               that button entirely.
               <strong>If a speaker also has a transformation story, add
@@ -1997,7 +1997,7 @@ import Base from '../layouts/Base.astro';
           if (speakers.length === 0) {
             sList.innerHTML = `<li class="t-empty">
               <strong>No speakers yet.</strong>
-              Each speaker has a name, photo, bio, and topic. They auto-appear on the public Speaker Bios page and on the projector slide deck when an agenda item names them.
+              Each speaker has a name, photo, bio, and topic. They auto-appear on the public Today's Speakers page and on the projector slide deck when an agenda item names them.
               <span class="empty-hint">Tip: enter speakers with their <strong>full first + last name</strong> — the agenda's autocomplete will pick that up so slides resolve to photos automatically.</span>
             </li>`;
           } else {
