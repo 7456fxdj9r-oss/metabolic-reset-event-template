@@ -543,7 +543,7 @@ import Base from '../layouts/Base.astro';
             </div>
             <div class="head-cta">
               <a class="cta-view" href="${publicHref}" target="_blank">👀 View public event page</a>
-              <a class="cta-live" href="${liveUrl(base, slug, key)}" target="_blank">📊 Live dashboard</a>
+              <a class="cta-live" href="${liveUrl(base, slug, key)}" target="_blank">🎟️ Raffle control</a>
               <button type="button" class="cta-tour" id="start-tour">🎓 Take a tour</button>
             </div>
           </header>
@@ -605,12 +605,12 @@ import Base from '../layouts/Base.astro';
           <section class="card day-of-card" data-tour="day-of-toolkit">
             <h2>Day-of toolkit <span class="audience-tag host-only">Host only</span></h2>
             <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;">
-              Everything you'll open the morning of your event. Live dashboard
-              tracks entries; the wheel is for drawings; print materials go on
-              the wall and at the host table.
+              Everything you'll open the morning of your event. Raffle control
+              tracks entries and runs the draws; the wheel is the audience-facing
+              spin; print materials go on the wall and at the host table.
             </p>
             <div class="wheel-links">
-              <a class="wheel-link live" href="${liveUrl(base, slug, key)}" target="_blank" rel="noopener">📊 Live event dashboard</a>
+              <a class="wheel-link live" href="${liveUrl(base, slug, key)}" target="_blank" rel="noopener">🎟️ Raffle control (host phone)</a>
               <a class="wheel-link host" href="${wheelUrl(base, slug, key)}" target="_blank" rel="noopener">🎡 Open the wheel (host)</a>
               <a class="wheel-link viewer" href="${wheelUrl(base, slug)}" target="_blank" rel="noopener">👀 Raffle audience view</a>
               <a class="wheel-link poster" href="${deckUrl(base, slug, key)}" target="_blank" rel="noopener">🎬 Open slide deck (projector)</a>
@@ -3404,13 +3404,13 @@ import Base from '../layouts/Base.astro';
         const tourSteps: Array<{ selector: string; title: string; body: string }> = [
           { selector: '[data-tour="save-pill"]', title: 'Save status', body: 'This pill in the top bar tells you what state your edits are in. "All saved" means everything you typed has hit the database. It flips to "Saving…" while a write is in flight and shows a red error if anything fails.' },
           { selector: '[data-tour="checklist"]', title: 'Setup checklist', body: 'These are the milestones to get your event ready. Tap any incomplete item to jump to that section. Once everything\'s done, you can hide the checklist for good.' },
-          { selector: '[data-tour="day-of-toolkit"]', title: 'Day-of toolkit', body: 'These buttons get heavy use during the event itself. The Live dashboard runs the raffle from your phone; the slide deck + presenter console pair drives what shows on the projector. Print materials live here too.' },
+          { selector: '[data-tour="day-of-toolkit"]', title: 'Day-of toolkit', body: 'These buttons get heavy use during the event itself. Raffle control runs the draws from your phone; the slide deck + presenter console pair drives what shows on the projector. Print materials live here too.' },
           { selector: '[data-tour="event-details"]', title: 'Event details', body: 'Name, date, location, and accent color. The accent color drives every public page\'s highlight color — pick the brand color that matches your venue or theme.' },
           { selector: '[data-tour="hosts"]', title: 'You + your co-hosts', body: 'You\'re the master (the original creator). Add co-hosts to share editing — each gets their own private edit link. The "Organizer" badge can be passed to a co-host if they\'re the public face of the event.' },
           { selector: '[data-tour="speakers"]', title: 'Speakers', body: 'Anyone giving a talk. Enter full first + last names so the agenda\'s autocomplete picks the same name — the projector slide deck then auto-resolves photos and bios for each speaker slot.' },
           { selector: '[data-tour="transformations"]', title: 'Transformation stories', body: 'Before/after journeys with photos and metrics. The chart synthesizes a realistic curve even if you only have snapshot data. During the event, the presenter can push these stories to audience phones from the console.' },
           { selector: '[data-tour="agenda"]', title: 'Agenda / run of show', body: 'The minute-by-minute schedule. Each item becomes one slide on the projector — speaker slides get a face, "Snack Break" stays a clean title slide. Drag the ⋮⋮ handle to reorder.' },
-          { selector: '[data-tour="raffle"]', title: 'Raffle setup', body: 'Add the grand prize and any spot prizes. Quantity > 1 means multiple winners of the same item. The Live dashboard runs the draws, and the wheel spins for the audience.' },
+          { selector: '[data-tour="raffle"]', title: 'Raffle setup', body: 'Add the grand prize and any spot prizes. Quantity > 1 means multiple winners of the same item. Raffle control (on your phone during the event) runs the draws, and the wheel spins for the audience.' },
           { selector: '[data-tour="share"]', title: 'Share & save your links', body: 'Bookmark the edit URL — it\'s the only way back into this admin page. The public event link goes on flyers and QR codes; the raffle entry link is what attendees scan at the venue.' },
         ];
 

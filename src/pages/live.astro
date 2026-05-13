@@ -1,7 +1,7 @@
 ---
 import Base from '../layouts/Base.astro';
 ---
-<Base title="Live event dashboard">
+<Base title="Raffle control">
   <main class="live-main" id="live-root">
     <p class="loading">Loading…</p>
   </main>
@@ -57,7 +57,7 @@ import Base from '../layouts/Base.astro';
   }
 
   if (!slug || !key) {
-    root.innerHTML = '<p class="loading err">Live dashboard requires both slug and key in the URL. Use the link from your edit page.</p>';
+    root.innerHTML = '<p class="loading err">Raffle control requires both slug and key in the URL. Use the link from your edit page.</p>';
   } else {
     init();
   }
