@@ -13,8 +13,8 @@ import Base from '../layouts/Base.astro';
     eventUrl, raffleUrl, wheelUrl, storiesUrl, speakersUrl,
     journeyUrl, scienceUrl, hostsUrl,
   } from '../lib/urls.js';
-  import QRCode from 'qrcode';
   import { escapeHtml } from '../lib/html.js';
+  // qrcode (~50KB) is dynamic-imported below — see toCanvas call.
 
   const root = document.getElementById('event-root')!;
   const base = import.meta.env.BASE_URL;
@@ -153,10 +153,15 @@ import Base from '../layouts/Base.astro';
         // QR encodes the clean form (/event/<slug>) so it reads cleanly
         // off a poster. The 404.html SPA-redirect handles the dispatch.
         const cleanShareUrl = window.location.origin + eventUrl(base, slug!);
-        QRCode.toCanvas(canvas, cleanShareUrl, {
-          width: 200, margin: 1,
-          color: { dark: '#ffffff', light: '#1a252f' },
-        }).catch(() => {});
+        // Lazy-load qrcode (~50KB) only when we're about to draw — saves
+        // the bytes on the marketing landing + any path that doesn't
+        // reach this point (404, fetch failure).
+        import('qrcode').then(({ default: QRCode }) => {
+          QRCode.toCanvas(canvas, cleanShareUrl, {
+            width: 200, margin: 1,
+            color: { dark: '#ffffff', light: '#1a252f' },
+          }).catch(() => {});
+        }).catch(() => { /* dynamic import failed — QR just doesn't render */ });
 
         // ----- PWA: per-event manifest + iOS Add-to-Home-Screen hint -----
         // Each event gets its own short-lived manifest blob so the home-

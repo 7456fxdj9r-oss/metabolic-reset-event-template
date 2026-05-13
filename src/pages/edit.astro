@@ -30,8 +30,16 @@ import Base from '../layouts/Base.astro';
     rafflePosterUrl, cueUrl, raffleUrl, deckUrl, deckConsoleUrl,
   } from '../lib/urls.js';
   import QRCode from 'qrcode';
-  import Cropper from 'cropperjs';
+  // cropperjs (~80KB JS) is dynamic-imported on first crop modal open.
+  // The CSS (~5KB) stays static — build-time CSS bundling is cheap and
+  // having the cropper styles ready avoids an FOUC on the first crop.
+  import type Cropper from 'cropperjs';
   import 'cropperjs/dist/cropper.css';
+  let CropperCtor: typeof Cropper | null = null;
+  async function loadCropper(): Promise<typeof Cropper> {
+    if (!CropperCtor) CropperCtor = (await import('cropperjs')).default;
+    return CropperCtor;
+  }
   import Sortable from 'sortablejs';
   import { escapeHtml } from '../lib/html.js';
   import { fmtError } from '../lib/errors.js';
@@ -193,10 +201,12 @@ import Base from '../layouts/Base.astro';
       titleEl.textContent = title;
 
       const reader = new FileReader();
-      reader.onload = () => {
+      reader.onload = async () => {
         img.src = reader.result as string;
         modal.style.display = 'flex';
         activeCropper?.destroy();
+        // Lazy-load cropperjs on first use; cached for the page lifetime.
+        const Cropper = await loadCropper();
         activeCropper = new Cropper(img, {
           aspectRatio,
           viewMode: 1,

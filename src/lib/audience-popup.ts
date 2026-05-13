@@ -13,10 +13,13 @@
 // toggles audience-display off OR advances past a pushed slide, it
 // broadcasts { show: false } which dismisses any open popup.
 
-import { createClient } from '@supabase/supabase-js';
 import { getConfig, fetchDataPoints } from './supabase.js';
 import { drawMultiChart, buildMetricSeries, seriesFromMetrics } from './chart.js';
 import { escapeHtml } from './html.js';
+// @supabase/supabase-js is dynamic-imported inside installAudiencePopup
+// AFTER the host-path + slug-presence guards pass, so the ~200KB
+// realtime client never lands on pages that won't use it (marketing
+// landing, host-only command pages, public pages without a slug).
 
 type SpeakerSlim = { name: string; photo_url: string | null };
 type TransformationLite = {
@@ -158,18 +161,23 @@ export function installAudiencePopup(): void {
 
   const cfg = getConfig();
   if (!cfg.url || !cfg.anonKey) return;
-  try {
-    const client = createClient(cfg.url, cfg.anonKey);
-    const channel = client.channel(`deck:${slug}`, {
-      config: { broadcast: { self: false } },
-    });
-    channel.on('broadcast', { event: 'audience' }, ({ payload }) => {
-      if (!payload || payload.show !== true) {
-        dismissAudienceOverlay();
-        return;
-      }
-      renderAudienceOverlay(payload as AudiencePayload);
-    });
-    channel.subscribe();
-  } catch { /* realtime not available — silent no-op */ }
+  // Lazy-load supabase-js (~200KB) only after we know we'll actually
+  // use it. The marketing landing, host-only command pages, and
+  // public pages without a slug all bail above before this runs.
+  import('@supabase/supabase-js').then(({ createClient }) => {
+    try {
+      const client = createClient(cfg.url, cfg.anonKey);
+      const channel = client.channel(`deck:${slug}`, {
+        config: { broadcast: { self: false } },
+      });
+      channel.on('broadcast', { event: 'audience' }, ({ payload }) => {
+        if (!payload || payload.show !== true) {
+          dismissAudienceOverlay();
+          return;
+        }
+        renderAudienceOverlay(payload as AudiencePayload);
+      });
+      channel.subscribe();
+    } catch { /* realtime not available — silent no-op */ }
+  }).catch(() => { /* dynamic import failed — silent no-op */ });
 }
