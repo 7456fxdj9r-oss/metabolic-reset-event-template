@@ -8,7 +8,8 @@ import Base from '../layouts/Base.astro';
 </Base>
 
 <script>
-  import { fetchEventBySlug, fetchTransformations, fetchSpeakers, callFunction, getConfig } from '../lib/supabase.js';
+  import { fetchEventBySlug, fetchTransformations, fetchSpeakers, fetchDataPoints, callFunction, getConfig } from '../lib/supabase.js';
+  import { drawMultiChart, buildMetricSeries, seriesFromMetrics } from '../lib/chart.js';
   import {
     eventUrl, raffleUrl, wheelUrl, storiesUrl, speakersUrl,
     journeyUrl, scienceUrl, hostsUrl,
@@ -41,6 +42,7 @@ import Base from '../layouts/Base.astro';
     speakers?: Array<{ name: string; photo_url: string | null }>;
     segment?: string;
     transformation?: {
+      id: string;
       name: string;
       before_photo_url: string | null;
       after_photo_url: string | null;
@@ -48,6 +50,14 @@ import Base from '../layouts/Base.astro';
       headline_bf_delta_pts: number | null;
       headline_lean_kept_pct: number | null;
       takeaway_text: string | null;
+      before_date: string | null;
+      after_date: string | null;
+      before_weight: number | null;
+      after_weight: number | null;
+      before_bf: number | null;
+      after_bf: number | null;
+      before_lean: number | null;
+      after_lean: number | null;
     };
   }): void {
     let body = '';
@@ -84,6 +94,10 @@ import Base from '../layouts/Base.astro';
       const after = t.after_photo_url
         ? `<img class="aud-ba-photo" src="${escapeHtml(t.after_photo_url)}" alt="After" />`
         : '<div class="aud-ba-photo empty">After</div>';
+      // SVG drawn after the overlay mounts (drawMultiChart needs the node
+      // to be laid out for clientWidth). The svg id is unique so a rapid
+      // sequence of broadcasts can't double-render onto a stale node.
+      const chartId = 'aud-chart-' + (t.id || Date.now()).toString().slice(-8);
       body = `
         <p class="aud-eyebrow">Transformation story</p>
         <p class="aud-name">${escapeHtml(t.name)}</p>
@@ -92,7 +106,33 @@ import Base from '../layouts/Base.astro';
           <div class="aud-ba"><span class="aud-ba-label">BEFORE</span>${before}</div>
           <div class="aud-ba"><span class="aud-ba-label">AFTER</span>${after}</div>
         </div>
+        <div class="aud-chart-wrap">
+          <svg class="aud-chart" id="${chartId}" preserveAspectRatio="none" style="width:100%;height:200px;"></svg>
+          <div class="aud-legend">
+            <span class="aud-leg-item"><span class="aud-leg-dot" style="background:#f39c12"></span>Weight</span>
+            <span class="aud-leg-item"><span class="aud-leg-dot" style="background:#e74c3c"></span>Body Fat</span>
+            <span class="aud-leg-item"><span class="aud-leg-dot" style="background:#2ecc71"></span>Lean</span>
+          </div>
+        </div>
         ${t.takeaway_text ? `<p class="aud-takeaway">${escapeHtml(t.takeaway_text)}</p>` : ''}`;
+      // Kick off the chart fetch after the overlay is in the DOM. The
+      // drawMultiChart call happens inside the .then() so it sees the
+      // laid-out SVG, not a zero-width detached one.
+      queueMicrotask(() => {
+        if (!t.id) return;
+        fetchDataPoints(t.id).then((pts) => {
+          const svg = document.getElementById(chartId) as unknown as SVGSVGElement | null;
+          if (!svg) return; // overlay was dismissed or replaced
+          const { byMetric } = buildMetricSeries(t, pts || []);
+          const series = seriesFromMetrics(byMetric);
+          if (series.length) drawMultiChart(svg, series);
+          else svg.parentElement?.remove();
+        }).catch(() => {
+          // Network/auth failure — quietly hide the chart slot.
+          const svg = document.getElementById(chartId);
+          svg?.parentElement?.remove();
+        });
+      });
     } else {
       return; // unknown kind — ignore
     }
@@ -499,6 +539,26 @@ import Base from '../layouts/Base.astro';
     font-size: 13px; color: #bdc3c7;
     line-height: 1.5; font-style: italic;
     margin-top: 8px;
+  }
+  /* Mini-chart in the audience-hub transformation popup. SVG fills the
+     wrap; legend underneath stays tight (3 dot+label pairs in a row). */
+  .aud-chart-wrap {
+    margin-top: 14px;
+    padding: 10px 8px 6px;
+    background: rgba(0,0,0,0.25);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+  }
+  .aud-chart { display: block; width: 100%; height: 200px; }
+  .aud-legend {
+    display: flex; justify-content: center; gap: 14px;
+    margin-top: 6px;
+    font-size: 11px; color: #ecf0f1;
+  }
+  .aud-leg-item { display: flex; align-items: center; gap: 5px; }
+  .aud-leg-dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    display: inline-block;
   }
 
   /* Add to Home Screen hint — iOS Safari only, dismissable */

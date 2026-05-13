@@ -5,6 +5,77 @@
 
 const NS = 'http://www.w3.org/2000/svg';
 
+// Synthesize a realistic-looking before-to-after curve when no granular
+// data points exist. Cubic ease-out shape for weight + body-fat (fast
+// initial crash then plateau); near-flat with tiny jitter for lean mass.
+// Deterministic noise — same transformation always renders the same curve.
+function synthCurve(startDate, endDate, startVal, endVal, shape, noise, steps = 22) {
+  const out = [];
+  const t0 = new Date(startDate + 'T00:00:00').getTime();
+  const t1 = new Date(endDate + 'T00:00:00').getTime();
+  if (!isFinite(t0) || !isFinite(t1) || t1 <= t0) {
+    return [[startDate, startVal], [endDate, endVal]];
+  }
+  const span = t1 - t0;
+  for (let i = 0; i <= steps; i++) {
+    const p = i / steps;
+    const curve = shape === 'eased' ? 1 - Math.pow(1 - p, 3) : p;
+    let val = startVal + (endVal - startVal) * curve;
+    if (i > 0 && i < steps) {
+      const seed = Math.sin((i + 1) * 12.9898 + startVal * 0.31) * 43758.5453;
+      const rnd = seed - Math.floor(seed);
+      val += (rnd - 0.5) * 2 * noise;
+    }
+    const date = new Date(t0 + span * p).toISOString().slice(0, 10);
+    out.push([date, Math.round(val * 10) / 10]);
+  }
+  return out;
+}
+
+/**
+ * Build the per-metric series + isEstimated flag for a transformation.
+ * Used by /t/ (deep-dive page) and /event/ (audience-hub popup) so
+ * both render the same chart shape from the same data.
+ *
+ * Returns { byMetric: { weight, bf, lean }, isEstimated }.
+ * Each metric array is [[date, value], ...] or [] if not enough data.
+ */
+export function buildMetricSeries(transformation, points) {
+  const byMetric = { weight: [], bf: [], lean: [] };
+  (points || []).forEach((p) => {
+    if (byMetric[p.metric]) byMetric[p.metric].push([p.date, Number(p.value)]);
+  });
+  const totalRealPoints = (points || []).length;
+  const t = transformation;
+  const haveBeforeAfterDates = !!(t.before_date && t.after_date);
+  const isEstimated = totalRealPoints === 0 && haveBeforeAfterDates;
+  if (isEstimated) {
+    if (t.before_weight != null && t.after_weight != null) {
+      byMetric.weight = synthCurve(t.before_date, t.after_date, Number(t.before_weight), Number(t.after_weight), 'eased', 0.6);
+    }
+    if (t.before_bf != null && t.after_bf != null) {
+      byMetric.bf = synthCurve(t.before_date, t.after_date, Number(t.before_bf), Number(t.after_bf), 'eased', 0.3);
+    }
+    if (t.before_lean != null && t.after_lean != null) {
+      byMetric.lean = synthCurve(t.before_date, t.after_date, Number(t.before_lean), Number(t.after_lean), 'flat', 0.4);
+    }
+  }
+  return { byMetric, isEstimated };
+}
+
+/**
+ * Series array shape expected by drawMultiChart, built from buildMetricSeries
+ * output. Centralizes the color/suffix/axis assignments so /t/ and /event/
+ * agree.
+ */
+export function seriesFromMetrics(byMetric) {
+  const out = [];
+  if (byMetric.weight.length) out.push({ name: 'Weight',   color: '#f39c12', suffix: ' lb', axis: 'left',  data: byMetric.weight });
+  if (byMetric.lean.length)   out.push({ name: 'Lean',     color: '#2ecc71', suffix: ' lb', axis: 'left',  data: byMetric.lean });
+  if (byMetric.bf.length)     out.push({ name: 'Body Fat', color: '#e74c3c', suffix: '%',   axis: 'right', data: byMetric.bf });
+  return out;
+}
+
 function el(name, attrs) {
   const n = document.createElementNS(NS, name);
   for (const k in attrs) n.setAttribute(k, attrs[k]);

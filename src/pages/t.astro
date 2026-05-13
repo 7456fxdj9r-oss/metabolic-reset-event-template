@@ -9,7 +9,7 @@ import '../styles/story.css';
 </Base>
 
 <script>
-  import { drawMultiChart } from '../lib/chart.js';
+  import { drawMultiChart, buildMetricSeries, seriesFromMetrics } from '../lib/chart.js';
   import {
     fetchEventBySlug,
     fetchTransformationBySlug,
@@ -52,79 +52,10 @@ import '../styles/story.css';
         const accent = event.accent_color || '#f39c12';
         document.documentElement.style.setProperty('--accent', accent);
 
+        // Per-metric series + isEstimated flag. Shared with /event/'s
+        // audience-hub popup so both surfaces render the same chart shape.
         const points = await fetchDataPoints(t.id);
-        const byMetric: Record<string, Array<[string, number]>> = { weight: [], bf: [], lean: [] };
-        points.forEach((p: any) => {
-          if (byMetric[p.metric]) byMetric[p.metric].push([p.date, Number(p.value)]);
-        });
-
-        // If no time-series data points exist but we DO have before/after
-        // snapshots, synthesize a *realistic-looking* curve per metric so
-        // the chart still tells the story. Each metric uses ~22 points
-        // between the dates with a curve shape that matches real
-        // metabolic-reset trajectories: weight + BF crash fast early then
-        // plateau (cubic ease-out), lean barely budges (near-flat with
-        // tiny natural jitter). Deterministic noise keeps the curve stable
-        // across renders — same transformation always renders the same
-        // chart. A "Estimated" tag + note discloses it's not granular.
-        const totalRealPoints = points.length;
-        const haveBeforeAfterDates = !!(t.before_date && t.after_date);
-        const isEstimated = totalRealPoints === 0 && haveBeforeAfterDates;
-
-        function synthCurve(
-          startDate: string, endDate: string,
-          startVal: number, endVal: number,
-          shape: 'eased' | 'flat', noise: number,
-          steps = 22,
-        ): Array<[string, number]> {
-          const out: Array<[string, number]> = [];
-          const t0 = new Date(startDate + 'T00:00:00').getTime();
-          const t1 = new Date(endDate + 'T00:00:00').getTime();
-          if (!isFinite(t0) || !isFinite(t1) || t1 <= t0) {
-            return [[startDate, startVal], [endDate, endVal]];
-          }
-          const span = t1 - t0;
-          for (let i = 0; i <= steps; i++) {
-            const p = i / steps;
-            const curve = shape === 'eased' ? 1 - Math.pow(1 - p, 3) : p;
-            let val = startVal + (endVal - startVal) * curve;
-            // Deterministic pseudo-random in ±noise — same seed per index
-            // so re-renders are identical and the curve doesn't jitter
-            // between page loads.
-            if (i > 0 && i < steps) {
-              const seed = Math.sin((i + 1) * 12.9898 + startVal * 0.31) * 43758.5453;
-              const rnd = seed - Math.floor(seed); // 0..1
-              val += (rnd - 0.5) * 2 * noise;
-            }
-            const date = new Date(t0 + span * p).toISOString().slice(0, 10);
-            out.push([date, Math.round(val * 10) / 10]);
-          }
-          return out;
-        }
-
-        if (isEstimated) {
-          if (t.before_weight != null && t.after_weight != null) {
-            byMetric.weight = synthCurve(
-              t.before_date, t.after_date,
-              Number(t.before_weight), Number(t.after_weight),
-              'eased', 0.6,
-            );
-          }
-          if (t.before_bf != null && t.after_bf != null) {
-            byMetric.bf = synthCurve(
-              t.before_date, t.after_date,
-              Number(t.before_bf), Number(t.after_bf),
-              'eased', 0.3,
-            );
-          }
-          if (t.before_lean != null && t.after_lean != null) {
-            byMetric.lean = synthCurve(
-              t.before_date, t.after_date,
-              Number(t.before_lean), Number(t.after_lean),
-              'flat', 0.4,
-            );
-          }
-        }
+        const { byMetric, isEstimated } = buildMetricSeries(t, points);
 
         // Duration badge in the chart-head (only when we have both dates)
         function durationLabel(d1: string, d2: string): string {
@@ -206,10 +137,7 @@ import '../styles/story.css';
         `;
 
         const svg = document.getElementById('comboChart') as unknown as SVGSVGElement;
-        const series: Array<{ name: string; color: string; suffix: string; axis: 'left' | 'right'; data: Array<[string, number]> }> = [];
-        if (byMetric.weight.length) series.push({ name: 'Weight',   color: '#f39c12', suffix: ' lb', axis: 'left',  data: byMetric.weight });
-        if (byMetric.lean.length)   series.push({ name: 'Lean',     color: '#2ecc71', suffix: ' lb', axis: 'left',  data: byMetric.lean });
-        if (byMetric.bf.length)     series.push({ name: 'Body Fat', color: '#e74c3c', suffix: '%',   axis: 'right', data: byMetric.bf });
+        const series = seriesFromMetrics(byMetric);
         if (series.length) drawMultiChart(svg, series);
       } catch (err) {
         root.innerHTML = `<p class="loading err">${escapeHtml((err as Error).message)}</p>`;
