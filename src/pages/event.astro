@@ -14,6 +14,7 @@ import Base from '../layouts/Base.astro';
     journeyUrl, scienceUrl, hostsUrl,
   } from '../lib/urls.js';
   import QRCode from 'qrcode';
+  import { escapeHtml } from '../lib/html.js';
 
   const root = document.getElementById('event-root')!;
   const base = import.meta.env.BASE_URL;
@@ -21,11 +22,6 @@ import Base from '../layouts/Base.astro';
   const slug = params.get('slug');
   const adminKey = params.get('key'); // present when master visits via their edit token
 
-  function escapeHtml(s: unknown): string {
-    return String(s ?? '').replace(/[&<>"']/g, (c) =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
-    );
-  }
 
   // Audience-hub popup logic now lives in src/lib/audience-popup.ts and
   // gets bootstrapped from Base.astro so it fires on every public page

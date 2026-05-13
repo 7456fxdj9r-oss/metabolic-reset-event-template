@@ -25,6 +25,7 @@ import Base from '../layouts/Base.astro';
   import { callFunction, getConfig, fetchRafflePrizes } from '../lib/supabase.js';
   import { eventUrl } from '../lib/urls.js';
   import { createClient } from '@supabase/supabase-js';
+  import { escapeHtml } from '../lib/html.js';
 
   type PoolEntry = { id: string; first_name: string };
   type Winner = { id: string; first_name: string; prize_won: string | null };
@@ -43,11 +44,6 @@ import Base from '../layouts/Base.astro';
   const key = params.get('key');
   const isHost = !!key;
 
-  function escapeHtml(s: unknown): string {
-    return String(s ?? '').replace(/[&<>"']/g, (c) =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
-    );
-  }
 
   // Slice colors cycle through a small palette so adjacent slices contrast.
   const SLICE_COLORS = ['#f39c12', '#e67e22', '#d35400', '#c0392b', '#8e44ad', '#2980b9', '#27ae60', '#16a085'];

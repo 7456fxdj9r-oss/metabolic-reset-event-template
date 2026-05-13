@@ -22,6 +22,7 @@ import Base from '../layouts/Base.astro';
 <script>
   import { fetchEventBySlug, fetchSpeakers, fetchAgendaItems, getConfig } from '../lib/supabase.js';
   import { createClient } from '@supabase/supabase-js';
+  import { escapeHtml } from '../lib/html.js';
 
   type Speaker = {
     id: string; name: string;
@@ -47,11 +48,6 @@ import Base from '../layouts/Base.astro';
   const slug = params.get('slug');
   const key = params.get('key');
 
-  function escapeHtml(s: unknown): string {
-    return String(s ?? '').replace(/[&<>"']/g, (c) =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
-    );
-  }
 
   function fmtEventDate(d: string | null): string {
     if (!d) return '';

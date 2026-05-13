@@ -33,6 +33,8 @@ import Base from '../layouts/Base.astro';
   import Cropper from 'cropperjs';
   import 'cropperjs/dist/cropper.css';
   import Sortable from 'sortablejs';
+  import { escapeHtml } from '../lib/html.js';
+  import { fmtError } from '../lib/errors.js';
 
   // Handle is the only draggable surface so edit/delete clicks elsewhere
   // on the row don't initiate drags.
@@ -314,11 +316,6 @@ import Base from '../layouts/Base.astro';
   const slug = params.get('slug');
   const key = params.get('key');
 
-  function escapeHtml(s: unknown): string {
-    return String(s ?? '').replace(/[&<>"']/g, (c) =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
-    );
-  }
 
   function fmtDate(s: string | null): string {
     if (!s) return '—';
@@ -647,7 +644,7 @@ import Base from '../layouts/Base.astro';
             </form>
           </section>
 
-          <section class="card" data-tour="transformations">
+          <section class="card" data-tour="transformations" id="transformations">
             <h2>Transformation Stories <span class="audience-tag">Public</span></h2>
             <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;line-height:1.5;">
               Featured before/after stories. Each gets its own detail page
@@ -663,7 +660,7 @@ import Base from '../layouts/Base.astro';
             <ul id="t-list" class="t-list"></ul>
           </section>
 
-          <section class="card" data-tour="speakers">
+          <section class="card" data-tour="speakers" id="speakers">
             <h2>Speakers <span class="audience-tag">Public</span></h2>
             <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;line-height:1.5;">
               Headshot, bio, and contact for everyone presenting at your
@@ -679,7 +676,7 @@ import Base from '../layouts/Base.astro';
             <ul id="s-list" class="t-list"></ul>
           </section>
 
-          <section class="card" data-tour="agenda">
+          <section class="card" data-tour="agenda" id="agenda">
             <h2>Agenda / Run of Show <span class="audience-tag host-only">Host only</span></h2>
             <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;line-height:1.5;">
               The minute-by-minute run-of-show — <strong>not shown to
@@ -697,7 +694,7 @@ import Base from '../layouts/Base.astro';
             <ul id="a-list" class="t-list"></ul>
           </section>
 
-          <section class="card" data-tour="raffle">
+          <section class="card" data-tour="raffle" id="raffle">
             <h2>Raffle <span class="audience-tag">Public</span></h2>
             <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;line-height:1.5;">
               One entry form, one pool of attendees, but you can define
@@ -746,7 +743,7 @@ import Base from '../layouts/Base.astro';
             </div>
           </section>
 
-          <section class="card hosts-card" data-tour="hosts">
+          <section class="card hosts-card" data-tour="hosts" id="hosts">
             <h2>Hosts <span class="audience-tag">Public</span></h2>
             <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;line-height:1.5;">
               <strong>Master</strong> = you, the original event creator (this
@@ -829,7 +826,7 @@ import Base from '../layouts/Base.astro';
           </section>
 
           <section class="card" data-tour="share">
-            <h2>Share &amp; save your links</h2>
+            <h2>Share &amp; save your links <span class="audience-tag mixed">Mixed</span></h2>
             <p class="link-blurb">
               Bookmark the edit URL — it's the only way back into this admin page.
               Share the public URL with anyone you want to scan or visit.
@@ -885,7 +882,7 @@ import Base from '../layouts/Base.astro';
             if (newName) document.getElementById('page-title')!.textContent = newName;
           } catch (err) {
             const msg = (err as Error).message;
-            status.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+            status.textContent = fmtError(err);
             status.className = 'err';
           } finally {
             saveBtn.disabled = false;
@@ -1141,7 +1138,7 @@ import Base from '../layouts/Base.astro';
               resultEl.className = 'bio-result ok';
             } catch (err) {
               const msg = (err as Error).message;
-              resultEl.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+              resultEl.textContent = fmtError(err);
               resultEl.className = 'bio-result err';
             } finally {
               saveBtn.disabled = false;
@@ -1256,7 +1253,7 @@ import Base from '../layouts/Base.astro';
             }
           } catch (err) {
             const msg = (err as Error).message;
-            tStatus.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+            tStatus.textContent = fmtError(err);
             tStatus.className = 't-status err';
             submit.disabled = false;
           }
@@ -1308,7 +1305,7 @@ import Base from '../layouts/Base.astro';
             renderList();
           } catch (err) {
             const msg = (err as Error).message;
-            statusEl.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+            statusEl.textContent = fmtError(err);
             statusEl.className = 'upload-status err';
           }
         }
@@ -1616,7 +1613,7 @@ import Base from '../layouts/Base.astro';
             }
           } catch (err) {
             const msg = (err as Error).message;
-            tStatus.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+            tStatus.textContent = fmtError(err);
             tStatus.className = 't-status err';
             submit.disabled = false;
           }
@@ -1654,7 +1651,7 @@ import Base from '../layouts/Base.astro';
             renderPrizeList();
           } catch (err) {
             const msg = (err as Error).message;
-            statusEl.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+            statusEl.textContent = fmtError(err);
             statusEl.className = 'upload-status err';
           }
         }
@@ -1686,6 +1683,13 @@ import Base from '../layouts/Base.astro';
             });
             prizes = (res.prizes || []) as Prize[];
             renderPrizeList();
+            // Multi-prize mode: hide the legacy single-prize "🎲 Draw winner"
+            // button on this page. Drawing happens from the Raffle control
+            // page (per-prize ladder) instead. Without this, the button
+            // sits in the header looking actionable but does the wrong
+            // thing when prizes are defined.
+            const legacyDraw = document.getElementById('draw-btn');
+            if (legacyDraw) legacyDraw.style.display = prizes.length > 0 ? 'none' : '';
           } catch (err) {
             prizeList.innerHTML =
               `<li class="prize-empty err">Could not load prizes: ${escapeHtml((err as Error).message)}</li>`;
@@ -1724,7 +1728,7 @@ import Base from '../layouts/Base.astro';
             raffleSaveStatus.className = 'ok';
           } catch (err) {
             const msg = (err as Error).message;
-            raffleSaveStatus.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+            raffleSaveStatus.textContent = fmtError(err);
             raffleSaveStatus.className = 'err';
           } finally {
             raffleSaveBtn.disabled = false;
@@ -1843,7 +1847,13 @@ import Base from '../layouts/Base.astro';
         loadEntries();
         // Light polling so a host watching the dashboard sees new entries
         // come in during an event without having to refresh manually.
-        window.setInterval(loadEntries, 10000);
+        // Visibility-gated: don't poll while the tab is hidden.
+        window.setInterval(() => {
+          if (document.visibilityState === 'visible') loadEntries();
+        }, 10000);
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') loadEntries();
+        });
 
         exportBtn.addEventListener('click', () => {
           const csv = buildRaffleEntriesCsv(entriesCache);
@@ -2141,7 +2151,7 @@ import Base from '../layouts/Base.astro';
             renderSpeakerList();
           } catch (err) {
             const msg = (err as Error).message;
-            statusEl.textContent = msg.includes('403') ? 'Invalid edit link.' : ('Could not re-crop: ' + msg);
+            statusEl.textContent = fmtError(err);
             statusEl.className = 'upload-status err';
           } finally {
             if (recropBtn) recropBtn.disabled = false;
@@ -2182,7 +2192,7 @@ import Base from '../layouts/Base.astro';
             renderSpeakerList();
           } catch (err) {
             const msg = (err as Error).message;
-            statusEl.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+            statusEl.textContent = fmtError(err);
             statusEl.className = 'upload-status err';
           }
         }
@@ -2243,7 +2253,7 @@ import Base from '../layouts/Base.astro';
             }
           } catch (err) {
             const msg = (err as Error).message;
-            tStatus.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+            tStatus.textContent = fmtError(err);
             tStatus.className = 't-status err';
             submit.disabled = false;
           }
@@ -2307,7 +2317,7 @@ import Base from '../layouts/Base.astro';
             organizerSaveStatus.className = 'ok';
           } catch (err) {
             const msg = (err as Error).message;
-            organizerSaveStatus.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+            organizerSaveStatus.textContent = fmtError(err);
             organizerSaveStatus.className = 'err';
           } finally {
             organizerSaveBtn.disabled = false;
@@ -2362,7 +2372,7 @@ import Base from '../layouts/Base.astro';
             await uploadOrganizerCrop(file, statusEl, previewEl, labelEl, false);
           } catch (err) {
             const msg = (err as Error).message;
-            statusEl.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+            statusEl.textContent = fmtError(err);
             statusEl.className = 'upload-status err';
           }
         });
@@ -2384,7 +2394,7 @@ import Base from '../layouts/Base.astro';
             await uploadOrganizerCrop(file, statusEl, previewEl, labelEl, true);
           } catch (err) {
             const msg = (err as Error).message;
-            statusEl.textContent = msg.includes('403') ? 'Invalid edit link.' : ('Could not re-crop: ' + msg);
+            statusEl.textContent = fmtError(err);
             statusEl.className = 'upload-status err';
           } finally {
             if (recropBtn) recropBtn.disabled = false;
@@ -2523,7 +2533,7 @@ import Base from '../layouts/Base.astro';
             renderHosts(hostsCache);
           } catch (err) {
             const msg = (err as Error).message;
-            statusEl.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+            statusEl.textContent = fmtError(err);
             statusEl.className = 'upload-status err';
           }
         }
@@ -2574,7 +2584,7 @@ import Base from '../layouts/Base.astro';
             renderHosts(hostsCache);
           } catch (err) {
             const msg = (err as Error).message;
-            statusEl.textContent = msg.includes('403') ? 'Invalid edit link.' : ('Could not re-crop: ' + msg);
+            statusEl.textContent = fmtError(err);
             statusEl.className = 'upload-status err';
           } finally {
             if (recropBtn) recropBtn.disabled = false;
@@ -2735,7 +2745,7 @@ import Base from '../layouts/Base.astro';
             <form id="add-host-form" class="add-host-form" novalidate>
               <label>
                 Co-host name
-                <input name="name" maxlength="120" placeholder="Coach Sam" />
+                <input name="name" maxlength="120" placeholder="Host Sam" />
               </label>
               <label>
                 Short bio <span class="opt">(2–3 sentences, public)</span>
@@ -2835,7 +2845,7 @@ import Base from '../layouts/Base.astro';
             renderAddHostForm();
           } catch (err) {
             const msg = (err as Error).message;
-            statusEl.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+            statusEl.textContent = fmtError(err);
             statusEl.className = 'err';
             submitBtn.disabled = false;
           }
@@ -3043,7 +3053,7 @@ import Base from '../layouts/Base.astro';
             hideAgendaForm();
           } catch (err) {
             const msg = (err as Error).message;
-            tStatus.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+            tStatus.textContent = fmtError(err);
             tStatus.className = 't-status err';
             submit.disabled = false;
           }
@@ -3224,7 +3234,7 @@ import Base from '../layouts/Base.astro';
             hideAgendaForm();
           } catch (err) {
             const msg = (err as Error).message;
-            tStatus.textContent = msg.includes('403') ? 'Invalid edit link.' : msg;
+            tStatus.textContent = fmtError(err);
             tStatus.className = 't-status err';
             submit.disabled = false;
           }
@@ -3357,7 +3367,7 @@ import Base from '../layouts/Base.astro';
           const allDone = done === items.length;
           checklistCard.innerHTML = `
             <div class="checklist-head">
-              <h2>${allDone ? '🎉 Setup complete!' : '🎓 Setup checklist'} <span class="checklist-count">${done} of ${items.length} done</span></h2>
+              <h2>${allDone ? '🎉 Setup complete!' : '🎓 Setup checklist'} <span class="audience-tag host-only">Host only</span> <span class="checklist-count">${done} of ${items.length} done</span></h2>
               <button type="button" class="checklist-dismiss" id="checklist-dismiss" title="${allDone ? 'Close' : 'Hide for good. Re-open via Take a tour button up top.'}">${allDone ? '✕ Close' : 'Hide'}</button>
             </div>
             <div class="checklist-bar"><div class="checklist-bar-fill" style="width:${pct}%"></div></div>
@@ -3513,13 +3523,11 @@ import Base from '../layouts/Base.astro';
 
         tourBtn.addEventListener('click', startTour);
 
-        // Auto-open the tour for first-time users. Delayed so the page
-        // has time to settle visually before the spotlight appears.
-        if (ev.name && localStorage.getItem('edit-tour-completed-v1') !== '1') {
-          setTimeout(() => {
-            if (!tourOverlay) startTour();
-          }, 1500);
-        }
+        // No auto-open: the setup checklist is the primary first-load
+        // surface; the tour is available via the "🎓 Take a tour" button
+        // whenever the user wants the spotlight walkthrough. Two
+        // didactic surfaces fighting for first-impression attention
+        // confused new users more than it helped.
       } catch (err) {
         root.innerHTML = `<p class="loading err">${escapeHtml((err as Error).message)}</p>`;
       }
@@ -3793,6 +3801,11 @@ import Base from '../layouts/Base.astro';
     background: rgba(149, 165, 166, 0.18);
     color: #95a5a6;
     border-color: rgba(149, 165, 166, 0.4);
+  }
+  .audience-tag.mixed {
+    background: rgba(155, 89, 182, 0.18);
+    color: #c39bd3;
+    border-color: rgba(155, 89, 182, 0.5);
   }
 
   /* Section guide — collapsible "where does each section appear publicly"

@@ -10,6 +10,7 @@ import Base from '../layouts/Base.astro';
 <script>
   import { fetchEventBySlug, callFunction, fetchRafflePrizes } from '../lib/supabase.js';
   import { eventUrl, raffleMeUrl } from '../lib/urls.js';
+  import { escapeHtml } from '../lib/html.js';
 
   type Prize = {
     id: string; name: string; description: string | null;
@@ -23,11 +24,6 @@ import Base from '../layouts/Base.astro';
   const params = new URLSearchParams(window.location.search);
   const slug = params.get('slug');
 
-  function escapeHtml(s: unknown): string {
-    return String(s ?? '').replace(/[&<>"']/g, (c) =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
-    );
-  }
 
   if (!slug) {
     root.innerHTML = '<p class="loading err">No event specified.</p>';

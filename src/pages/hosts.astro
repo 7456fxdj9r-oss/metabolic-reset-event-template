@@ -17,6 +17,7 @@ import Base from '../layouts/Base.astro';
 <script>
   import { fetchEventBySlug, callFunction } from '../lib/supabase.js';
   import { eventUrl, editUrl } from '../lib/urls.js';
+  import { escapeHtml } from '../lib/html.js';
 
   type TeamHost = {
     name: string | null; phone: string | null;
@@ -32,11 +33,6 @@ import Base from '../layouts/Base.astro';
   const adminKey = params.get('key');
   let isMaster = false;
 
-  function escapeHtml(s: unknown): string {
-    return String(s ?? '').replace(/[&<>"']/g, (c) =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
-    );
-  }
 
   function renderTeamList(hosts: TeamHost[], adminMode: boolean): string {
     if (hosts.length === 0) {

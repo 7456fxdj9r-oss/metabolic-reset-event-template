@@ -16,6 +16,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { getConfig, fetchDataPoints } from './supabase.js';
 import { drawMultiChart, buildMetricSeries, seriesFromMetrics } from './chart.js';
+import { escapeHtml } from './html.js';
 
 type SpeakerSlim = { name: string; photo_url: string | null };
 type TransformationLite = {
@@ -42,11 +43,6 @@ type AudiencePayload =
   | { show: true; kind: 'multi'; speakers: SpeakerSlim[]; segment?: string }
   | { show: true; kind: 'transformation'; transformation: TransformationLite };
 
-function escapeHtml(s: unknown): string {
-  return String(s ?? '').replace(/[&<>"']/g, (c) =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
-  );
-}
 
 function dismissAudienceOverlay(): void {
   document.getElementById('audience-overlay')?.remove();
@@ -141,13 +137,19 @@ function renderAudienceOverlay(payload: AudiencePayload): void {
   document.body.appendChild(overlay);
 }
 
-// URL path segments that identify host-only surfaces. Audience popup
-// should NOT show on these — they're the master's own command pages.
-const HOST_PATH_FRAGMENTS = ['/edit/', '/live/', '/cue/', '/deck/', '/deck-console/', '/raffle-poster/'];
+// Paths the popup should NOT install on:
+//   - host surfaces (DRIVE the broadcast, not consume it)
+//   - attendee SIGN-UP surfaces (raffle entry form, per-entry "your
+//     entry" page) — a full-screen modal mid-signup is hostile UX.
+//     Attendees who want to follow the presenter can switch back to
+//     /event/ or any other public page.
+const EXCLUDED_PATH_FRAGMENTS = [
+  '/edit/', '/live/', '/cue/', '/deck/', '/deck-console/', '/raffle-poster/',
+  '/raffle/',
+];
 
 export function installAudiencePopup(): void {
-  // Bail on host pages — they DRIVE the broadcast, not consume it.
-  if (HOST_PATH_FRAGMENTS.some((p) => location.pathname.includes(p))) return;
+  if (EXCLUDED_PATH_FRAGMENTS.some((p) => location.pathname.includes(p))) return;
   // Slug is the addressing key. Read it from query string (most pages
   // use ?slug=…). If we can't determine which event the page belongs
   // to, nothing to subscribe to.

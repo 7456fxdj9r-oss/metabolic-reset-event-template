@@ -16,6 +16,7 @@ import '../styles/story.css';
     fetchDataPoints,
   } from '../lib/supabase.js';
   import { eventUrl, scienceUrl } from '../lib/urls.js';
+  import { escapeHtml } from '../lib/html.js';
 
   const root = document.getElementById('t-root')!;
   const base = import.meta.env.BASE_URL;
@@ -23,11 +24,6 @@ import '../styles/story.css';
   const slug = params.get('slug');
   const tslug = params.get('t');
 
-  function escapeHtml(s: unknown): string {
-    return String(s ?? '').replace(/[&<>"']/g, (c) =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
-    );
-  }
   function fmtDate(s: string): string {
     const d = new Date(s);
     return (d.getMonth() + 1) + '/' + String(d.getFullYear()).slice(2);

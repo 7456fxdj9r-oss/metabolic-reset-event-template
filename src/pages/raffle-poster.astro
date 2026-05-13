@@ -30,6 +30,7 @@ import Base from '../layouts/Base.astro';
   import { fetchEventBySlug, callFunction, fetchRafflePrizes } from '../lib/supabase.js';
   import { eventUrl, editUrl, raffleUrl } from '../lib/urls.js';
   import QRCode from 'qrcode';
+  import { escapeHtml } from '../lib/html.js';
 
   type Prize = {
     id: string; name: string; description: string | null;
@@ -43,11 +44,6 @@ import Base from '../layouts/Base.astro';
   const slug = params.get('slug');
   const key = params.get('key'); // optional — sets up the back link
 
-  function escapeHtml(s: unknown): string {
-    return String(s ?? '').replace(/[&<>"']/g, (c) =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
-    );
-  }
 
   function fmtEventDate(d: string | null): string {
     if (!d) return '';

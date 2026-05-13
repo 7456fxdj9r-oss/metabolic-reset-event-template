@@ -157,7 +157,14 @@ import Base from '../../layouts/Base.astro';
     }
 
     refresh();
-    timer = window.setInterval(refresh, 10000);
+    // Visibility-gated: an attendee who's tucked their phone away doesn't
+    // need us hitting the server every 10s. Resume re-fires immediately.
+    timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') refresh();
+    }, 10000);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') refresh();
+    });
 
     // Add-to-Home-Screen hint, iOS Safari only. Highly relevant here:
     // entrants want to keep coming back to check status, then later

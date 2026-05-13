@@ -16,6 +16,7 @@ import Base from '../layouts/Base.astro';
   import { fetchEventBySlug, fetchSpeakers, fetchAgendaItems, fetchTransformations, getConfig } from '../lib/supabase.js';
   import { createClient } from '@supabase/supabase-js';
   import { editUrl } from '../lib/urls.js';
+  import { escapeHtml } from '../lib/html.js';
 
   type Speaker = {
     id: string; name: string;
@@ -47,11 +48,6 @@ import Base from '../layouts/Base.astro';
   const slug = params.get('slug');
   const key = params.get('key');
 
-  function escapeHtml(s: unknown): string {
-    return String(s ?? '').replace(/[&<>"']/g, (c) =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
-    );
-  }
 
   // TODO: promote to a per-event (or per-agenda-item) `presenter_notes`
   // schema column when a second event needs different references.

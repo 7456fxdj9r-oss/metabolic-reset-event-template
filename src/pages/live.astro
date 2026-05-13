@@ -19,6 +19,7 @@ import Base from '../layouts/Base.astro';
   import { raffleUrl as raffleClean, wheelUrl, editUrl as editUrlOf, rafflePosterUrl } from '../lib/urls.js';
   import { createClient } from '@supabase/supabase-js';
   import QRCode from 'qrcode';
+  import { escapeHtml } from '../lib/html.js';
 
   type Entry = {
     id: string; name: string; email: string; phone: string | null;
@@ -44,11 +45,6 @@ import Base from '../layouts/Base.astro';
   const slug = params.get('slug');
   const key = params.get('key');
 
-  function escapeHtml(s: unknown): string {
-    return String(s ?? '').replace(/[&<>"']/g, (c) =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
-    );
-  }
 
   function fmtTime(iso: string): string {
     const d = new Date(iso);
@@ -108,7 +104,15 @@ import Base from '../layouts/Base.astro';
       }).catch(() => {});
 
       await refresh();
-      pollTimer = window.setInterval(refresh, 5000);
+      // Visibility-gated polling: skip ticks while the tab is hidden so
+      // the page doesn't burn battery / cellular when the host puts
+      // their phone away. Resume fires an immediate catch-up refresh.
+      pollTimer = window.setInterval(() => {
+        if (document.visibilityState === 'visible') refresh();
+      }, 5000);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') refresh();
+      });
 
       wireActions();
     } catch (err) {
@@ -226,7 +230,7 @@ import Base from '../layouts/Base.astro';
       body.innerHTML = `
         <p class="ladder-empty">
           No prizes defined yet.
-          <a href="${escapeAttr(editUrl)}" target="_blank" rel="noopener">Add prizes on the edit page →</a>
+          <a href="${escapeAttr(editUrl)}#raffle" target="_blank" rel="noopener">Add prizes on the edit page →</a>
         </p>`;
       return;
     }
