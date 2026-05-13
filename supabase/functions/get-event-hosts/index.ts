@@ -5,27 +5,14 @@
 //
 // Body: { slug }
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { handleOptions } from '../_shared/cors.ts';
+import { errResp, ok } from '../_shared/responses.ts';
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
-function errResp(status: number, error: string): Response {
-  return new Response(JSON.stringify({ error }), {
-    status, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
-
-function ok(data: unknown): Response {
-  return new Response(JSON.stringify(data), {
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
+// CORS + response helpers come from ../_shared/.
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  const preflight = handleOptions(req);
+  if (preflight) return preflight;
   if (req.method !== 'POST') return errResp(405, 'method not allowed');
 
   const body = await req.json().catch(() => ({}));

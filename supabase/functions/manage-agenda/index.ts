@@ -3,32 +3,10 @@
 //   { action: 'add',    item: { time_label, segment, speaker?, details?, display_order? } }
 //   { action: 'update', item: { id, ...patch } }
 //   { action: 'delete', item_id }
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let result = 0;
-  for (let i = 0; i < a.length; i++) result |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return result === 0;
-}
-
-function errResp(status: number, error: string): Response {
-  return new Response(JSON.stringify({ error }), {
-    status, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
-
-function ok(data: unknown): Response {
-  return new Response(JSON.stringify(data), {
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
+import { handleOptions } from '../_shared/cors.ts';
+import { errResp, ok } from '../_shared/responses.ts';
+import { authEditAccess } from '../_shared/auth.ts';
+import { getServiceClient } from '../_shared/client.ts';
 
 function numOrNull(v: unknown): number | null {
   if (v === null || v === undefined || v === '') return null;
@@ -37,7 +15,8 @@ function numOrNull(v: unknown): number | null {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  const preflight = handleOptions(req);
+  if (preflight) return preflight;
   if (req.method !== 'POST') return errResp(405, 'method not allowed');
 
   const body = await req.json().catch(() => ({}));
@@ -49,20 +28,10 @@ Deno.serve(async (req) => {
     return errResp(400, 'action must be one of: add, update, delete, list, replace_all');
   }
 
-  const supabase = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-  );
-
-  const { data: ev } = await supabase
-    .from('events').select('id, edit_token').eq('slug', slug).maybeSingle();
-  if (!ev) return errResp(404, 'event not found');
-  if (!timingSafeEqual(ev.edit_token, edit_token)) {
-    const { data: cohost } = await supabase
-      .from('hosts').select('id')
-      .eq('event_id', ev.id).eq('host_token', edit_token).maybeSingle();
-    if (!cohost) return errResp(403, 'invalid edit token');
-  }
+  const supabase = getServiceClient();
+  const auth = await authEditAccess(supabase, slug, edit_token);
+  if (!auth.ok) return auth.response;
+  const { ev } = auth;
 
   if (action === 'list') {
     const { data: rows, error } = await supabase

@@ -8,32 +8,10 @@
 //   list                                       → returns hosts for the event
 //   add { name, email? } (master only)         → returns { host: {...} } incl. host_token
 //   remove { host_id } (master only)           → returns { ok: true }
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let result = 0;
-  for (let i = 0; i < a.length; i++) result |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return result === 0;
-}
-
-function errResp(status: number, error: string): Response {
-  return new Response(JSON.stringify({ error }), {
-    status, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
-
-function ok(data: unknown): Response {
-  return new Response(JSON.stringify(data), {
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
+import { handleOptions } from '../_shared/cors.ts';
+import { errResp, ok } from '../_shared/responses.ts';
+import { authEditAccess } from '../_shared/auth.ts';
+import { getServiceClient } from '../_shared/client.ts';
 
 function randomToken(bytes = 24): string {
   const arr = new Uint8Array(bytes);
@@ -45,7 +23,8 @@ function randomToken(bytes = 24): string {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  const preflight = handleOptions(req);
+  if (preflight) return preflight;
   if (req.method !== 'POST') return errResp(405, 'method not allowed');
 
   const body = await req.json().catch(() => ({}));
@@ -57,28 +36,14 @@ Deno.serve(async (req) => {
     return errResp(400, 'action must be one of: list, add, update, remove, set_primary');
   }
 
-  const supabase = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-  );
-
+  const supabase = getServiceClient();
+  const auth = await authEditAccess(supabase, slug, token);
+  if (!auth.ok) return auth.response;
+  const { ev: evStub, isMaster } = auth;
+  // Need primary_host_id too; re-fetch the extra column (cheap; one row by id).
   const { data: ev } = await supabase
-    .from('events').select('id, edit_token, primary_host_id').eq('slug', slug).maybeSingle();
+    .from('events').select('id, edit_token, primary_host_id').eq('id', evStub.id).single();
   if (!ev) return errResp(404, 'event not found');
-
-  // Master = the original event creator's edit_token.
-  // Co-host = a row in `hosts` with matching host_token + event_id.
-  let isMaster = false;
-  let isCoHost = false;
-  if (timingSafeEqual(ev.edit_token, token)) {
-    isMaster = true;
-  } else {
-    const { data: h } = await supabase
-      .from('hosts').select('id')
-      .eq('event_id', ev.id).eq('host_token', token).maybeSingle();
-    isCoHost = !!h;
-  }
-  if (!isMaster && !isCoHost) return errResp(403, 'invalid edit token');
 
   if (action === 'list') {
     const { data: rows, error } = await supabase

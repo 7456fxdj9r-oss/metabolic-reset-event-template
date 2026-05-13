@@ -3,13 +3,10 @@
 //
 // Body: { slug, edit_token, host_id, filename, data: base64 }
 // Path: <event_slug>/hosts/<host_id>-<ts>.<ext>
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { handleOptions } from '../_shared/cors.ts';
+import { errResp, ok } from '../_shared/responses.ts';
+import { authEditAccess } from '../_shared/auth.ts';
+import { getServiceClient } from '../_shared/client.ts';
 
 const MAX_BYTES = 5 * 1024 * 1024;
 const ALLOWED_EXTS: Record<string, string> = {
@@ -19,27 +16,9 @@ const ALLOWED_EXTS: Record<string, string> = {
   webp: 'image/webp',
 };
 
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let result = 0;
-  for (let i = 0; i < a.length; i++) result |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return result === 0;
-}
-
-function errResp(status: number, error: string): Response {
-  return new Response(JSON.stringify({ error }), {
-    status, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
-
-function ok(data: unknown): Response {
-  return new Response(JSON.stringify(data), {
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
-
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  const preflight = handleOptions(req);
+  if (preflight) return preflight;
   if (req.method !== 'POST') return errResp(405, 'method not allowed');
 
   const body = await req.json().catch(() => ({}));
@@ -68,25 +47,14 @@ Deno.serve(async (req) => {
   }
   if (bytes.byteLength > MAX_BYTES) return errResp(413, 'file too large (5MB max)');
 
-  const supabase = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-  );
-
+  const supabase = getServiceClient();
+  const auth = await authEditAccess(supabase, slug, edit_token);
+  if (!auth.ok) return auth.response;
+  const { ev: evStub } = auth;
+  // Need slug again on the row; re-fetch with id (1 row).
   const { data: ev } = await supabase
-    .from('events').select('id, edit_token, slug')
-    .eq('slug', slug).maybeSingle();
+    .from('events').select('id, edit_token, slug').eq('id', evStub.id).single();
   if (!ev) return errResp(404, 'event not found');
-  // A co-host can edit their own row (host_token match); the master can
-  // edit any. Same dual-auth pattern as manage-hosts uses for updates.
-  let allowed = timingSafeEqual(ev.edit_token, edit_token);
-  if (!allowed) {
-    const { data: cohost } = await supabase
-      .from('hosts').select('id')
-      .eq('event_id', ev.id).eq('host_token', edit_token).maybeSingle();
-    allowed = !!cohost;
-  }
-  if (!allowed) return errResp(403, 'invalid edit token');
 
   const { data: h } = await supabase
     .from('hosts').select('id')
