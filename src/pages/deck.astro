@@ -62,6 +62,17 @@ import Base from '../layouts/Base.astro';
     });
   }
 
+  // Group-of-everyone placeholders that the host might type into an
+  // agenda item's speaker field for breaks, mingles, raffles, etc.
+  // Audience-facing section slides suppress these (they read as
+  // chrome to attendees); the editor and cue sheet keep them so the
+  // host can still see who's "owning" the segment.
+  const GROUP_PLACEHOLDERS = new Set(['all', 'everyone', 'everybody', 'team', 'all team', 'group']);
+  function isGroupPlaceholder(text: string | null): boolean {
+    if (!text) return true;
+    return GROUP_PLACEHOLDERS.has(text.trim().toLowerCase());
+  }
+
   if (!slug || !key) {
     root.innerHTML = '<p class="loading err">Missing slug or key — open this from the edit page.</p>';
   } else {
@@ -190,10 +201,11 @@ import Base from '../layouts/Base.astro';
               </div>`;
           } else {
             const it = slide.item;
+            const showLead = it.speaker && !isGroupPlaceholder(it.speaker);
             body = `
               <div class="slide section-slide">
                 <h2 class="section-title">${escapeHtml(it.segment)}</h2>
-                ${it.speaker ? `<p class="section-lead">${escapeHtml(it.speaker)}</p>` : ''}
+                ${showLead ? `<p class="section-lead">${escapeHtml(it.speaker)}</p>` : ''}
               </div>`;
           }
           root.innerHTML = `
