@@ -538,6 +538,10 @@ import Base from '../layouts/Base.astro';
               <span class="stat-pill" id="pill-entries">— entries</span>
               <span class="stat-pill saved" id="save-pill" data-tour="save-pill">✓ All saved</span>
             </div>
+            <p class="save-note">
+              Most sections save when you tap <strong>Save</strong>.
+              Photos save the moment you pick a file.
+            </p>
             <div class="head-cta">
               <a class="cta-view" href="${publicHref}" target="_blank">👀 View public event page</a>
               <a class="cta-live" href="${liveUrl(base, slug, key)}" target="_blank">🎟️ Raffle control</a>
@@ -655,7 +659,7 @@ import Base from '../layouts/Base.astro';
               </label>
 
               <div class="row">
-                <button type="submit" id="save-btn">Save changes</button>
+                <button type="submit" id="save-btn">Save</button>
                 <span id="save-status" role="status" aria-live="polite"></span>
               </div>
             </form>
@@ -730,7 +734,7 @@ import Base from '../layouts/Base.astro';
                 </select>
               </label>
               <div class="row">
-                <button type="submit" id="raffle-save">Save status</button>
+                <button type="submit" id="raffle-save">Save</button>
                 <span id="raffle-save-status" role="status" aria-live="polite"></span>
               </div>
             </form>
@@ -827,7 +831,7 @@ import Base from '../layouts/Base.astro';
                 <span>Show <strong>ORGANIZER</strong> badge on the public page</span>
               </label>
               <div class="row">
-                <button type="submit" id="organizer-save-btn">Save your info</button>
+                <button type="submit" id="organizer-save-btn">Save</button>
                 <span id="organizer-save-status" role="status" aria-live="polite"></span>
               </div>
             </form>
@@ -3615,6 +3619,16 @@ import Base from '../layouts/Base.astro';
   }
   .stat-pill .dot.open { background: #2ecc71; }
   .stat-pill .dot.closed { background: #95a5a6; }
+
+  /* One-liner explainer sitting just under the save pill so first-time
+     users understand why some forms have a Save button and photo
+     uploads don't. Small + dim so it doesn't compete with the title. */
+  .save-note {
+    font-size: 11px; color: #95a5a6;
+    line-height: 1.5; margin: 8px 0 14px;
+    font-style: italic;
+  }
+  .save-note strong { color: #ecf0f1; font-style: normal; font-weight: 700; }
 
   .head-cta { display: flex; gap: 8px; flex-wrap: wrap; }
   .head-cta a {
