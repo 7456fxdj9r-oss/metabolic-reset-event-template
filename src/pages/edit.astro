@@ -539,11 +539,12 @@ import Base from '../layouts/Base.astro';
               <span class="stat-pill" id="pill-speakers">🎤 — speakers</span>
               <span class="stat-pill" id="pill-raffle">🎟️ raffle ${ev.raffle_status === 'open' ? '<span class="dot open"></span>open' : '<span class="dot closed"></span>closed'}</span>
               <span class="stat-pill" id="pill-entries">— entries</span>
-              <span class="stat-pill saved" id="save-pill">✓ All saved</span>
+              <span class="stat-pill saved" id="save-pill" data-tour="save-pill">✓ All saved</span>
             </div>
             <div class="head-cta">
               <a class="cta-view" href="${publicHref}" target="_blank">👀 View public event page</a>
               <a class="cta-live" href="${liveUrl(base, slug, key)}" target="_blank">📊 Live dashboard</a>
+              <button type="button" class="cta-tour" id="start-tour">🎓 Take a tour</button>
             </div>
           </header>
 
@@ -599,7 +600,9 @@ import Base from '../layouts/Base.astro';
             </div>
           </details>
 
-          <section class="card day-of-card">
+          <section class="card checklist-card" id="setup-checklist" data-tour="checklist"></section>
+
+          <section class="card day-of-card" data-tour="day-of-toolkit">
             <h2>Day-of toolkit <span class="audience-tag host-only">Host only</span></h2>
             <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;">
               Everything you'll open the morning of your event. Live dashboard
@@ -617,7 +620,7 @@ import Base from '../layouts/Base.astro';
             </div>
           </section>
 
-          <section class="card">
+          <section class="card" data-tour="event-details">
             <h2>Event details <span class="audience-tag">Public</span></h2>
             <form id="event-form" novalidate>
               <label>
@@ -644,7 +647,7 @@ import Base from '../layouts/Base.astro';
             </form>
           </section>
 
-          <section class="card">
+          <section class="card" data-tour="transformations">
             <h2>Transformation Stories <span class="audience-tag">Public</span></h2>
             <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;line-height:1.5;">
               Featured before/after stories. Each gets its own detail page
@@ -660,7 +663,7 @@ import Base from '../layouts/Base.astro';
             <ul id="t-list" class="t-list"></ul>
           </section>
 
-          <section class="card">
+          <section class="card" data-tour="speakers">
             <h2>Speakers <span class="audience-tag">Public</span></h2>
             <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;line-height:1.5;">
               Headshot, bio, and contact for everyone presenting at your
@@ -676,7 +679,7 @@ import Base from '../layouts/Base.astro';
             <ul id="s-list" class="t-list"></ul>
           </section>
 
-          <section class="card">
+          <section class="card" data-tour="agenda">
             <h2>Agenda / Run of Show <span class="audience-tag host-only">Host only</span></h2>
             <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;line-height:1.5;">
               The minute-by-minute run-of-show — <strong>not shown to
@@ -694,7 +697,7 @@ import Base from '../layouts/Base.astro';
             <ul id="a-list" class="t-list"></ul>
           </section>
 
-          <section class="card">
+          <section class="card" data-tour="raffle">
             <h2>Raffle <span class="audience-tag">Public</span></h2>
             <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;line-height:1.5;">
               One entry form, one pool of attendees, but you can define
@@ -743,7 +746,7 @@ import Base from '../layouts/Base.astro';
             </div>
           </section>
 
-          <section class="card hosts-card">
+          <section class="card hosts-card" data-tour="hosts">
             <h2>Hosts <span class="audience-tag">Public</span></h2>
             <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;line-height:1.5;">
               <strong>Master</strong> = you, the original event creator (this
@@ -825,7 +828,7 @@ import Base from '../layouts/Base.astro';
             </ul>
           </section>
 
-          <section class="card">
+          <section class="card" data-tour="share">
             <h2>Share &amp; save your links</h2>
             <p class="link-blurb">
               Bookmark the edit URL — it's the only way back into this admin page.
@@ -913,7 +916,11 @@ import Base from '../layouts/Base.astro';
         function renderList() {
           if (tSortable) { tSortable.destroy(); tSortable = null; }
           if (transformations.length === 0) {
-            list.innerHTML = '<li class="t-empty">No transformations yet. Add one above.</li>';
+            list.innerHTML = `<li class="t-empty">
+              <strong>No transformation stories yet.</strong>
+              These are before/after journeys with photos, weight + body-fat data, and a takeaway. They show on the public event page and can be pushed live to attendee phones during a coach-impact moment.
+              <span class="empty-hint">Tip: even with just before/after snapshots (no weekly data), the chart synthesizes a realistic curve. Add one above to see it.</span>
+            </li>`;
           } else {
             list.innerHTML = transformations.map(transformationRowHtml).join('');
             tSortable = wireSortable(list, (order) => applyReorder({
@@ -1460,7 +1467,11 @@ import Base from '../layouts/Base.astro';
 
         function renderPrizeList() {
           if (prizes.length === 0) {
-            prizeList.innerHTML = '<li class="prize-empty">No prizes yet. Add one above.</li>';
+            prizeList.innerHTML = `<li class="prize-empty">
+              <strong>No prizes yet.</strong>
+              Add the grand prize plus any spot prizes you'll draw during the event. Each prize has a name, optional photo, and quantity (set quantity 3 if you have three identical mugs).
+              <span class="empty-hint">Tip: the <strong>grand prize photo</strong> appears on the public QR sign-up page — make it the showstopper.</span>
+            </li>`;
           } else {
             prizeList.innerHTML = prizes.map(prizeRowHtml).join('');
           }
@@ -1984,7 +1995,11 @@ import Base from '../layouts/Base.astro';
         function renderSpeakerList() {
           if (sSortable) { sSortable.destroy(); sSortable = null; }
           if (speakers.length === 0) {
-            sList.innerHTML = '<li class="t-empty">No speakers yet.</li>';
+            sList.innerHTML = `<li class="t-empty">
+              <strong>No speakers yet.</strong>
+              Each speaker has a name, photo, bio, and topic. They auto-appear on the public Speaker Bios page and on the projector slide deck when an agenda item names them.
+              <span class="empty-hint">Tip: enter speakers with their <strong>full first + last name</strong> — the agenda's autocomplete will pick that up so slides resolve to photos automatically.</span>
+            </li>`;
           } else {
             sList.innerHTML = speakers.map(speakerRowHtml).join('');
             sSortable = wireSortable(sList, (order) => applyReorder({
@@ -2586,7 +2601,11 @@ import Base from '../layouts/Base.astro';
           }
 
           if (hosts.length === 0) {
-            hostsList.innerHTML = '<li class="hosts-empty">No co-hosts yet.</li>';
+            hostsList.innerHTML = `<li class="hosts-empty">
+              <strong>No co-hosts yet.</strong>
+              Co-hosts get their own private edit link so they can update their bio, photo, and contact info without touching anything else. They appear alongside you on the public hosts page.
+              <span class="empty-hint">Tip: only the master organizer (you) can add or remove co-hosts. Once added, share their personal link via the Copy button next to their row.</span>
+            </li>`;
             return;
           }
           hostsList.innerHTML = hosts.map((h) => {
@@ -2969,7 +2988,11 @@ import Base from '../layouts/Base.astro';
 
         function renderAgendaList() {
           aList.innerHTML = agenda.length === 0
-            ? '<li class="t-empty">No agenda items yet — print cue sheet stays hidden until you add some.</li>'
+            ? `<li class="t-empty">
+                <strong>No agenda items yet.</strong>
+                The agenda drives the run sheet, the printed cue sheet, AND the slide deck — each item becomes one slide on the projector. Add items with a time, segment title, and speaker name.
+                <span class="empty-hint">Tip: bulk-paste from a TSV (time<span style="opacity:.6">⇥</span>segment<span style="opacity:.6">⇥</span>speaker<span style="opacity:.6">⇥</span>details, one row per line) using the form above.</span>
+              </li>`
             : agenda.map(agendaRowHtml).join('');
         }
 
@@ -3288,6 +3311,215 @@ import Base from '../layouts/Base.astro';
         });
 
         renderList();
+
+        // ---------- Setup checklist + first-time tour ----------
+        // Both live at the bottom of the IIFE so they can see every
+        // local data array (speakers, transformations, agenda, prizes,
+        // hostsCache) for the checklist's progress derivation.
+        const checklistCard = document.getElementById('setup-checklist') as HTMLElement;
+        const tourBtn = document.getElementById('start-tour') as HTMLButtonElement;
+
+        // Reads from live form inputs first, falls back to `ev` snapshot —
+        // means a value the user typed but hasn't saved still counts.
+        function checklistState() {
+          const nameInput = document.querySelector('input[name=name]') as HTMLInputElement | null;
+          const dateInput = document.querySelector('input[name=event_date]') as HTMLInputElement | null;
+          const orgInput = document.querySelector('input[name=organizer_name]') as HTMLInputElement | null;
+          return {
+            name: !!(nameInput?.value?.trim() || ev.name),
+            date: !!(dateInput?.value?.trim() || ev.event_date),
+            organizer: !!(orgInput?.value?.trim() || ev.organizer_name),
+            speakers: speakers.length > 0,
+            transformations: transformations.length > 0,
+            agenda: agenda.length > 0,
+            raffle: prizes.length > 0,
+          };
+        }
+
+        function updateChecklist() {
+          if (localStorage.getItem('checklist-dismissed-v1') === '1') {
+            checklistCard.style.display = 'none';
+            return;
+          }
+          checklistCard.style.display = '';
+          const st = checklistState();
+          const items = [
+            { label: 'Event name', done: st.name, target: 'event-details' },
+            { label: 'Event date', done: st.date, target: 'event-details' },
+            { label: 'Your name + bio (organizer)', done: st.organizer, target: 'hosts' },
+            { label: 'At least 1 speaker', done: st.speakers, target: 'speakers' },
+            { label: 'At least 1 transformation story', done: st.transformations, target: 'transformations' },
+            { label: 'Agenda items added', done: st.agenda, target: 'agenda' },
+            { label: 'Raffle prize(s) added', done: st.raffle, target: 'raffle' },
+          ];
+          const done = items.filter((i) => i.done).length;
+          const pct = Math.round((done / items.length) * 100);
+          const allDone = done === items.length;
+          checklistCard.innerHTML = `
+            <div class="checklist-head">
+              <h2>${allDone ? '🎉 Setup complete!' : '🎓 Setup checklist'} <span class="checklist-count">${done} of ${items.length} done</span></h2>
+              <button type="button" class="checklist-dismiss" id="checklist-dismiss" title="${allDone ? 'Close' : 'Hide for good. Re-open via Take a tour button up top.'}">${allDone ? '✕ Close' : 'Hide'}</button>
+            </div>
+            <div class="checklist-bar"><div class="checklist-bar-fill" style="width:${pct}%"></div></div>
+            <ul class="checklist-items">
+              ${items.map((i) => `
+                <li class="checklist-item ${i.done ? 'done' : ''}">
+                  <span class="checklist-mark">${i.done ? '✓' : '○'}</span>
+                  <button type="button" class="checklist-label" data-target="${i.target}">${escapeHtml(i.label)}</button>
+                </li>
+              `).join('')}
+            </ul>
+            ${allDone ? '<p class="checklist-celebrate">Your event is ready to go live. The Day-of toolkit above has everything you need on event day.</p>' : ''}
+          `;
+        }
+
+        checklistCard.addEventListener('click', (clickEv) => {
+          const target = clickEv.target as HTMLElement;
+          if (target.id === 'checklist-dismiss') {
+            try { localStorage.setItem('checklist-dismissed-v1', '1'); } catch { /* private mode */ }
+            checklistCard.style.display = 'none';
+          } else if (target.classList.contains('checklist-label')) {
+            const sel = `[data-tour="${target.getAttribute('data-target')}"]`;
+            document.querySelector(sel)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        });
+
+        // Re-render on relevant state changes. MutationObserver covers
+        // list re-renders (add/edit/delete); input listeners cover the
+        // event-details + organizer forms typing changes.
+        const checklistObserver = new MutationObserver(() => updateChecklist());
+        ['#t-list', '#s-list', '#a-list', '#prize-list', '#hosts-list'].forEach((sel) => {
+          const el = document.querySelector(sel);
+          if (el) checklistObserver.observe(el, { childList: true, subtree: true });
+        });
+        document.getElementById('event-form')?.addEventListener('input', () => updateChecklist());
+        document.getElementById('organizer-form')?.addEventListener('input', () => updateChecklist());
+        updateChecklist();
+
+        // ---------- Tour engine ----------
+        // Spotlight overlay + step-through tooltip. Each step targets an
+        // element by [data-tour="…"] attribute on the page. localStorage
+        // remembers completion so it auto-opens once for a new user but
+        // never nags an existing one.
+        const tourSteps: Array<{ selector: string; title: string; body: string }> = [
+          { selector: '[data-tour="save-pill"]', title: 'Save status', body: 'This pill in the top bar tells you what state your edits are in. "All saved" means everything you typed has hit the database. It flips to "Saving…" while a write is in flight and shows a red error if anything fails.' },
+          { selector: '[data-tour="checklist"]', title: 'Setup checklist', body: 'These are the milestones to get your event ready. Tap any incomplete item to jump to that section. Once everything\'s done, you can hide the checklist for good.' },
+          { selector: '[data-tour="day-of-toolkit"]', title: 'Day-of toolkit', body: 'These buttons get heavy use during the event itself. The Live dashboard runs the raffle from your phone; the slide deck + presenter console pair drives what shows on the projector. Print materials live here too.' },
+          { selector: '[data-tour="event-details"]', title: 'Event details', body: 'Name, date, location, and accent color. The accent color drives every public page\'s highlight color — pick the brand color that matches your venue or theme.' },
+          { selector: '[data-tour="hosts"]', title: 'You + your co-hosts', body: 'You\'re the master (the original creator). Add co-hosts to share editing — each gets their own private edit link. The "Organizer" badge can be passed to a co-host if they\'re the public face of the event.' },
+          { selector: '[data-tour="speakers"]', title: 'Speakers', body: 'Anyone giving a talk. Enter full first + last names so the agenda\'s autocomplete picks the same name — the projector slide deck then auto-resolves photos and bios for each speaker slot.' },
+          { selector: '[data-tour="transformations"]', title: 'Transformation stories', body: 'Before/after journeys with photos and metrics. The chart synthesizes a realistic curve even if you only have snapshot data. During the event, the presenter can push these stories to audience phones from the console.' },
+          { selector: '[data-tour="agenda"]', title: 'Agenda / run of show', body: 'The minute-by-minute schedule. Each item becomes one slide on the projector — speaker slides get a face, "Snack Break" stays a clean title slide. Drag the ⋮⋮ handle to reorder.' },
+          { selector: '[data-tour="raffle"]', title: 'Raffle setup', body: 'Add the grand prize and any spot prizes. Quantity > 1 means multiple winners of the same item. The Live dashboard runs the draws, and the wheel spins for the audience.' },
+          { selector: '[data-tour="share"]', title: 'Share & save your links', body: 'Bookmark the edit URL — it\'s the only way back into this admin page. The public event link goes on flyers and QR codes; the raffle entry link is what attendees scan at the venue.' },
+        ];
+
+        let tourIdx = 0;
+        let tourOverlay: HTMLDivElement | null = null;
+
+        function mountTour() {
+          tourOverlay = document.createElement('div');
+          tourOverlay.className = 'tour-overlay';
+          tourOverlay.innerHTML = `
+            <div class="tour-spotlight"></div>
+            <div class="tour-tooltip" role="dialog">
+              <p class="tour-step-meta"><span class="tour-step-num">1</span> of <span class="tour-step-total">${tourSteps.length}</span></p>
+              <h3 class="tour-title"></h3>
+              <p class="tour-body"></p>
+              <div class="tour-actions">
+                <button type="button" class="tour-skip">Skip tour</button>
+                <button type="button" class="tour-prev">← Back</button>
+                <button type="button" class="tour-next">Next →</button>
+              </div>
+            </div>`;
+          document.body.appendChild(tourOverlay);
+          tourOverlay.querySelector('.tour-prev')!.addEventListener('click', () => stepTour(-1));
+          tourOverlay.querySelector('.tour-next')!.addEventListener('click', () => stepTour(+1));
+          tourOverlay.querySelector('.tour-skip')!.addEventListener('click', () => endTour());
+          // ESC dismisses
+          document.addEventListener('keydown', tourKeydown);
+        }
+
+        function tourKeydown(kev: KeyboardEvent) {
+          if (kev.key === 'Escape') endTour();
+          else if (kev.key === 'ArrowRight') stepTour(+1);
+          else if (kev.key === 'ArrowLeft') stepTour(-1);
+        }
+
+        function endTour() {
+          if (!tourOverlay) return;
+          tourOverlay.remove();
+          tourOverlay = null;
+          document.removeEventListener('keydown', tourKeydown);
+          try { localStorage.setItem('edit-tour-completed-v1', '1'); } catch { /* private mode */ }
+        }
+
+        function showTourStep() {
+          if (!tourOverlay) return;
+          const step = tourSteps[tourIdx];
+          const target = document.querySelector(step.selector) as HTMLElement | null;
+          if (!target) { stepTour(+1); return; }
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          (tourOverlay.querySelector('.tour-step-num') as HTMLElement).textContent = String(tourIdx + 1);
+          (tourOverlay.querySelector('.tour-title') as HTMLElement).textContent = step.title;
+          (tourOverlay.querySelector('.tour-body') as HTMLElement).textContent = step.body;
+          const prevBtn = tourOverlay.querySelector('.tour-prev') as HTMLButtonElement;
+          const nextBtn = tourOverlay.querySelector('.tour-next') as HTMLButtonElement;
+          prevBtn.disabled = tourIdx === 0;
+          nextBtn.textContent = tourIdx === tourSteps.length - 1 ? 'Finish' : 'Next →';
+          // Position after scroll settles (smooth scroll takes ~300ms)
+          setTimeout(() => positionTour(target), 360);
+        }
+
+        function positionTour(target: HTMLElement) {
+          if (!tourOverlay) return;
+          const rect = target.getBoundingClientRect();
+          const spotlight = tourOverlay.querySelector('.tour-spotlight') as HTMLElement;
+          spotlight.style.top = rect.top + 'px';
+          spotlight.style.left = rect.left + 'px';
+          spotlight.style.width = rect.width + 'px';
+          spotlight.style.height = rect.height + 'px';
+          const tooltip = tourOverlay.querySelector('.tour-tooltip') as HTMLElement;
+          const ttHeight = tooltip.offsetHeight || 220;
+          const ttWidth = tooltip.offsetWidth || 360;
+          const below = rect.bottom + 16;
+          const above = rect.top - ttHeight - 16;
+          if (below + ttHeight < window.innerHeight) {
+            tooltip.style.top = below + 'px';
+          } else if (above > 8) {
+            tooltip.style.top = above + 'px';
+          } else {
+            tooltip.style.top = Math.max(8, window.innerHeight - ttHeight - 16) + 'px';
+          }
+          tooltip.style.left = Math.max(12, Math.min(rect.left, window.innerWidth - ttWidth - 12)) + 'px';
+        }
+
+        function stepTour(delta: number) {
+          tourIdx += delta;
+          if (tourIdx < 0) tourIdx = 0;
+          if (tourIdx >= tourSteps.length) return endTour();
+          showTourStep();
+        }
+
+        function startTour() {
+          // Re-show the checklist if the user dismissed it — the tour
+          // points at it on step 2.
+          try { localStorage.removeItem('checklist-dismissed-v1'); } catch { /* private mode */ }
+          updateChecklist();
+          tourIdx = 0;
+          mountTour();
+          showTourStep();
+        }
+
+        tourBtn.addEventListener('click', startTour);
+
+        // Auto-open the tour for first-time users. Delayed so the page
+        // has time to settle visually before the spotlight appears.
+        if (ev.name && localStorage.getItem('edit-tour-completed-v1') !== '1') {
+          setTimeout(() => {
+            if (!tourOverlay) startTour();
+          }, 1500);
+        }
       } catch (err) {
         root.innerHTML = `<p class="loading err">${escapeHtml((err as Error).message)}</p>`;
       }
@@ -3299,6 +3531,7 @@ import Base from '../layouts/Base.astro';
   /* Most of this page is rendered into root.innerHTML at runtime, so the
      stylesheet has to be global — Astro's default scoping would hash the
      class selectors and miss the dynamically inserted DOM. */
+  :root { --accent: #f39c12; }
   * { box-sizing: border-box; }
   html, body {
     background: #1a252f; color: #fff;
@@ -3371,6 +3604,164 @@ import Base from '../layouts/Base.astro';
     background: rgba(46,204,113,0.18); color: #2ecc71;
     border: 1px solid rgba(46,204,113,0.5);
   }
+  .head-cta .cta-tour {
+    display: inline-block; padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px; font-weight: 700;
+    background: transparent; color: var(--accent, #f39c12);
+    border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
+    cursor: pointer; font-family: inherit;
+  }
+  .head-cta .cta-tour:hover {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+
+  /* ---------- Setup checklist (top of admin page) ---------- */
+  .checklist-card {
+    background: linear-gradient(135deg, rgba(243,156,18,0.06), rgba(0,0,0,0.20));
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, rgba(255,255,255,0.10));
+  }
+  .checklist-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+  .checklist-head h2 {
+    font-size: 16px; color: #ecf0f1;
+    margin: 0; font-weight: 800;
+    display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  }
+  .checklist-count {
+    font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--accent); font-weight: 700;
+  }
+  .checklist-dismiss {
+    background: transparent; color: #95a5a6;
+    border: 1px solid rgba(255,255,255,0.14);
+    padding: 4px 10px; border-radius: 6px;
+    font-size: 11px; cursor: pointer; font-family: inherit;
+  }
+  .checklist-dismiss:hover { background: rgba(255,255,255,0.06); color: #ecf0f1; }
+  .checklist-bar {
+    height: 4px; background: rgba(255,255,255,0.08);
+    border-radius: 2px; overflow: hidden;
+    margin-bottom: 12px;
+  }
+  .checklist-bar-fill {
+    height: 100%; background: var(--accent);
+    transition: width 0.3s ease;
+  }
+  .checklist-items {
+    list-style: none; padding: 0; margin: 0;
+    display: grid; gap: 4px;
+  }
+  .checklist-item {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px;
+  }
+  .checklist-mark {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px; border-radius: 50%;
+    font-size: 12px; font-weight: 800;
+    color: rgba(255,255,255,0.35);
+    border: 1px solid rgba(255,255,255,0.20);
+    flex-shrink: 0;
+  }
+  .checklist-item.done .checklist-mark {
+    color: #1a252f; background: #2ecc71; border-color: #2ecc71;
+  }
+  .checklist-label {
+    flex: 1; text-align: left;
+    background: transparent; border: none;
+    color: #ecf0f1; font-size: 13px; font-family: inherit;
+    cursor: pointer; padding: 6px 0;
+  }
+  .checklist-label:hover { color: var(--accent); }
+  .checklist-item.done .checklist-label {
+    color: #95a5a6; text-decoration: line-through;
+    cursor: default;
+  }
+  .checklist-item.done .checklist-label:hover { color: #95a5a6; }
+  .checklist-celebrate {
+    margin-top: 10px;
+    padding: 10px 12px;
+    background: rgba(46,204,113,0.10);
+    border: 1px solid rgba(46,204,113,0.4);
+    border-radius: 8px;
+    font-size: 13px; color: #2ecc71;
+    line-height: 1.5;
+  }
+
+  /* ---------- Tour (Take a tour button) ---------- */
+  .tour-overlay {
+    position: fixed; inset: 0;
+    z-index: 9000;
+    pointer-events: none;
+    animation: tour-fadein 0.2s ease-out;
+  }
+  @keyframes tour-fadein { from { opacity: 0; } to { opacity: 1; } }
+  /* Spotlight uses an enormous outward box-shadow as a fake cutout —
+     everything outside the highlighted element is dimmed by the shadow. */
+  .tour-spotlight {
+    position: fixed;
+    pointer-events: none;
+    border-radius: 12px;
+    box-shadow: 0 0 0 100vmax rgba(0,0,0,0.70);
+    outline: 2px solid var(--accent);
+    outline-offset: 4px;
+    transition: top 0.35s ease, left 0.35s ease, width 0.35s ease, height 0.35s ease;
+  }
+  .tour-tooltip {
+    position: fixed;
+    pointer-events: auto;
+    background: #1a252f;
+    border: 2px solid var(--accent);
+    border-radius: 12px;
+    padding: 16px 18px;
+    max-width: min(360px, calc(100vw - 24px));
+    box-shadow: 0 16px 50px rgba(0,0,0,0.7);
+    color: #ecf0f1;
+    transition: top 0.35s ease, left 0.35s ease;
+    z-index: 9100;
+  }
+  .tour-step-meta {
+    font-size: 10px; letter-spacing: 2.5px; text-transform: uppercase;
+    color: var(--accent); font-weight: 800;
+    margin-bottom: 6px;
+  }
+  .tour-step-meta .tour-step-num {
+    background: var(--accent); color: #1a252f;
+    padding: 1px 6px; border-radius: 4px;
+    margin-right: 2px;
+  }
+  .tour-title {
+    font-size: 17px; font-weight: 800;
+    color: #fff; margin-bottom: 8px;
+    line-height: 1.2;
+  }
+  .tour-body {
+    font-size: 13px; color: #ecf0f1;
+    line-height: 1.55; margin-bottom: 14px;
+  }
+  .tour-actions {
+    display: flex; gap: 8px; justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+  .tour-actions button {
+    padding: 8px 14px; font-size: 12px; font-weight: 700;
+    border-radius: 6px; cursor: pointer; border: none;
+    font-family: inherit;
+  }
+  .tour-prev, .tour-skip {
+    background: rgba(255,255,255,0.06);
+    color: #ecf0f1;
+    border: 1px solid rgba(255,255,255,0.14);
+  }
+  .tour-next {
+    background: var(--accent); color: #1a252f;
+  }
+  .tour-prev:disabled { opacity: 0.4; cursor: not-allowed; }
+  .tour-skip { margin-right: auto; }
 
   .card {
     background: rgba(255,255,255,0.04);
@@ -3852,7 +4243,41 @@ import Base from '../layouts/Base.astro';
   }
   .t-actions button.edit { background: rgba(255,255,255,0.08); color: #ecf0f1; }
   .t-actions button.del  { background: rgba(231,76,60,0.18); color: #e74c3c; }
-  .t-empty { color: #95a5a6; font-size: 13px; font-style: italic; padding: 8px 0; }
+  .t-empty {
+    color: #95a5a6; font-size: 13px;
+    padding: 14px 16px;
+    background: rgba(255,255,255,0.02);
+    border: 1px dashed rgba(255,255,255,0.10);
+    border-radius: 8px;
+    line-height: 1.55;
+    display: grid; gap: 6px;
+  }
+  .t-empty strong { color: #ecf0f1; display: block; font-weight: 700; }
+  .t-empty .empty-hint {
+    font-size: 12px; color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    padding: 8px 10px; border-radius: 6px;
+    margin-top: 2px;
+  }
+  .t-empty .empty-hint strong { display: inline; color: var(--accent); }
+  .hosts-empty:not(.err), .prize-empty:not(.err) {
+    color: #95a5a6; font-size: 13px;
+    padding: 14px 16px;
+    background: rgba(255,255,255,0.02);
+    border: 1px dashed rgba(255,255,255,0.10);
+    border-radius: 8px;
+    line-height: 1.55;
+    display: grid; gap: 6px;
+    list-style: none;
+  }
+  .hosts-empty strong, .prize-empty strong { color: #ecf0f1; display: block; font-weight: 700; }
+  .hosts-empty .empty-hint, .prize-empty .empty-hint {
+    font-size: 12px; color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    padding: 8px 10px; border-radius: 6px;
+    margin-top: 2px;
+  }
+  .hosts-empty .empty-hint strong, .prize-empty .empty-hint strong { display: inline; color: var(--accent); }
 
   /* Raffle section */
   select[name="raffle_status"] {
