@@ -1,5 +1,6 @@
 ---
 import '../styles/mobile.css';
+import '../styles/audience-popup.css';
 interface Props {
   title: string;
   themeColor?: string;
@@ -28,5 +29,13 @@ const { title, themeColor = '#1a252f' } = Astro.props;
   </head>
   <body>
     <slot />
+    <!-- Audience-hub popup bootstrap. Subscribes every public-facing
+         page to the presenter console's broadcasts. installAudiencePopup
+         no-ops on host pages (/edit/, /live/, /deck/, etc.) and on any
+         page that doesn't carry a ?slug=… in its URL. -->
+    <script>
+      import { installAudiencePopup } from '../lib/audience-popup.ts';
+      installAudiencePopup();
+    </script>
   </body>
 </html>
