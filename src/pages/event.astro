@@ -8,11 +8,12 @@ import Base from '../layouts/Base.astro';
 </Base>
 
 <script>
-  import { fetchEventBySlug, fetchTransformations, fetchSpeakers, callFunction } from '../lib/supabase.js';
+  import { fetchEventBySlug, fetchTransformations, fetchSpeakers, callFunction, getConfig } from '../lib/supabase.js';
   import {
     eventUrl, raffleUrl, wheelUrl, storiesUrl, speakersUrl,
     journeyUrl, scienceUrl, hostsUrl,
   } from '../lib/urls.js';
+  import { createClient } from '@supabase/supabase-js';
   import QRCode from 'qrcode';
 
   const root = document.getElementById('event-root')!;
@@ -25,6 +26,88 @@ import Base from '../layouts/Base.astro';
     return String(s ?? '').replace(/[&<>"']/g, (c) =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
     );
+  }
+
+  // Audience-hub popup: render whatever the presenter pushed. Stays up
+  // until the presenter advances (replacing it) or the attendee taps ✕.
+  // Lives outside the main render() flow so it survives event-hub re-renders.
+  function dismissAudienceOverlay(): void {
+    document.getElementById('audience-overlay')?.remove();
+  }
+  function renderAudienceOverlay(payload: {
+    kind: 'speaker' | 'multi' | 'transformation';
+    speaker?: { name: string; photo_url: string | null };
+    topic?: string;
+    speakers?: Array<{ name: string; photo_url: string | null }>;
+    segment?: string;
+    transformation?: {
+      name: string;
+      before_photo_url: string | null;
+      after_photo_url: string | null;
+      headline_lb_loss: number | null;
+      headline_bf_delta_pts: number | null;
+      headline_lean_kept_pct: number | null;
+      takeaway_text: string | null;
+    };
+  }): void {
+    let body = '';
+    if (payload.kind === 'speaker' && payload.speaker) {
+      const sp = payload.speaker;
+      const photo = sp.photo_url
+        ? `<img class="aud-photo" src="${escapeHtml(sp.photo_url)}" alt="${escapeHtml(sp.name)}" />`
+        : '<div class="aud-photo empty">📷</div>';
+      body = `
+        <p class="aud-eyebrow">Now on stage</p>
+        ${photo}
+        <p class="aud-name">${escapeHtml(sp.name)}</p>
+        ${payload.topic ? `<p class="aud-topic">${escapeHtml(payload.topic)}</p>` : ''}`;
+    } else if (payload.kind === 'multi' && payload.speakers) {
+      const tiles = payload.speakers.map((sp) => {
+        const ph = sp.photo_url
+          ? `<img class="aud-mini-photo" src="${escapeHtml(sp.photo_url)}" alt="${escapeHtml(sp.name)}" />`
+          : '<div class="aud-mini-photo empty">📷</div>';
+        return `<div class="aud-mini-tile">${ph}<p class="aud-mini-name">${escapeHtml(sp.name)}</p></div>`;
+      }).join('');
+      body = `
+        <p class="aud-eyebrow">Now on stage</p>
+        <div class="aud-mini-grid">${tiles}</div>
+        ${payload.segment ? `<p class="aud-topic">${escapeHtml(payload.segment)}</p>` : ''}`;
+    } else if (payload.kind === 'transformation' && payload.transformation) {
+      const t = payload.transformation;
+      const stats: string[] = [];
+      if (t.headline_lb_loss != null) stats.push(`−${t.headline_lb_loss} lb`);
+      if (t.headline_bf_delta_pts != null) stats.push(`−${t.headline_bf_delta_pts} BF`);
+      if (t.headline_lean_kept_pct != null) stats.push(`${t.headline_lean_kept_pct}% lean kept`);
+      const before = t.before_photo_url
+        ? `<img class="aud-ba-photo" src="${escapeHtml(t.before_photo_url)}" alt="Before" />`
+        : '<div class="aud-ba-photo empty">Before</div>';
+      const after = t.after_photo_url
+        ? `<img class="aud-ba-photo" src="${escapeHtml(t.after_photo_url)}" alt="After" />`
+        : '<div class="aud-ba-photo empty">After</div>';
+      body = `
+        <p class="aud-eyebrow">Transformation story</p>
+        <p class="aud-name">${escapeHtml(t.name)}</p>
+        ${stats.length ? `<p class="aud-stats">${stats.join(' · ')}</p>` : ''}
+        <div class="aud-ba-pair">
+          <div class="aud-ba"><span class="aud-ba-label">BEFORE</span>${before}</div>
+          <div class="aud-ba"><span class="aud-ba-label">AFTER</span>${after}</div>
+        </div>
+        ${t.takeaway_text ? `<p class="aud-takeaway">${escapeHtml(t.takeaway_text)}</p>` : ''}`;
+    } else {
+      return; // unknown kind — ignore
+    }
+    // Replace any existing overlay rather than stacking.
+    dismissAudienceOverlay();
+    const overlay = document.createElement('div');
+    overlay.id = 'audience-overlay';
+    overlay.className = 'audience-overlay';
+    overlay.innerHTML = `
+      <div class="audience-card">
+        <button type="button" class="audience-close" aria-label="Dismiss">×</button>
+        ${body}
+      </div>`;
+    overlay.querySelector('.audience-close')!.addEventListener('click', dismissAudienceOverlay);
+    document.body.appendChild(overlay);
   }
 
   // PWA manifest — SYNCHRONOUS, from URL params. iOS captures the manifest
@@ -195,6 +278,29 @@ import Base from '../layouts/Base.astro';
           if (themeMeta) themeMeta.setAttribute('content', accent);
         } catch { /* non-fatal */ }
 
+        // ----- Audience-hub popup driven by the presenter console -----
+        // The presenter's /deck-console/ broadcasts 'audience' events on
+        // the deck:<slug> realtime channel when their "Display to audience
+        // phones" toggle is on. Payload tells us what to render (speaker /
+        // multi-speaker / transformation) or to dismiss the current popup.
+        try {
+          const cfg = getConfig();
+          if (cfg.url && cfg.anonKey) {
+            const client = createClient(cfg.url, cfg.anonKey);
+            const audienceChannel = client.channel(`deck:${slug}`, {
+              config: { broadcast: { self: false } },
+            });
+            audienceChannel.on('broadcast', { event: 'audience' }, ({ payload }) => {
+              if (!payload || payload.show !== true) {
+                dismissAudienceOverlay();
+                return;
+              }
+              renderAudienceOverlay(payload);
+            });
+            audienceChannel.subscribe();
+          }
+        } catch { /* non-fatal */ }
+
         // Add-to-Home-Screen hint, iOS Safari only (Chrome shows its own
         // install prompt; other iOS browsers don't support installing).
         // Dismissed-by-user state is per-slug in localStorage.
@@ -273,6 +379,127 @@ import Base from '../layouts/Base.astro';
   .empty { color: #95a5a6; font-style: italic; text-align: center; padding: 30px 0; }
   .loading { color: #95a5a6; text-align: center; padding: 40px 0; font-size: 14px; }
   .loading.err { color: #e74c3c; }
+
+  /* Audience-hub popup — pushed by the presenter console. Full-screen
+     overlay; stays up until presenter pushes the next item or attendee
+     taps the ✕. */
+  .audience-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.92);
+    z-index: 60;
+    display: flex; align-items: center; justify-content: center;
+    padding: 18px 14px;
+    overflow-y: auto;
+    animation: audienceIn 0.25s ease-out;
+  }
+  @keyframes audienceIn {
+    from { opacity: 0; transform: scale(0.96); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+  .audience-card {
+    width: 100%; max-width: 480px;
+    background: #1a252f;
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    border-radius: 14px;
+    padding: 22px 18px 24px;
+    text-align: center;
+    position: relative;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.7);
+  }
+  .audience-close {
+    position: absolute;
+    top: 6px; right: 8px;
+    width: 32px; height: 32px;
+    background: transparent; color: #95a5a6;
+    border: none; border-radius: 16px;
+    font-size: 24px; line-height: 1;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .audience-close:hover { background: rgba(255,255,255,0.08); color: #fff; }
+  .aud-eyebrow {
+    font-size: 11px; letter-spacing: 4px; text-transform: uppercase;
+    color: var(--accent); font-weight: 800; margin-bottom: 14px;
+  }
+  .aud-photo {
+    width: 70%; max-width: 240px;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+    border-radius: 14px;
+    background: rgba(255,255,255,0.05);
+    box-shadow: 0 10px 24px rgba(0,0,0,0.5);
+    margin: 0 auto 14px;
+    display: block;
+  }
+  .aud-photo.empty {
+    display: flex; align-items: center; justify-content: center;
+    font-size: 50px; color: rgba(255,255,255,0.25);
+    border: 2px dashed rgba(255,255,255,0.15);
+  }
+  .aud-name {
+    font-size: 22px; font-weight: 800; color: #fff;
+    line-height: 1.2; margin-bottom: 6px;
+    overflow-wrap: anywhere;
+  }
+  .aud-topic {
+    font-size: 16px; color: var(--accent); font-weight: 700;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+  /* Multi-speaker: 2-up grid of compact avatars */
+  .aud-mini-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 12px;
+    margin-bottom: 14px;
+    justify-items: center;
+  }
+  .aud-mini-tile { display: flex; flex-direction: column; gap: 6px; align-items: center; max-width: 140px; }
+  .aud-mini-photo {
+    width: 100%; aspect-ratio: 1 / 1;
+    object-fit: cover; border-radius: 10px;
+    background: rgba(255,255,255,0.05);
+  }
+  .aud-mini-photo.empty {
+    display: flex; align-items: center; justify-content: center;
+    font-size: 26px; color: rgba(255,255,255,0.25);
+    border: 1px dashed rgba(255,255,255,0.15);
+  }
+  .aud-mini-name {
+    font-size: 13px; font-weight: 700; color: #ecf0f1;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+  }
+  /* Transformation: stats + before/after pair */
+  .aud-stats {
+    font-size: 14px; color: var(--accent); font-weight: 700;
+    margin-bottom: 14px;
+    letter-spacing: 0.5px;
+  }
+  .aud-ba-pair {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .aud-ba { display: flex; flex-direction: column; gap: 6px; }
+  .aud-ba-label {
+    font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
+    color: #95a5a6; font-weight: 700;
+  }
+  .aud-ba-photo {
+    width: 100%; aspect-ratio: 3 / 4;
+    object-fit: cover; border-radius: 8px;
+    background: rgba(255,255,255,0.04);
+  }
+  .aud-ba-photo.empty {
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; color: #95a5a6; font-style: italic;
+    border: 1px dashed rgba(255,255,255,0.15);
+  }
+  .aud-takeaway {
+    font-size: 13px; color: #bdc3c7;
+    line-height: 1.5; font-style: italic;
+    margin-top: 8px;
+  }
 
   /* Add to Home Screen hint — iOS Safari only, dismissable */
   .a2hs-banner {

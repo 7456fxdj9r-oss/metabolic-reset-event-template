@@ -13,7 +13,7 @@ import Base from '../layouts/Base.astro';
 </Base>
 
 <script>
-  import { fetchEventBySlug, fetchSpeakers, fetchAgendaItems, getConfig } from '../lib/supabase.js';
+  import { fetchEventBySlug, fetchSpeakers, fetchAgendaItems, fetchTransformations, getConfig } from '../lib/supabase.js';
   import { createClient } from '@supabase/supabase-js';
   import { editUrl } from '../lib/urls.js';
 
@@ -27,6 +27,17 @@ import Base from '../layouts/Base.astro';
     segment: string;
     speaker: string | null;
     details: string | null;
+    display_order: number;
+  };
+  type Transformation = {
+    id: string;
+    name: string;
+    before_photo_url: string | null;
+    after_photo_url: string | null;
+    headline_lb_loss: number | null;
+    headline_bf_delta_pts: number | null;
+    headline_lean_kept_pct: number | null;
+    takeaway_text: string | null;
     display_order: number;
   };
 
@@ -72,9 +83,10 @@ import Base from '../layouts/Base.astro';
         const accent = event.accent_color || '#f39c12';
         document.documentElement.style.setProperty('--accent', accent);
 
-        const [speakers, agenda] = await Promise.all([
+        const [speakers, agenda, transformations] = await Promise.all([
           fetchSpeakers(event.id) as Promise<Speaker[]>,
           fetchAgendaItems(event.id) as Promise<AgendaItem[]>,
+          fetchTransformations(event.id) as Promise<Transformation[]>,
         ]);
 
         // Same speaker-lookup rule as deck.astro: exact-full-name first,
@@ -118,6 +130,13 @@ import Base from '../layouts/Base.astro';
         ];
 
         let currentIndex = 0;
+        // Audience-hub control state. Master toggle gates whether anything
+        // reaches attendees' phones (deck:<slug> 'audience' events).
+        // `activeTransformationId`, when set, overrides the current slide
+        // for the audience — presenter pushed a transformation on top of
+        // the running flow.
+        let audienceMode = false;
+        let activeTransformationId: string | null = null;
 
         // Realtime: sender. Open the channel first so the broadcast fires
         // even if it's the first message of the session.
@@ -136,6 +155,52 @@ import Base from '../layouts/Base.astro';
           channel.send({
             type: 'broadcast', event: 'advance',
             payload: { index: currentIndex },
+          });
+        }
+
+        // Build the audience-payload for whatever's currently in focus —
+        // active transformation if pinned, otherwise the current slide.
+        // Returns null when there's nothing to show (cover, section slide,
+        // or no matched speakers).
+        type AudiencePayload =
+          | { show: true; kind: 'speaker'; speaker: { name: string; photo_url: string | null }; topic: string }
+          | { show: true; kind: 'multi'; speakers: Array<{ name: string; photo_url: string | null }>; segment: string }
+          | { show: true; kind: 'transformation'; transformation: Transformation }
+          | { show: false };
+
+        function computeAudiencePayload(): AudiencePayload {
+          if (activeTransformationId) {
+            const t = transformations.find((x) => x.id === activeTransformationId);
+            if (t) return { show: true, kind: 'transformation', transformation: t };
+          }
+          const slide = slides[currentIndex];
+          if (slide.kind === 'cover') return { show: false };
+          const sps = slide.speakers;
+          if (sps.length === 1) {
+            return {
+              show: true, kind: 'speaker',
+              speaker: { name: sps[0].name, photo_url: sps[0].photo_url },
+              topic: slide.item.segment,
+            };
+          }
+          if (sps.length >= 2) {
+            return {
+              show: true, kind: 'multi',
+              speakers: sps.map((sp) => ({ name: sp.name, photo_url: sp.photo_url })),
+              segment: slide.item.segment,
+            };
+          }
+          return { show: false };
+        }
+
+        function broadcastAudience(): void {
+          if (!channel) return;
+          const payload = audienceMode
+            ? computeAudiencePayload()
+            : { show: false } as AudiencePayload;
+          channel.send({
+            type: 'broadcast', event: 'audience',
+            payload,
           });
         }
 
@@ -231,6 +296,44 @@ import Base from '../layouts/Base.astro';
               <h2>Tap to jump</h2>
               <ul>${agendaListHtml()}</ul>
             </section>
+            <section class="audience-control">
+              <h2>📲 Audience phones</h2>
+              <label class="audience-toggle">
+                <input type="checkbox" id="audience-toggle" ${audienceMode ? 'checked' : ''} />
+                <span>Display to audience phones</span>
+              </label>
+              <p class="audience-hint">${audienceMode
+                ? 'Phones mirror the projector. Section slides (breaks) clear the popup.'
+                : "Off — nothing pops up on attendees' phones."}</p>
+            </section>
+            ${transformations.length === 0 ? '' : `
+              <section class="transformations-list">
+                <h2>📖 Push a story to audience</h2>
+                <p class="tx-hint">${audienceMode
+                  ? 'Tap to send a before/after to phones. Tap again to clear.'
+                  : 'Turn on "Display to audience phones" above first.'}</p>
+                <ul>
+                  ${transformations.map((t) => {
+                    const active = t.id === activeTransformationId;
+                    const thumb = t.before_photo_url || t.after_photo_url;
+                    const stats: string[] = [];
+                    if (t.headline_lb_loss != null) stats.push(`−${t.headline_lb_loss} lb`);
+                    if (t.headline_bf_delta_pts != null) stats.push(`−${t.headline_bf_delta_pts} BF`);
+                    if (t.headline_lean_kept_pct != null) stats.push(`${t.headline_lean_kept_pct}% lean`);
+                    return `
+                      <li>
+                        <button type="button" class="tx-row${active ? ' active' : ''}" data-tx-id="${escapeHtml(t.id)}" ${audienceMode ? '' : 'disabled'}>
+                          ${thumb ? `<img class="tx-thumb" src="${escapeHtml(thumb)}" alt="" />` : '<div class="tx-thumb empty"></div>'}
+                          <span class="tx-info">
+                            <strong>${escapeHtml(t.name)}</strong>
+                            ${stats.length ? `<span class="tx-stats">${stats.join(' · ')}</span>` : ''}
+                          </span>
+                          <span class="tx-status">${active ? '● Live' : '▶'}</span>
+                        </button>
+                      </li>`;
+                  }).join('')}
+                </ul>
+              </section>`}
             ${PRESENTER_NOTES.length === 0 ? '' : `
               <section class="notes-list">
                 <h2>📝 Presenter notes</h2>
@@ -254,14 +357,40 @@ import Base from '../layouts/Base.astro';
               goTo(i);
             });
           });
+          const toggleEl = document.getElementById('audience-toggle') as HTMLInputElement | null;
+          if (toggleEl) {
+            toggleEl.addEventListener('change', () => setAudienceMode(toggleEl.checked));
+          }
+          document.querySelectorAll('.tx-row').forEach((btn) => {
+            btn.addEventListener('click', () => {
+              const id = (btn as HTMLElement).getAttribute('data-tx-id');
+              if (id) toggleTransformation(id);
+            });
+          });
         }
 
         function goTo(i: number): void {
           const clamped = Math.max(0, Math.min(slides.length - 1, i));
           if (clamped === currentIndex) return;
           currentIndex = clamped;
+          // Advancing past a pushed transformation drops it — the new slide
+          // is the implied "back to the running show" signal.
+          activeTransformationId = null;
           render();
           broadcast();
+          broadcastAudience();
+        }
+
+        function setAudienceMode(on: boolean): void {
+          audienceMode = on;
+          render();
+          broadcastAudience();
+        }
+
+        function toggleTransformation(id: string): void {
+          activeTransformationId = activeTransformationId === id ? null : id;
+          render();
+          broadcastAudience();
         }
 
         render();
@@ -434,6 +563,89 @@ import Base from '../layouts/Base.astro';
   .agenda-row .row-info .row-speaker {
     font-size: 11px; color: #95a5a6;
   }
+
+  /* Audience-phone master toggle + status copy */
+  .audience-control {
+    margin-top: 16px;
+    padding: 12px 14px;
+    background: rgba(243,156,18,0.06);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    border-radius: 10px;
+  }
+  .audience-control h2 {
+    font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; margin-bottom: 8px;
+  }
+  .audience-toggle {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 14px; font-weight: 700; color: #ecf0f1;
+    cursor: pointer;
+  }
+  .audience-toggle input[type=checkbox] {
+    width: 22px; height: 22px;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .audience-hint {
+    margin-top: 6px;
+    font-size: 11px; color: #95a5a6;
+    font-style: italic;
+    line-height: 1.45;
+  }
+
+  /* Transformations panel — tap a row to push the before/after to phones */
+  .transformations-list {
+    margin-top: 16px;
+  }
+  .transformations-list h2 {
+    font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+    color: #95a5a6; font-weight: 700; margin-bottom: 4px;
+  }
+  .tx-hint {
+    margin-bottom: 8px;
+    font-size: 11px; color: #95a5a6; font-style: italic;
+    line-height: 1.45;
+  }
+  .transformations-list ul {
+    list-style: none; padding: 0; margin: 0;
+    display: grid; gap: 6px;
+  }
+  .tx-row {
+    width: 100%;
+    display: grid; grid-template-columns: 48px 1fr auto;
+    align-items: center; gap: 10px;
+    padding: 8px 10px;
+    background: rgba(0,0,0,0.20);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    cursor: pointer; font-family: inherit;
+    color: #ecf0f1; text-align: left;
+  }
+  .tx-row:hover:not(:disabled) { background: rgba(255,255,255,0.05); }
+  .tx-row:disabled { opacity: 0.4; cursor: not-allowed; }
+  .tx-row.active {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  }
+  .tx-thumb {
+    width: 48px; height: 48px;
+    object-fit: cover; border-radius: 6px;
+    background: rgba(255,255,255,0.05);
+  }
+  .tx-thumb.empty {
+    border: 1px dashed rgba(255,255,255,0.15);
+  }
+  .tx-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .tx-info strong {
+    font-size: 13px; font-weight: 700; color: #ecf0f1;
+    overflow-wrap: anywhere;
+  }
+  .tx-stats { font-size: 11px; color: var(--accent); font-weight: 600; }
+  .tx-status {
+    font-size: 12px; font-weight: 700; color: #95a5a6;
+    padding: 2px 8px;
+  }
+  .tx-row.active .tx-status { color: var(--accent); }
 
   /* Presenter notes — tappable reference links for whoever is on the
      mic. Open in a new tab so the console stays put. */
