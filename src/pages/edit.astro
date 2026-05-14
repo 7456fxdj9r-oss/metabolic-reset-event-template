@@ -2958,6 +2958,7 @@ import Base from '../layouts/Base.astro';
           segment: string;
           speaker: string | null;
           details: string | null;
+          duration_minutes: number;
           display_order: number;
         };
         type AgendaSlide = {
@@ -2997,13 +2998,18 @@ import Base from '../layouts/Base.astro';
           const speakerOptions = speakers
             .map((sp) => `<option value="${escapeHtml(sp.name)}"></option>`)
             .join('');
+          const durValue = (v.duration_minutes ?? 15);
           return `
             <form class="t-form" ${it ? `data-id="${it.id}"` : ''} novalidate>
               <h3>${it ? 'Edit agenda item' : 'New agenda item'}</h3>
-              <div class="grid-2">
+              <div class="grid-3">
                 <label>
                   Time
                   <input name="time_label" required maxlength="40" value="${escapeHtml(v.time_label || '')}" placeholder="9:00 AM" />
+                </label>
+                <label>
+                  Duration <span class="opt">(min)</span>
+                  <input type="number" name="duration_minutes" min="0" max="240" step="5" value="${durValue}" />
                 </label>
                 <label>
                   Speaker / Lead
@@ -3019,6 +3025,9 @@ import Base from '../layouts/Base.astro';
                 Details
                 <textarea name="details" rows="3" maxlength="2000" placeholder="What happens during this segment.">${escapeHtml(v.details || '')}</textarea>
               </label>
+              <p class="cascade-hint">
+                💡 Changing the <strong>duration</strong> shifts every later item by the same amount. Changing the <strong>time</strong> only moves this row.
+              </p>
               <div class="row">
                 <button type="submit">${it ? 'Save changes' : 'Create'}</button>
                 <button type="button" class="cancel">${it ? 'Done' : 'Cancel'}</button>
@@ -3030,6 +3039,7 @@ import Base from '../layouts/Base.astro';
         function agendaRowHtml(it: AgendaItem): string {
           const subs = slidesByItem[it.id] || [];
           const subCount = subs.length;
+          const dur = it.duration_minutes ?? 15;
           return `
             <li class="t-row" data-id="${it.id}">
               <div class="t-thumb empty" style="background:rgba(243,156,18,0.18);color:var(--accent,#f39c12);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;border-radius:6px;width:56px;height:auto;min-height:44px;padding:4px;text-align:center;line-height:1.1;border:none;">${escapeHtml(it.time_label)}</div>
@@ -3037,6 +3047,11 @@ import Base from '../layouts/Base.astro';
                 <strong>${escapeHtml(it.segment)}</strong>
                 ${it.speaker ? `<span class="t-meta">${escapeHtml(it.speaker)}</span>` : ''}
                 ${it.details ? `<span class="t-meta">${escapeHtml(it.details.slice(0, 90))}${it.details.length > 90 ? '…' : ''}</span>` : ''}
+                <span class="duration-stepper" title="Each − or + shifts every later item by 5 min">
+                  <button type="button" class="dur-minus" data-id="${it.id}" aria-label="5 minutes shorter">−</button>
+                  <span class="dur-value">⏱ ${dur} min</span>
+                  <button type="button" class="dur-plus" data-id="${it.id}" aria-label="5 minutes longer">+</button>
+                </span>
                 <details class="sub-slides-expander" data-parent="${it.id}" ${subCount > 0 ? 'open' : ''}>
                   <summary class="sub-slides-summary">💡 ${subCount} sub-slide${subCount === 1 ? '' : 's'}</summary>
                   <div class="sub-slides-body">
@@ -3141,6 +3156,71 @@ import Base from '../layouts/Base.astro';
           if (pBtn) pBtn.style.display = '';
         }
 
+        // Formats minutes-since-midnight back to a time label. Preserves
+        // the AM/PM suffix only if the original label used one — so a
+        // host who typed "10:05" gets "10:15" back, not "10:15 AM".
+        function formatTimeFromMinutes(mins: number, hadAMPM: boolean): string {
+          // Wrap into [0, 24h) — shifting past midnight is unusual but
+          // shouldn't crash the formatter.
+          const wrap = ((mins % 1440) + 1440) % 1440;
+          const h24 = Math.floor(wrap / 60);
+          const m = wrap % 60;
+          if (hadAMPM) {
+            let h12 = h24 % 12;
+            if (h12 === 0) h12 = 12;
+            const ampm = h24 < 12 ? 'AM' : 'PM';
+            return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+          }
+          return `${h24}:${String(m).padStart(2, '0')}`;
+        }
+
+        // Shift a single time_label by N minutes, preserving the original
+        // format. Returns the label unchanged if it can't parse — keeps
+        // human-edited oddities ("TBD", "right after lunch") intact.
+        function shiftTimeLabel(label: string | null, deltaMin: number): string {
+          if (!label) return '';
+          const current = parseTimeMinutes(label);
+          if (!Number.isFinite(current)) return label;
+          const hadAMPM = /[ap]\.?m\.?/i.test(label);
+          return formatTimeFromMinutes(current + deltaMin, hadAMPM);
+        }
+
+        // Cascading shift: bumps the time_label of every agenda item whose
+        // parsed time is greater than (or equal to, when inclusive=true)
+        // pivotMin by deltaMin, then fires PATCH calls in parallel and
+        // refreshes the local cache. Used on add (inclusive shift for the
+        // pivot time) and on duration-change (exclusive shift past the
+        // changed item's own time).
+        async function cascadeTimeShift(pivotMin: number, deltaMin: number, inclusive: boolean) {
+          if (!Number.isFinite(deltaMin) || deltaMin === 0) return;
+          const updates: Array<{ id: string; time_label: string }> = [];
+          for (const it of agenda) {
+            const t = parseTimeMinutes(it.time_label);
+            if (!Number.isFinite(t)) continue;
+            const crosses = inclusive ? t >= pivotMin : t > pivotMin;
+            if (!crosses) continue;
+            const newLabel = shiftTimeLabel(it.time_label, deltaMin);
+            if (newLabel !== it.time_label) {
+              updates.push({ id: it.id, time_label: newLabel });
+              it.time_label = newLabel;
+            }
+          }
+          if (updates.length === 0) return;
+          renderAgendaList();
+          try {
+            await Promise.all(updates.map((u) =>
+              callFunction('manage-agenda', {
+                slug, edit_token: key, action: 'update',
+                item: { id: u.id, time_label: u.time_label },
+              })
+            ));
+          } catch (err) {
+            console.error('Cascade time shift failed:', err);
+            agenda = await fetchAgendaItems(ev.id);
+            renderAgendaList();
+          }
+        }
+
         // Parses agenda time labels into minutes-since-midnight so we can
         // sort the agenda chronologically. Accepts "9:00 AM", "10:05",
         // "12:00 PM" etc. Unparseable / empty → sorts to the end so the
@@ -3206,13 +3286,21 @@ import Base from '../layouts/Base.astro';
           submit.disabled = true;
           tStatus.textContent = 'Saving…';
           tStatus.className = 't-status';
+          // Pull duration off the form; default to 15.
+          const rawDur = Number(fd.get('duration_minutes'));
+          const newDuration = Number.isFinite(rawDur) ? Math.max(0, Math.min(240, Math.floor(rawDur))) : 15;
           const item: Record<string, unknown> = {
             time_label: fd.get('time_label'),
             segment: fd.get('segment'),
             speaker: fd.get('speaker') || null,
             details: fd.get('details') || null,
+            duration_minutes: newDuration,
           };
           if (editing) item.id = editing.id;
+          // Capture the pre-save state we need for the cascade rule.
+          const oldDuration = editing ? (editing.duration_minutes ?? 15) : 0;
+          const oldTimeMin = editing ? parseTimeMinutes(editing.time_label) : Number.NaN;
+          const newTimeMin = parseTimeMinutes(String(item.time_label || ''));
           try {
             const res = await callFunction('manage-agenda', {
               action: editing ? 'update' : 'add',
@@ -3225,13 +3313,53 @@ import Base from '../layouts/Base.astro';
             agenda.sort((a, b) => a.display_order - b.display_order);
             renderAgendaList();
             hideAgendaForm();
-            // Re-sort by time_label and persist display_order changes.
-            // Runs after the form closes so the user sees the result.
+            // Cascade rules:
+            //   - ADD: items at or after the new item's parsed time shift
+            //          by +newDuration so we make room for the new slot.
+            //   - UPDATE: items strictly after the changed item's OLD
+            //          parsed time shift by (newDuration - oldDuration).
+            //          We don't move the changed item itself; only the
+            //          tail of the day reacts.
+            if (!editing && Number.isFinite(newTimeMin)) {
+              await cascadeTimeShift(newTimeMin, newDuration, /* inclusive */ true);
+            } else if (editing && Number.isFinite(oldTimeMin)) {
+              const delta = newDuration - oldDuration;
+              if (delta !== 0) {
+                await cascadeTimeShift(oldTimeMin, delta, /* inclusive */ false);
+              }
+            }
+            // Final re-sort handles any post-cascade reordering.
             await autoSortAgendaByTime();
           } catch (err) {
             tStatus.textContent = fmtError(err);
             tStatus.className = 't-status err';
             submit.disabled = false;
+          }
+        }
+
+        // Stepper click handler — ±5 min on an agenda item's duration,
+        // with the same cascade rules as the form's duration field.
+        async function handleStepperClick(itemId: string, deltaMin: number) {
+          const it = agenda.find((x) => x.id === itemId);
+          if (!it) return;
+          const oldDur = it.duration_minutes ?? 15;
+          const newDur = Math.max(0, Math.min(240, oldDur + deltaMin));
+          if (newDur === oldDur) return; // already at the limit
+          const oldTimeMin = parseTimeMinutes(it.time_label);
+          it.duration_minutes = newDur;
+          renderAgendaList();
+          try {
+            await callFunction('manage-agenda', {
+              slug, edit_token: key, action: 'update',
+              item: { id: itemId, duration_minutes: newDur },
+            });
+            if (Number.isFinite(oldTimeMin)) {
+              await cascadeTimeShift(oldTimeMin, newDur - oldDur, /* inclusive */ false);
+            }
+          } catch (err) {
+            console.error('Stepper update failed:', err);
+            it.duration_minutes = oldDur;
+            renderAgendaList();
           }
         }
 
@@ -3543,6 +3671,12 @@ import Base from '../layouts/Base.astro';
           const parentId = target.getAttribute('data-parent');
           if (target.classList.contains('add-sub-slide') && parentId) {
             openSubSlideForm(parentId);
+            return;
+          }
+          // Duration steppers (±5 min) on each agenda row.
+          if (target.classList.contains('dur-minus') || target.classList.contains('dur-plus')) {
+            const itemId = target.getAttribute('data-id');
+            if (itemId) handleStepperClick(itemId, target.classList.contains('dur-plus') ? 5 : -5);
             return;
           }
           if (target.classList.contains('sub-slide-edit') && slideId) {
@@ -4317,6 +4451,48 @@ import Base from '../layouts/Base.astro';
     text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 12px;
   }
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .grid-3 { display: grid; grid-template-columns: minmax(0, 1fr) 110px minmax(0, 1.4fr); gap: 10px; }
+  @media (max-width: 520px) {
+    .grid-3 { grid-template-columns: 1fr 1fr; }
+    .grid-3 label:nth-child(3) { grid-column: 1 / -1; }
+  }
+  .cascade-hint {
+    font-size: 11px; color: #95a5a6; font-style: italic;
+    line-height: 1.5;
+    background: rgba(243,156,18,0.04);
+    border-left: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    padding: 6px 10px;
+    border-radius: 4px;
+  }
+  .cascade-hint strong { color: var(--accent); font-style: normal; }
+  /* Duration stepper inside each agenda row (.t-info). Compact pill so
+     it tucks in below the segment + speaker meta without dominating. */
+  .duration-stepper {
+    display: inline-flex; align-items: center; gap: 2px;
+    margin-top: 4px;
+    font-size: 11px; line-height: 1;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 999px;
+    padding: 2px 2px;
+    width: max-content;
+  }
+  .duration-stepper button {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: transparent; color: var(--accent);
+    border: none;
+    font-weight: 800; font-size: 14px;
+    cursor: pointer; font-family: inherit;
+    padding: 0;
+  }
+  .duration-stepper button:hover { background: rgba(243,156,18,0.15); }
+  .duration-stepper .dur-value {
+    padding: 0 8px;
+    color: #ecf0f1; font-weight: 700;
+    letter-spacing: 0.3px;
+    min-width: 60px; text-align: center;
+  }
   .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
   @media (max-width: 460px) { .grid-3 { grid-template-columns: 1fr; } }
 

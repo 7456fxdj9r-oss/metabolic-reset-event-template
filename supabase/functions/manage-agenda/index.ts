@@ -1,8 +1,10 @@
 // Agenda CRUD on an event. Mirrors manage-transformation / manage-speakers.
 //   { action: 'list' }
-//   { action: 'add',    item: { time_label, segment, speaker?, details?, display_order? } }
-//   { action: 'update', item: { id, ...patch } }
+//   { action: 'add',    item: { time_label, segment, speaker?, details?, duration_minutes?, display_order? } }
+//   { action: 'update', item: { id, ...patch } }    // patch may include duration_minutes
 //   { action: 'delete', item_id }
+// duration_minutes defaults to 15 server-side; editor uses it to cascade
+// time shifts when a row is added or its duration changes.
 import { handleOptions } from '../_shared/cors.ts';
 import { errResp, ok } from '../_shared/responses.ts';
 import { authEditAccess } from '../_shared/auth.ts';
@@ -35,7 +37,7 @@ Deno.serve(async (req) => {
 
   if (action === 'list') {
     const { data: rows, error } = await supabase
-      .from('agenda_items').select('id, time_label, segment, speaker, details, display_order, created_at')
+      .from('agenda_items').select('id, time_label, segment, speaker, details, duration_minutes, display_order, created_at')
       .eq('event_id', ev.id)
       .order('display_order', { ascending: true });
     if (error) return errResp(500, error.message);
@@ -53,11 +55,16 @@ Deno.serve(async (req) => {
       .from('agenda_items').select('display_order')
       .eq('event_id', ev.id).order('display_order', { ascending: false }).limit(1).maybeSingle();
 
+    // Clamp duration to a sensible range — 0 lets the host model an
+    // "instant" announcement, 240 caps a 4-hour block.
+    const dur = numOrNull(it.duration_minutes);
+    const duration_minutes = dur != null ? Math.max(0, Math.min(240, Math.floor(dur))) : 15;
     const row = {
       event_id: ev.id,
       time_label, segment,
       speaker: it.speaker || null,
       details: it.details || null,
+      duration_minutes,
       display_order: numOrNull(it.display_order) ?? ((maxOrder?.display_order ?? -1) + 1),
     };
     const { data: ins, error: insErr } = await supabase
@@ -89,6 +96,10 @@ Deno.serve(async (req) => {
     if ('speaker' in it) patch.speaker = it.speaker || null;
     if ('details' in it) patch.details = it.details || null;
     if ('display_order' in it) patch.display_order = numOrNull(it.display_order) ?? 0;
+    if ('duration_minutes' in it) {
+      const d = numOrNull(it.duration_minutes);
+      patch.duration_minutes = d != null ? Math.max(0, Math.min(240, Math.floor(d))) : 15;
+    }
     if (Object.keys(patch).length === 0) return errResp(400, 'no fields to update');
 
     const { data: upd, error } = await supabase
