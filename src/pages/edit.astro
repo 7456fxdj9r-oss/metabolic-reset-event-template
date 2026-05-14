@@ -3494,7 +3494,19 @@ import Base from '../layouts/Base.astro';
           const step = tourSteps[tourIdx];
           const target = document.querySelector(step.selector) as HTMLElement | null;
           if (!target) { stepTour(+1); return; }
-          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Use the section heading as the visual anchor when the section
+          // is bigger than the viewport (e.g. Hosts card with 7 rows): the
+          // whole-card spotlight is then 2000+px tall and swallows the
+          // viewport. Snap-scroll for those so the rect is settled by the
+          // time we measure it in positionTour — smooth scroll's ~500ms
+          // exceeds our paint timeout and breaks the next step's position.
+          const tall = target.getBoundingClientRect().height > window.innerHeight * 0.75;
+          const heading = tall ? (target.querySelector('h2') as HTMLElement | null) : null;
+          const visualAnchor = heading || target;
+          visualAnchor.scrollIntoView({
+            behavior: tall ? 'auto' : 'smooth',
+            block: tall ? 'start' : 'center',
+          });
           (tourOverlay.querySelector('.tour-step-num') as HTMLElement).textContent = String(tourIdx + 1);
           (tourOverlay.querySelector('.tour-title') as HTMLElement).textContent = step.title;
           (tourOverlay.querySelector('.tour-body') as HTMLElement).textContent = step.body;
@@ -3502,22 +3514,29 @@ import Base from '../layouts/Base.astro';
           const nextBtn = tourOverlay.querySelector('.tour-next') as HTMLButtonElement;
           prevBtn.disabled = tourIdx === 0;
           nextBtn.textContent = tourIdx === tourSteps.length - 1 ? 'Finish' : 'Next →';
-          // Position after scroll settles (smooth scroll takes ~300ms)
-          setTimeout(() => positionTour(target), 360);
+          // Smooth scroll resolves in ~300ms; snap scroll resolves
+          // immediately so we can position right away.
+          setTimeout(() => positionTour(visualAnchor), tall ? 30 : 360);
         }
 
         function positionTour(target: HTMLElement) {
           if (!tourOverlay) return;
           const rect = target.getBoundingClientRect();
           const spotlight = tourOverlay.querySelector('.tour-spotlight') as HTMLElement;
+          // Clamp spotlight height so a tall section doesn't outline the
+          // whole document. The visual anchor (heading) is short anyway,
+          // but defensively clamp in case showTourStep handed us the whole
+          // section.
+          const maxH = Math.min(rect.height, window.innerHeight * 0.7);
           spotlight.style.top = rect.top + 'px';
           spotlight.style.left = rect.left + 'px';
           spotlight.style.width = rect.width + 'px';
-          spotlight.style.height = rect.height + 'px';
+          spotlight.style.height = maxH + 'px';
           const tooltip = tourOverlay.querySelector('.tour-tooltip') as HTMLElement;
           const ttHeight = tooltip.offsetHeight || 220;
           const ttWidth = tooltip.offsetWidth || 360;
-          const below = rect.bottom + 16;
+          const spotBottom = rect.top + maxH;
+          const below = spotBottom + 16;
           const above = rect.top - ttHeight - 16;
           if (below + ttHeight < window.innerHeight) {
             tooltip.style.top = below + 'px';
