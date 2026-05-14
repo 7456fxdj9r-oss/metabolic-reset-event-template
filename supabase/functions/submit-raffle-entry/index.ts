@@ -64,6 +64,7 @@ Deno.serve(async (req) => {
   const goal_text = body.goal_text ? String(body.goal_text).trim() : null;
   const newsletter_optin = !!body.newsletter_optin;
   const apprentice_optin = !!body.apprentice_optin;
+  const consultation_optin = !!body.consultation_optin;
   const quiz = body.quiz_answers && typeof body.quiz_answers === 'object'
     ? body.quiz_answers
     : {};
@@ -149,6 +150,7 @@ Deno.serve(async (req) => {
     goal_text,
     newsletter_optin,
     apprentice_optin,
+    consultation_optin,
   });
   if (insErr) return errResp(500, 'insert failed: ' + insErr.message);
 

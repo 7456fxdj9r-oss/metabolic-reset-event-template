@@ -158,6 +158,10 @@ import Base from '../layouts/Base.astro';
             ${scaleRow('rate_digestion', 'Digestion')}
             ${scaleRow('rate_community', 'Community / connection')}
 
+            <h2>Quick check — what do you know about metabolic health?</h2>
+            <p class="hint">Pick the answer that feels right. We'll show you whether each is correct as you go.</p>
+            <div id="quiz" class="quiz"></div>
+
             <h2>A couple more</h2>
             <label class="row-label">Tried a reset / cleanse / diet program before?</label>
             ${ynRow('tried_before')}
@@ -176,6 +180,10 @@ import Base from '../layouts/Base.astro';
               <input type="checkbox" name="apprentice_optin" />
               <span><strong>I'm curious about metabolic coaching.</strong> Tell me more about the apprentice program.</span>
             </label>
+            <label class="checkbox-row consult-row">
+              <input type="checkbox" name="consultation_optin" />
+              <span><strong>I'd like a free 1-on-1 Metabolic Consultation.</strong> I'm curious what this could look like for me.</span>
+            </label>
 
             <p class="privacy">Your info goes to the event host and team only. We won't share or sell it.</p>
 
@@ -193,6 +201,7 @@ import Base from '../layouts/Base.astro';
         const form = document.getElementById('entry-form') as HTMLFormElement;
         const status = document.getElementById('entry-status')!;
         const submitBtn = document.getElementById('submit-btn') as HTMLButtonElement;
+        const metabolicQuiz = mountMetabolicQuiz(document.getElementById('quiz')!);
 
         form.addEventListener('submit', async (submitEv) => {
           submitEv.preventDefault();
@@ -256,7 +265,8 @@ import Base from '../layouts/Base.astro';
               goal_text: fd.get('goal_text') || null,
               newsletter_optin: fd.get('newsletter_optin') === 'on',
               apprentice_optin: fd.get('apprentice_optin') === 'on',
-              quiz_answers,
+              consultation_optin: fd.get('consultation_optin') === 'on',
+              quiz_answers: { ...quiz_answers, ...metabolicQuiz.answers() },
             });
             window.location.href = raffleMeUrl(base, slug!, res.entry_token);
           } catch (err) {
@@ -298,6 +308,124 @@ import Base from '../layouts/Base.astro';
           `<label><input type="radio" name="${name}" value="${n}" /><span>${n}</span></label>`
         ).join('')}
       </div>`;
+  }
+
+  // Metabolic-awareness quiz. Each question is a radio group; picking
+  // any option triggers an inline reveal — green for the canonically
+  // correct answer, amber for "good thought, here's the bigger picture."
+  // The whole thing is optional — the form's required-field check
+  // doesn't gate on it. Answers ride along in quiz_answers when the
+  // attendee submits the raffle.
+  type QuizOption = { value: string; label: string; correct?: boolean };
+  type QuizQuestion = {
+    id: string;
+    prompt: string;
+    options: QuizOption[];
+    rightReveal: string;      // shown when they pick the correct one
+    softReveal: string;       // shown when they pick a non-canonical answer
+  };
+  const METABOLIC_QUIZ: QuizQuestion[] = [
+    {
+      id: 'q_what_is',
+      prompt: 'What is metabolic health?',
+      options: [
+        { value: 'a', label: 'How efficiently your body uses food for energy' },
+        { value: 'b', label: 'Keeping blood sugar stable' },
+        { value: 'c', label: 'Supporting muscle, hormones, and brain health' },
+        { value: 'd', label: 'Managing inflammation and fat storage' },
+        { value: 'all', label: 'All of the above', correct: true },
+      ],
+      rightReveal: "Right — metabolic health is how your body coordinates energy, blood sugar, muscle, hormones, and inflammation. They're all part of the same system.",
+      softReveal: "That's one piece — and it's actually all of them together. Metabolic health is how your body coordinates energy, blood sugar, muscle, hormones, and inflammation.",
+    },
+    {
+      id: 'q_dysfunction_signs',
+      prompt: 'Which of these are signs of metabolic dysfunction?',
+      options: [
+        { value: 'a', label: 'Low or inconsistent energy' },
+        { value: 'b', label: 'Stubborn weight, especially around the middle' },
+        { value: 'c', label: 'Poor sleep or waking up tired' },
+        { value: 'd', label: 'Brain fog or low motivation' },
+        { value: 'e', label: 'Inflammation, aches, or pains' },
+        { value: 'f', label: 'Blood sugar, cholesterol, or blood pressure concerns' },
+        { value: 'wrong', label: 'Improved VO₂ max and faster recovery' },
+        { value: 'all', label: 'All of the above (except the VO₂ one)', correct: true },
+      ],
+      rightReveal: "Yes — and even one of these is common. Change is possible.",
+      softReveal: "That's one signal — and there are more. Even one is common; change is possible.",
+    },
+    {
+      id: 'q_aging',
+      prompt: 'These symptoms are an inevitable part of aging.',
+      options: [
+        { value: 'true', label: 'True — it just comes with age' },
+        { value: 'false', label: 'False — these are not inevitable', correct: true },
+      ],
+      rightReveal: 'Exactly. Your body responds positively at any age when given the right support.',
+      softReveal: 'These are often blamed on aging — but they are not inevitable. Your body responds positively at any age when given the right support.',
+    },
+    {
+      id: 'q_habits',
+      prompt: 'Which habits support metabolic health?',
+      options: [
+        { value: 'a', label: 'Balanced nutrition with adequate protein' },
+        { value: 'b', label: 'Stable blood sugar through regular, balanced meals' },
+        { value: 'c', label: 'Nutrient-dense, anti-inflammatory foods' },
+        { value: 'd', label: 'Simple, sustainable routines (consistency over perfection)' },
+        { value: 'all', label: 'All of the above', correct: true },
+      ],
+      rightReveal: 'Yes — consistency across nutrition, blood sugar, anti-inflammation, and sustainable routines beats perfection in any one area.',
+      softReveal: "That's one — and they all matter together. Small, consistent habits create lasting results.",
+    },
+    {
+      id: 'q_better_question',
+      prompt: 'A better question than "How do I lose weight?" is…',
+      options: [
+        { value: 'a', label: '"How can I cut more calories?"' },
+        { value: 'b', label: '"Which diet should I try?"' },
+        { value: 'c', label: '"How fast can I see results?"' },
+        { value: 'd', label: '"How do I help my body work with me again?"', correct: true },
+      ],
+      rightReveal: 'Exactly. When metabolic health improves, energy, clarity, strength, and weight follow naturally.',
+      softReveal: "Closer to home is asking 'How do I help my body work with me again?' That reframe is where it starts.",
+    },
+  ];
+
+  function mountMetabolicQuiz(host: HTMLElement) {
+    const picked: Record<string, string> = {};
+    host.innerHTML = METABOLIC_QUIZ.map((q, idx) => `
+      <div class="quiz-q" data-q="${q.id}">
+        <p class="quiz-prompt"><span class="quiz-num">${idx + 1}</span> ${q.prompt}</p>
+        <div class="quiz-options">
+          ${q.options.map((o) => `
+            <label class="quiz-option">
+              <input type="radio" name="quiz_${q.id}" value="${o.value}" />
+              <span>${o.label}</span>
+            </label>
+          `).join('')}
+        </div>
+        <div class="quiz-reveal" data-reveal="${q.id}" hidden></div>
+      </div>
+    `).join('');
+
+    host.addEventListener('change', (ev) => {
+      const input = ev.target as HTMLInputElement;
+      if (input.type !== 'radio' || !input.name.startsWith('quiz_')) return;
+      const qid = input.name.slice('quiz_'.length);
+      const q = METABOLIC_QUIZ.find((x) => x.id === qid);
+      if (!q) return;
+      const opt = q.options.find((o) => o.value === input.value);
+      const isRight = !!opt?.correct;
+      picked[qid] = input.value;
+      const reveal = host.querySelector(`[data-reveal="${qid}"]`) as HTMLElement;
+      reveal.hidden = false;
+      reveal.className = 'quiz-reveal ' + (isRight ? 'right' : 'soft');
+      reveal.innerHTML = `
+        <p class="quiz-reveal-head">${isRight ? '✓ Good job!' : '💡 Worth knowing'}</p>
+        <p class="quiz-reveal-body">${isRight ? q.rightReveal : q.softReveal}</p>`;
+    });
+
+    return { answers: () => ({ ...picked }) };
   }
 </script>
 
@@ -476,6 +604,83 @@ import Base from '../layouts/Base.astro';
   }
   .scale-row input:checked + span {
     background: var(--accent); color: #1a252f;
+  }
+
+  /* Metabolic-awareness quiz — radio-card per option, inline reveal on
+     pick. Lives inside the raffle entry form between the self-rating
+     scales and the open-text section. */
+  .quiz { display: grid; gap: 16px; margin-top: 8px; }
+  .quiz-q {
+    background: rgba(0,0,0,0.20);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 14px 14px 10px;
+  }
+  .quiz-prompt {
+    font-size: 14px; color: #ecf0f1; font-weight: 700;
+    line-height: 1.4; margin-bottom: 10px;
+    display: flex; gap: 8px; align-items: flex-start;
+  }
+  .quiz-num {
+    display: inline-flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    width: 22px; height: 22px;
+    background: var(--accent); color: #1a252f;
+    border-radius: 50%;
+    font-size: 11px; font-weight: 800;
+  }
+  .quiz-options { display: grid; gap: 6px; }
+  label.quiz-option {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 10px 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 8px;
+    font-size: 13px; color: #ecf0f1; font-weight: 500;
+    cursor: pointer;
+    line-height: 1.4;
+  }
+  label.quiz-option:hover { background: rgba(255,255,255,0.07); }
+  label.quiz-option input[type="radio"] {
+    margin-top: 2px;
+    width: 16px; height: 16px;
+    accent-color: var(--accent);
+    flex-shrink: 0;
+  }
+  label.quiz-option:has(input:checked) {
+    background: rgba(243,156,18,0.10);
+    border-color: rgba(243,156,18,0.5);
+  }
+  .quiz-reveal {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid;
+    font-size: 13px; line-height: 1.5;
+  }
+  .quiz-reveal.right {
+    background: rgba(46,204,113,0.10);
+    border-color: rgba(46,204,113,0.45);
+    color: #d4f0dc;
+  }
+  .quiz-reveal.soft {
+    background: rgba(243,156,18,0.10);
+    border-color: rgba(243,156,18,0.45);
+    color: #f6e0bd;
+  }
+  .quiz-reveal-head {
+    font-weight: 800; font-size: 12px; letter-spacing: 1px;
+    text-transform: uppercase; margin-bottom: 4px;
+  }
+  .quiz-reveal.right .quiz-reveal-head { color: #2ecc71; }
+  .quiz-reveal.soft .quiz-reveal-head { color: var(--accent); }
+  .quiz-reveal-body { color: #ecf0f1; font-weight: 500; }
+
+  /* Consultation opt-in gets a slightly louder treatment than the
+     newsletter / apprentice checkboxes — it's the conversion ask. */
+  label.checkbox-row.consult-row {
+    background: rgba(243,156,18,0.08);
+    border-color: rgba(243,156,18,0.45);
   }
 
   /* Checkbox rows */
