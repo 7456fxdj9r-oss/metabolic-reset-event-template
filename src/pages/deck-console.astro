@@ -79,11 +79,28 @@ import Base from '../layouts/Base.astro';
         const accent = event.accent_color || '#f39c12';
         document.documentElement.style.setProperty('--accent', accent);
 
-        const [speakers, agenda, transformations] = await Promise.all([
+        type AgendaSlide = {
+          id: string;
+          agenda_item_id: string;
+          title: string;
+          body: string | null;
+          image_url: string | null;
+          display_order: number;
+        };
+        const [speakers, agenda, transformations, subSlidesRes] = await Promise.all([
           fetchSpeakers(event.id) as Promise<Speaker[]>,
           fetchAgendaItems(event.id) as Promise<AgendaItem[]>,
           fetchTransformations(event.id) as Promise<Transformation[]>,
+          callFunction('manage-agenda-slides', { slug, edit_token: key, action: 'list' })
+            .catch(() => ({ slides: [] as AgendaSlide[] })),
         ]);
+        const subSlidesByParent: Record<string, AgendaSlide[]> = {};
+        for (const s of ((subSlidesRes.slides as AgendaSlide[]) || [])) {
+          (subSlidesByParent[s.agenda_item_id] ||= []).push(s);
+        }
+        for (const arr of Object.values(subSlidesByParent)) {
+          arr.sort((a, b) => a.display_order - b.display_order);
+        }
 
         // Same speaker-lookup rule as deck.astro: exact-full-name first,
         // then per-speaker first-name word match so multi-speaker agenda
@@ -110,20 +127,25 @@ import Base from '../layouts/Base.astro';
           return matches;
         }
 
-        // Slide model: index 0 is cover, 1..N agenda items. `speakers` is
-        // empty for plain section slides, length 1 for single-speaker, 2+
-        // for multi-speaker.
+        // Slide model — flat list matching what deck.astro builds:
+        //   cover (index 0)
+        //   for each agenda item: the auto-built primary slide,
+        //   then its sub-slides (kind: 'sub') in display_order.
         type SlideEntry =
           | { kind: 'cover' }
-          | { kind: 'item'; item: AgendaItem; speakers: Speaker[] };
-        const slides: SlideEntry[] = [
-          { kind: 'cover' },
-          ...agenda.map((it) => ({
-            kind: 'item' as const,
+          | { kind: 'item'; item: AgendaItem; speakers: Speaker[] }
+          | { kind: 'sub'; slide: AgendaSlide; parent: AgendaItem };
+        const slides: SlideEntry[] = [{ kind: 'cover' }];
+        for (const it of agenda) {
+          slides.push({
+            kind: 'item',
             item: it,
             speakers: findMatchingSpeakers(it.speaker),
-          })),
-        ];
+          });
+          for (const sub of (subSlidesByParent[it.id] || [])) {
+            slides.push({ kind: 'sub', slide: sub, parent: it });
+          }
+        }
 
         let currentIndex = 0;
         // Audience-hub control state. Master toggle gates whether anything
@@ -210,6 +232,21 @@ import Base from '../layouts/Base.astro';
                 ${event.event_date ? `<p class="preview-date">${escapeHtml(event.event_date)}</p>` : ''}
               </div>`;
           }
+          if (slide.kind === 'sub') {
+            const ss = slide.slide;
+            const thumb = ss.image_url
+              ? `<img class="preview-photo" src="${escapeHtml(ss.image_url)}" alt="" />`
+              : '<div class="preview-photo empty">💡</div>';
+            return `
+              <div class="preview speaker">
+                ${thumb}
+                <div class="preview-meta">
+                  <p class="preview-time">Sub-slide · under ${escapeHtml(slide.parent.segment.slice(0, 40))}${slide.parent.segment.length > 40 ? '…' : ''}</p>
+                  <p class="preview-name">${escapeHtml(ss.title)}</p>
+                  ${ss.body ? `<p class="preview-topic">${escapeHtml(ss.body.slice(0, 80))}${ss.body.length > 80 ? '…' : ''}</p>` : ''}
+                </div>
+              </div>`;
+          }
           const it = slide.item;
           const sps = slide.speakers;
           if (sps.length === 1) {
@@ -256,6 +293,16 @@ import Base from '../layouts/Base.astro';
               return `<li class="agenda-row${active}" data-idx="0">
                 <span class="row-time">Cover</span>
                 <span class="row-info"><strong>${escapeHtml(event.name)}</strong></span>
+              </li>`;
+            }
+            if (s.kind === 'sub') {
+              // Sub-slides are indented under their parent agenda item.
+              return `<li class="agenda-row sub${active}" data-idx="${i}">
+                <span class="row-time">💡</span>
+                <span class="row-info">
+                  <strong>${escapeHtml(s.slide.title)}</strong>
+                  ${s.slide.body ? `<span class="row-speaker">${escapeHtml(s.slide.body.slice(0, 60))}${s.slide.body.length > 60 ? '…' : ''}</span>` : ''}
+                </span>
               </li>`;
             }
             // Agenda list shows the raw speaker text (what the host typed)
@@ -547,6 +594,18 @@ import Base from '../layouts/Base.astro';
     background: color-mix(in srgb, var(--accent) 14%, transparent);
     border-color: color-mix(in srgb, var(--accent) 50%, transparent);
   }
+  /* Sub-slide rows are indented under their parent agenda item with a
+     thinner appearance so the parent/child hierarchy reads at a glance. */
+  .agenda-row.sub {
+    margin-left: 24px;
+    background: rgba(0,0,0,0.12);
+    border-color: rgba(255,255,255,0.05);
+    padding: 6px 10px;
+  }
+  .agenda-row.sub .row-time {
+    font-size: 13px; color: var(--accent);
+  }
+  .agenda-row.sub .row-info strong { font-size: 12px; }
   .agenda-row .row-time {
     font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
     color: var(--accent); font-weight: 700;

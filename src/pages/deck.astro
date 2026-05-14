@@ -20,7 +20,7 @@ import Base from '../layouts/Base.astro';
 </Base>
 
 <script>
-  import { fetchEventBySlug, fetchSpeakers, fetchAgendaItems, getConfig } from '../lib/supabase.js';
+  import { fetchEventBySlug, fetchSpeakers, fetchAgendaItems, callFunction, getConfig } from '../lib/supabase.js';
   import { createClient } from '@supabase/supabase-js';
   import { escapeHtml } from '../lib/html.js';
 
@@ -37,11 +37,20 @@ import Base from '../layouts/Base.astro';
     details: string | null;
     display_order: number;
   };
+  type AgendaSlide = {
+    id: string;
+    agenda_item_id: string;
+    title: string;
+    body: string | null;
+    image_url: string | null;
+    display_order: number;
+  };
   type Slide =
     | { kind: 'cover'; eventName: string; dateText: string; location: string | null }
     | { kind: 'speaker'; item: AgendaItem; speaker: Speaker }
     | { kind: 'multi'; item: AgendaItem; speakers: Speaker[] }
-    | { kind: 'section'; item: AgendaItem };
+    | { kind: 'section'; item: AgendaItem }
+    | { kind: 'content'; slide: AgendaSlide };
 
   const root = document.getElementById('deck-root')!;
   const params = new URLSearchParams(window.location.search);
@@ -83,10 +92,23 @@ import Base from '../layouts/Base.astro';
         const accent = event.accent_color || '#f39c12';
         document.documentElement.style.setProperty('--accent', accent);
 
-        const [speakers, agenda] = await Promise.all([
+        const [speakers, agenda, subSlidesRes] = await Promise.all([
           fetchSpeakers(event.id) as Promise<Speaker[]>,
           fetchAgendaItems(event.id) as Promise<AgendaItem[]>,
+          // Sub-slides are host-only data — fetch via the auth-gated
+          // edge function. Non-fatal: missing sub-slides leave the deck
+          // working with just the agenda items.
+          callFunction('manage-agenda-slides', { slug, edit_token: key, action: 'list' })
+            .catch(() => ({ slides: [] as AgendaSlide[] })),
         ]);
+        const subSlidesByParent: Record<string, AgendaSlide[]> = {};
+        for (const s of ((subSlidesRes.slides as AgendaSlide[]) || [])) {
+          (subSlidesByParent[s.agenda_item_id] ||= []).push(s);
+        }
+        // Within each parent, ensure sub-slides are in display_order.
+        for (const arr of Object.values(subSlidesByParent)) {
+          arr.sort((a, b) => a.display_order - b.display_order);
+        }
 
         // Resolve which speakers appear in an agenda item's free-text
         // speaker field. Strict-exact match against a speaker's full name
@@ -125,6 +147,10 @@ import Base from '../layouts/Base.astro';
           return matches;
         }
 
+        // Slide list: cover, then for each agenda item the auto-built
+        // primary slide (speaker / multi / section) followed by any
+        // sub-slides attached to that item in display_order. Flat list
+        // so the existing index-based navigation just works.
         const slides: Slide[] = [
           {
             kind: 'cover',
@@ -132,17 +158,20 @@ import Base from '../layouts/Base.astro';
             dateText: fmtEventDate(event.event_date),
             location: event.host_line || null,
           },
-          ...agenda.map((it) => {
-            const matched = findMatchingSpeakers(it.speaker);
-            if (matched.length === 1) {
-              return { kind: 'speaker' as const, item: it, speaker: matched[0] };
-            }
-            if (matched.length >= 2) {
-              return { kind: 'multi' as const, item: it, speakers: matched };
-            }
-            return { kind: 'section' as const, item: it };
-          }),
         ];
+        for (const it of agenda) {
+          const matched = findMatchingSpeakers(it.speaker);
+          if (matched.length === 1) {
+            slides.push({ kind: 'speaker', item: it, speaker: matched[0] });
+          } else if (matched.length >= 2) {
+            slides.push({ kind: 'multi', item: it, speakers: matched });
+          } else {
+            slides.push({ kind: 'section', item: it });
+          }
+          for (const sub of (subSlidesByParent[it.id] || [])) {
+            slides.push({ kind: 'content', slide: sub });
+          }
+        }
 
         let currentIndex = 0;
 
@@ -195,6 +224,37 @@ import Base from '../layouts/Base.astro';
                 <div class="multi-tiles">${tiles}</div>
                 <h2 class="multi-topic">${escapeHtml(it.segment)}</h2>
               </div>`;
+          } else if (slide.kind === 'content') {
+            // Sub-slide: title + optional body + optional image. Layout
+            // adapts to what's present.
+            //   image + text  → side-by-side (image left, text right)
+            //   image only    → hero image with title overlay
+            //   text only     → centered title + body, no image
+            const s = slide.slide;
+            const hasImage = !!s.image_url;
+            const hasBody = !!s.body;
+            if (hasImage && hasBody) {
+              body = `
+                <div class="slide content-slide layout-split">
+                  <img class="content-image" src="${escapeHtml(s.image_url!)}" alt="" />
+                  <div class="content-meta">
+                    <h2 class="content-title">${escapeHtml(s.title)}</h2>
+                    <p class="content-body">${escapeHtml(s.body!)}</p>
+                  </div>
+                </div>`;
+            } else if (hasImage) {
+              body = `
+                <div class="slide content-slide layout-hero">
+                  <img class="content-image hero" src="${escapeHtml(s.image_url!)}" alt="" />
+                  <h2 class="content-title overlay">${escapeHtml(s.title)}</h2>
+                </div>`;
+            } else {
+              body = `
+                <div class="slide content-slide layout-text">
+                  <h2 class="content-title">${escapeHtml(s.title)}</h2>
+                  ${hasBody ? `<p class="content-body">${escapeHtml(s.body!)}</p>` : ''}
+                </div>`;
+            }
           } else {
             const it = slide.item;
             const showLead = it.speaker && !isGroupPlaceholder(it.speaker);
@@ -408,6 +468,90 @@ import Base from '../layouts/Base.astro';
     line-height: 1.1; letter-spacing: -1px;
     text-align: center;
     overflow-wrap: anywhere;
+  }
+
+  /* Content slide (presenter-built sub-slide after an agenda item) */
+  .content-slide {
+    width: 100%;
+    text-align: center;
+  }
+  .content-slide.layout-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    gap: clamp(20px, 5vw, 80px);
+    align-items: center;
+    text-align: left;
+  }
+  .content-slide.layout-split .content-image {
+    width: 100%;
+    max-height: 75vh;
+    object-fit: contain;
+    border-radius: 16px;
+    background: rgba(255,255,255,0.04);
+    justify-self: end;
+  }
+  .content-slide.layout-split .content-title {
+    font-size: clamp(28px, 6vh, 56px);
+    font-weight: 900; line-height: 1.1; letter-spacing: -1px;
+    color: #fff; margin-bottom: 16px;
+    overflow-wrap: anywhere;
+  }
+  .content-slide.layout-split .content-body {
+    font-size: clamp(18px, 2.6vh, 28px);
+    color: #ecf0f1; line-height: 1.5;
+    max-width: 30em;
+    white-space: pre-wrap;
+  }
+  /* Hero image with title overlay */
+  .content-slide.layout-hero {
+    position: relative;
+    width: 100%; height: 80vh;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .content-slide.layout-hero .content-image.hero {
+    width: 100%; height: 100%;
+    object-fit: contain;
+    border-radius: 16px;
+    background: rgba(255,255,255,0.04);
+  }
+  .content-slide.layout-hero .content-title.overlay {
+    position: absolute; bottom: clamp(20px, 4vh, 50px);
+    left: 50%; transform: translateX(-50%);
+    padding: 12px 28px;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(8px);
+    border-radius: 12px;
+    font-size: clamp(28px, 5vh, 48px);
+    font-weight: 900; color: #fff;
+    overflow-wrap: anywhere;
+    max-width: 90%;
+  }
+  /* Text-only centered slide */
+  .content-slide.layout-text {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 24px;
+  }
+  .content-slide.layout-text .content-title {
+    font-size: clamp(38px, 7vh, 80px);
+    font-weight: 900; line-height: 1.1; letter-spacing: -1px;
+    color: var(--accent, #f39c12);
+    overflow-wrap: anywhere;
+  }
+  .content-slide.layout-text .content-body {
+    font-size: clamp(20px, 3vh, 32px);
+    color: #ecf0f1; line-height: 1.5;
+    max-width: 36em;
+    white-space: pre-wrap;
+  }
+  @media (max-width: 900px), (orientation: portrait) {
+    .content-slide.layout-split {
+      grid-template-columns: 1fr;
+      gap: 24px;
+      text-align: center;
+    }
+    .content-slide.layout-split .content-image { justify-self: center; max-width: 60vh; }
+    .content-slide.layout-split .content-body { margin: 0 auto; }
   }
 
   /* Section slide (no matched speaker) */
