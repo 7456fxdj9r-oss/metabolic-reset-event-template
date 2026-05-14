@@ -3141,6 +3141,62 @@ import Base from '../layouts/Base.astro';
           if (pBtn) pBtn.style.display = '';
         }
 
+        // Parses agenda time labels into minutes-since-midnight so we can
+        // sort the agenda chronologically. Accepts "9:00 AM", "10:05",
+        // "12:00 PM" etc. Unparseable / empty → sorts to the end so the
+        // host can still keep an item without a time at the bottom.
+        function parseTimeMinutes(label: string | null): number {
+          if (!label) return Number.POSITIVE_INFINITY;
+          const m = label.trim().match(/^(\d{1,2}):?(\d{0,2})\s*(am|pm|a|p)?/i);
+          if (!m) return Number.POSITIVE_INFINITY;
+          let h = parseInt(m[1], 10);
+          const mins = parseInt(m[2] || '0', 10);
+          const ampm = (m[3] || '').toLowerCase();
+          if (Number.isNaN(h) || h < 0 || h > 23) return Number.POSITIVE_INFINITY;
+          if (Number.isNaN(mins) || mins < 0 || mins > 59) return Number.POSITIVE_INFINITY;
+          if (ampm.startsWith('p') && h < 12) h += 12;
+          if (ampm.startsWith('a') && h === 12) h = 0;
+          return h * 60 + mins;
+        }
+
+        // After add/edit, re-sort the agenda by time_label and push
+        // display_order updates for any item whose position shifted.
+        // Time labels themselves are not changed — this only reorders.
+        async function autoSortAgendaByTime() {
+          const sorted = [...agenda].sort((a, b) => {
+            const ta = parseTimeMinutes(a.time_label);
+            const tb = parseTimeMinutes(b.time_label);
+            if (ta !== tb) return ta - tb;
+            // Stable tiebreak: keep prior display_order on equal times.
+            return a.display_order - b.display_order;
+          });
+          // Detect which items need a display_order patch.
+          const updates: Array<{ id: string; display_order: number }> = [];
+          sorted.forEach((it, idx) => {
+            if (it.display_order !== idx) {
+              updates.push({ id: it.id, display_order: idx });
+              it.display_order = idx;
+            }
+          });
+          agenda = sorted;
+          renderAgendaList();
+          if (updates.length === 0) return;
+          // Fire patches in parallel — small set even for a full re-sort.
+          try {
+            await Promise.all(updates.map((u) =>
+              callFunction('manage-agenda', {
+                slug, edit_token: key, action: 'update',
+                item: { id: u.id, display_order: u.display_order },
+              })
+            ));
+          } catch (err) {
+            console.error('Auto-sort agenda failed:', err);
+            // Refetch on failure so local state matches server.
+            agenda = await fetchAgendaItems(ev.id);
+            renderAgendaList();
+          }
+        }
+
         async function handleAgendaSubmit(submitEv: Event, editing?: AgendaItem) {
           submitEv.preventDefault();
           const formEl = submitEv.target as HTMLFormElement;
@@ -3169,8 +3225,10 @@ import Base from '../layouts/Base.astro';
             agenda.sort((a, b) => a.display_order - b.display_order);
             renderAgendaList();
             hideAgendaForm();
+            // Re-sort by time_label and persist display_order changes.
+            // Runs after the form closes so the user sees the result.
+            await autoSortAgendaByTime();
           } catch (err) {
-            const msg = (err as Error).message;
             tStatus.textContent = fmtError(err);
             tStatus.className = 't-status err';
             submit.disabled = false;
@@ -3509,6 +3567,11 @@ import Base from '../layouts/Base.astro';
           }
         });
         renderAgendaList();
+        // One-shot pass to clean up any out-of-order items left from
+        // before the auto-sort existed (or from manual reordering that
+        // drifted from the time labels). No-ops when the order already
+        // matches the chronological flow.
+        autoSortAgendaByTime();
 
         // ---------- Share & save links section ----------
         const origin = window.location.origin;
