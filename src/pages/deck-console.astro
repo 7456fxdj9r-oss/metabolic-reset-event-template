@@ -13,7 +13,7 @@ import Base from '../layouts/Base.astro';
 </Base>
 
 <script>
-  import { fetchEventBySlug, fetchSpeakers, fetchAgendaItems, fetchTransformations, getConfig } from '../lib/supabase.js';
+  import { fetchEventBySlug, fetchSpeakers, fetchAgendaItems, fetchTransformations, callFunction, getConfig } from '../lib/supabase.js';
   import { createClient } from '@supabase/supabase-js';
   import { editUrl } from '../lib/urls.js';
   import { escapeHtml } from '../lib/html.js';
