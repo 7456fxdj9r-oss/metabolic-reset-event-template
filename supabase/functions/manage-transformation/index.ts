@@ -80,16 +80,10 @@ Deno.serve(async (req) => {
     return errResp(400, 'action must be one of: add, update, delete');
   }
 
-  const { data: ev, error: evErr } = await supabase
-    .from('events').select('id, edit_token').eq('slug', slug).maybeSingle();
-  if (evErr) return errResp(500, evErr.message);
-  if (!ev) return errResp(404, 'event not found');
-  if (!timingSafeEqual(ev.edit_token, edit_token)) {
-    const { data: cohost } = await supabase
-      .from('hosts').select('id')
-      .eq('event_id', ev.id).eq('host_token', edit_token).maybeSingle();
-    if (!cohost) return errResp(403, 'invalid edit token');
-  }
+  const supabase = getServiceClient();
+  const auth = await authEditAccess(supabase, slug, edit_token);
+  if (!auth.ok) return auth.response;
+  const ev = auth.ev;
 
   if (action === 'add') {
     const t = body.transformation || {};
