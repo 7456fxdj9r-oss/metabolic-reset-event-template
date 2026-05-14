@@ -28,6 +28,7 @@ import Base from '../layouts/Base.astro';
     segment: string;
     speaker: string | null;
     details: string | null;
+    duration_minutes: number;
     display_order: number;
   };
   type Transformation = {
@@ -309,8 +310,14 @@ import Base from '../layouts/Base.astro';
             // not the resolved speaker name(s) — keeps the editor mental
             // model intact ("Sarah & Nicole" stays "Sarah & Nicole").
             const speakerText = s.item.speaker || '';
+            // Surface duration on the row so the presenter can pace
+            // without flipping back to the edit page.
+            const dur = s.item.duration_minutes;
+            const durBadge = (dur != null && Number.isFinite(dur))
+              ? `<span class="row-duration">${dur} min</span>`
+              : '';
             return `<li class="agenda-row${active}" data-idx="${i}">
-              <span class="row-time">${escapeHtml(s.item.time_label)}</span>
+              <span class="row-time">${escapeHtml(s.item.time_label)}${durBadge}</span>
               <span class="row-info">
                 <strong>${escapeHtml(s.item.segment)}</strong>
                 ${speakerText ? `<span class="row-speaker">${escapeHtml(speakerText)}</span>` : ''}
@@ -609,6 +616,12 @@ import Base from '../layouts/Base.astro';
   .agenda-row .row-time {
     font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
     color: var(--accent); font-weight: 700;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .agenda-row .row-time .row-duration {
+    font-size: 10px; letter-spacing: 0.5px;
+    color: #95a5a6; font-weight: 600;
+    text-transform: none;
   }
   .agenda-row .row-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
   .agenda-row .row-info strong {

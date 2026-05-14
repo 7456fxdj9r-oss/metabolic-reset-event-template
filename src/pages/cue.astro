@@ -62,14 +62,21 @@ import Base from '../layouts/Base.astro';
         const datePretty = fmtEventDate(event.event_date);
         const rows = items.map((it: {
           time_label: string; segment: string; speaker: string | null; details: string | null;
-        }) => `
+          duration_minutes?: number | null;
+        }) => {
+          const dur = it.duration_minutes;
+          const durText = (dur != null && Number.isFinite(dur))
+            ? `${dur} min`
+            : '—';
+          return `
           <tr>
             <td class="time">${escapeHtml(it.time_label)}</td>
+            <td class="duration">${escapeHtml(durText)}</td>
             <td class="segment">${escapeHtml(it.segment)}</td>
             <td class="speaker">${escapeHtml(it.speaker || '—')}</td>
             <td class="details">${escapeHtml(it.details || '')}</td>
           </tr>
-        `).join('');
+        `;}).join('');
 
         root.innerHTML = `
           <article class="sheet">
@@ -91,6 +98,7 @@ import Base from '../layouts/Base.astro';
                   <thead>
                     <tr>
                       <th class="time">Time</th>
+                      <th class="duration">Dur</th>
                       <th class="segment">Segment</th>
                       <th class="speaker">Speaker / Lead</th>
                       <th class="details">Details</th>
@@ -216,13 +224,19 @@ import Base from '../layouts/Base.astro';
     font-weight: 800; color: var(--accent);
     white-space: nowrap; width: 0.7in;
   }
+  table.schedule td.duration, table.schedule th.duration {
+    text-align: center;
+    color: #7f8c8d;
+    white-space: nowrap; width: 0.55in;
+    font-variant-numeric: tabular-nums;
+  }
   table.schedule td.segment {
     font-weight: 700; color: #1a252f;
-    width: 1.9in;
+    width: 1.6in;
   }
   table.schedule td.speaker {
     color: #34495e; font-style: italic;
-    width: 1.3in;
+    width: 1.2in;
   }
   table.schedule td.details {
     color: #1a252f;
