@@ -143,20 +143,11 @@ import Base from '../layouts/Base.astro';
               <input name="invited_by" required maxlength="100" />
             </label>
 
-            <h2>Do you or someone close to you have…</h2>
-            ${ynBlock('has_diabetes', '<strong>Diabetes</strong> or pre-diabetes?')}
-            ${ynBlock('has_high_bp', '<strong>High blood pressure</strong>?')}
-            ${ynBlock('has_high_cholesterol', '<strong>High cholesterol</strong>?')}
+            <h2>A bit of context</h2>
+            ${ynBlock('has_diabetes', '<strong>Diabetes</strong> or pre-diabetes (you or someone close)?')}
 
-            <h2>How are you doing in these areas?</h2>
             <p class="hint">5 = doing great · 1 = really struggling</p>
             ${scaleRow('rate_energy', 'Energy')}
-            ${scaleRow('rate_sleep', 'Sleep')}
-            ${scaleRow('rate_weight', 'Weight')}
-            ${scaleRow('rate_cravings', 'Cravings / blood sugar')}
-            ${scaleRow('rate_mood', 'Mood / stress')}
-            ${scaleRow('rate_digestion', 'Digestion')}
-            ${scaleRow('rate_community', 'Community / connection')}
 
             <h2>Quick check — what do you know about metabolic health?</h2>
             <p class="hint">Pick the answer that feels right. We'll show you whether each is correct as you go.</p>
@@ -220,15 +211,7 @@ import Base from '../layouts/Base.astro';
 
           const requiredRadios: Array<[string, string]> = [
             ['has_diabetes', 'Diabetes question'],
-            ['has_high_bp', 'High blood pressure question'],
-            ['has_high_cholesterol', 'High cholesterol question'],
             ['rate_energy', 'Energy rating'],
-            ['rate_sleep', 'Sleep rating'],
-            ['rate_weight', 'Weight rating'],
-            ['rate_cravings', 'Cravings rating'],
-            ['rate_mood', 'Mood / stress rating'],
-            ['rate_digestion', 'Digestion rating'],
-            ['rate_community', 'Community rating'],
             ['tried_before', 'Tried-before question'],
           ];
           const missing = requiredRadios.filter(([k]) => !fd.get(k));
