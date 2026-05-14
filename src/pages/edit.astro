@@ -2960,7 +2960,29 @@ import Base from '../layouts/Base.astro';
           details: string | null;
           display_order: number;
         };
+        type AgendaSlide = {
+          id: string;
+          agenda_item_id: string;
+          title: string;
+          body: string | null;
+          image_url: string | null;
+          display_order: number;
+          created_at: string;
+        };
         let agenda: AgendaItem[] = await fetchAgendaItems(ev.id);
+        // Sub-slides keyed by parent agenda_item_id. Loaded once at init,
+        // mutated locally on add/edit/delete, refetched only on errors.
+        let slidesByItem: Record<string, AgendaSlide[]> = {};
+        try {
+          const sRes = await callFunction('manage-agenda-slides', {
+            slug, edit_token: key, action: 'list',
+          });
+          for (const s of ((sRes.slides as AgendaSlide[]) || [])) {
+            (slidesByItem[s.agenda_item_id] ||= []).push(s);
+          }
+        } catch (err) {
+          console.error('Failed to load agenda sub-slides:', err);
+        }
 
         const aList = document.getElementById('a-list')!;
         const aFormHost = document.getElementById('a-form-host')!;
@@ -3006,6 +3028,8 @@ import Base from '../layouts/Base.astro';
         }
 
         function agendaRowHtml(it: AgendaItem): string {
+          const subs = slidesByItem[it.id] || [];
+          const subCount = subs.length;
           return `
             <li class="t-row" data-id="${it.id}">
               <div class="t-thumb empty" style="background:rgba(243,156,18,0.18);color:var(--accent,#f39c12);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;border-radius:6px;width:56px;height:auto;min-height:44px;padding:4px;text-align:center;line-height:1.1;border:none;">${escapeHtml(it.time_label)}</div>
@@ -3013,12 +3037,81 @@ import Base from '../layouts/Base.astro';
                 <strong>${escapeHtml(it.segment)}</strong>
                 ${it.speaker ? `<span class="t-meta">${escapeHtml(it.speaker)}</span>` : ''}
                 ${it.details ? `<span class="t-meta">${escapeHtml(it.details.slice(0, 90))}${it.details.length > 90 ? '…' : ''}</span>` : ''}
+                <details class="sub-slides-expander" data-parent="${it.id}" ${subCount > 0 ? 'open' : ''}>
+                  <summary class="sub-slides-summary">💡 ${subCount} sub-slide${subCount === 1 ? '' : 's'}</summary>
+                  <div class="sub-slides-body">
+                    <ol class="sub-slides-list">${subs.map(subSlideRowHtml).join('')}</ol>
+                    <div class="sub-slide-form-host" data-parent="${it.id}"></div>
+                    <button type="button" class="add-sub-slide" data-parent="${it.id}">+ Add sub-slide</button>
+                  </div>
+                </details>
               </div>
               <div class="t-actions">
                 <button class="edit" data-id="${it.id}">Edit</button>
                 <button class="del" data-id="${it.id}">Delete</button>
               </div>
             </li>`;
+        }
+
+        function subSlideRowHtml(s: AgendaSlide): string {
+          const bodyPreview = s.body
+            ? `<span class="sub-slide-body-preview">${escapeHtml(s.body.slice(0, 80))}${s.body.length > 80 ? '…' : ''}</span>`
+            : '';
+          const thumb = s.image_url
+            ? `<img class="sub-slide-thumb" src="${escapeHtml(s.image_url)}" alt="" />`
+            : '<div class="sub-slide-thumb empty">—</div>';
+          return `
+            <li class="sub-slide-row" data-slide-id="${s.id}">
+              ${thumb}
+              <div class="sub-slide-info">
+                <strong>${escapeHtml(s.title)}</strong>
+                ${bodyPreview}
+              </div>
+              <div class="sub-slide-actions">
+                <button type="button" class="sub-slide-edit" data-slide-id="${s.id}">Edit</button>
+                <button type="button" class="sub-slide-del" data-slide-id="${s.id}">×</button>
+              </div>
+            </li>`;
+        }
+
+        // Renders either an add-new form (no slide arg) or an edit form
+        // (slide arg pre-fills the fields). Same fields in both cases;
+        // submit handler checks slide?.id to decide add vs update.
+        function subSlideFormHtml(parentId: string, slide?: AgendaSlide): string {
+          const v = slide || ({} as Partial<AgendaSlide>);
+          const showRecrop = !!(slide && v.image_url);
+          return `
+            <form class="sub-slide-form" data-parent="${parentId}" ${slide ? `data-slide-id="${slide.id}"` : ''} novalidate>
+              <h4>${slide ? 'Edit sub-slide' : 'New sub-slide'}</h4>
+              <label>
+                Title <span class="req">*</span>
+                <input name="title" required maxlength="160" value="${escapeHtml(v.title || '')}" placeholder="Why metabolic health matters" />
+              </label>
+              <label>
+                Body <span class="opt">(optional)</span>
+                <textarea name="body" rows="3" maxlength="1000" placeholder="Supporting text under the title.">${escapeHtml(v.body || '')}</textarea>
+              </label>
+              <div class="photo-slot sub-slide-slot" data-sub-slide-slot>
+                <span class="slot-label">Image <span class="opt">(optional)</span></span>
+                <div class="photo-preview sub-slide-preview">
+                  ${v.image_url
+                    ? `<img src="${escapeHtml(v.image_url)}" alt="" />`
+                    : '<div class="empty">No image</div>'}
+                </div>
+                <div class="photo-actions">
+                  <label class="upload-btn">
+                    <input type="file" accept="image/*" data-sub-slide-slot hidden ${slide ? '' : 'disabled'} />
+                    <span class="upload-label">${v.image_url ? 'Replace image' : (slide ? 'Upload image' : 'Save the slide first, then upload')}</span>
+                  </label>
+                </div>
+                <span class="upload-status" data-sub-slide-slot></span>
+              </div>
+              <div class="row">
+                <button type="submit">${slide ? 'Save changes' : 'Create'}</button>
+                <button type="button" class="cancel-sub-slide">Cancel</button>
+                <span class="t-status" role="status" aria-live="polite"></span>
+              </div>
+            </form>`;
         }
 
         function renderAgendaList() {
@@ -3269,9 +3362,143 @@ import Base from '../layouts/Base.astro';
         const pasteABtn = document.getElementById('paste-a-btn') as HTMLButtonElement;
         pasteABtn.addEventListener('click', () => showAgendaPasteForm());
 
+        // ---------- Agenda sub-slides ----------
+        // Mounts the add-or-edit form into the slot under the parent
+        // agenda row. Saving the form re-renders just that row (cheap
+        // since renderAgendaList rebuilds the whole list once).
+        function openSubSlideForm(parentId: string, slide?: AgendaSlide) {
+          const host = aList.querySelector(`.sub-slide-form-host[data-parent="${parentId}"]`) as HTMLElement | null;
+          if (!host) return;
+          host.innerHTML = subSlideFormHtml(parentId, slide);
+          const form = host.querySelector('form.sub-slide-form') as HTMLFormElement;
+          form.addEventListener('submit', (e) => handleSubSlideSubmit(e, parentId, slide));
+          form.querySelector('.cancel-sub-slide')!.addEventListener('click', () => { host.innerHTML = ''; });
+          // Image upload only works after the slide row exists (we need
+          // a slide_id). For the new-slide form the file input is
+          // disabled in the template; for edit mode wire the change.
+          if (slide) {
+            const fileInput = form.querySelector('input[type=file][data-sub-slide-slot]') as HTMLInputElement;
+            fileInput.addEventListener('change', (e) => handleSubSlideImageUpload(e, slide));
+          }
+          (form.querySelector('input[name=title]') as HTMLInputElement).focus();
+        }
+
+        async function handleSubSlideSubmit(submitEv: Event, parentId: string, editing?: AgendaSlide) {
+          submitEv.preventDefault();
+          const form = submitEv.target as HTMLFormElement;
+          const fd = new FormData(form);
+          const statusEl = form.querySelector('.t-status') as HTMLSpanElement;
+          const submitBtn = form.querySelector('button[type=submit]') as HTMLButtonElement;
+          submitBtn.disabled = true;
+          statusEl.textContent = 'Saving…';
+          statusEl.className = 't-status';
+          const slide: Record<string, unknown> = {
+            title: String(fd.get('title') || '').trim(),
+            body: String(fd.get('body') || '').trim() || null,
+          };
+          if (editing) slide.id = editing.id;
+          else slide.agenda_item_id = parentId;
+          try {
+            const res = await callFunction('manage-agenda-slides', {
+              slug, edit_token: key,
+              action: editing ? 'update' : 'add',
+              slide,
+            });
+            const saved = res.slide as AgendaSlide;
+            const list = slidesByItem[parentId] || (slidesByItem[parentId] = []);
+            if (editing) {
+              const idx = list.findIndex((x) => x.id === saved.id);
+              if (idx >= 0) list[idx] = saved; else list.push(saved);
+            } else {
+              list.push(saved);
+            }
+            renderAgendaList();
+          } catch (err) {
+            statusEl.textContent = fmtError(err);
+            statusEl.className = 't-status err';
+            submitBtn.disabled = false;
+          }
+        }
+
+        async function handleSubSlideImageUpload(changeEv: Event, slide: AgendaSlide) {
+          const input = changeEv.target as HTMLInputElement;
+          const file = input.files?.[0];
+          if (!file) return;
+          const slotEl = input.closest('.sub-slide-slot') as HTMLElement;
+          const previewEl = slotEl.querySelector('.photo-preview') as HTMLElement;
+          const labelEl = slotEl.querySelector('.upload-label') as HTMLElement;
+          const statusEl = slotEl.querySelector('.upload-status') as HTMLElement;
+          input.value = '';
+          statusEl.textContent = 'Compressing…';
+          statusEl.className = 'upload-status';
+          try {
+            const compressed = await compressImage(file, 1600, 0.85);
+            statusEl.textContent = 'Uploading…';
+            const data_b64 = await blobToBase64(compressed);
+            const res = await callFunction('upload-event-photo', {
+              slug, edit_token: key,
+              kind: 'agenda_slide',
+              slide_id: slide.id,
+              filename: 'photo.jpg', data: data_b64,
+            });
+            const url = res.url as string;
+            slide.image_url = url;
+            const list = slidesByItem[slide.agenda_item_id] || [];
+            const idx = list.findIndex((x) => x.id === slide.id);
+            if (idx >= 0) list[idx].image_url = url;
+            previewEl.innerHTML = `<img src="${escapeHtml(url)}" alt="" />`;
+            labelEl.textContent = 'Replace image';
+            statusEl.textContent = 'Uploaded ✓';
+            statusEl.className = 'upload-status ok';
+            renderAgendaList();
+          } catch (err) {
+            statusEl.textContent = fmtError(err);
+            statusEl.className = 'upload-status err';
+          }
+        }
+
+        async function handleSubSlideDelete(slideId: string) {
+          // Find the slide first so we can show its title in the confirm.
+          let parentId = '', title = '(this slide)';
+          for (const pid of Object.keys(slidesByItem)) {
+            const found = slidesByItem[pid].find((s) => s.id === slideId);
+            if (found) { parentId = pid; title = found.title; break; }
+          }
+          if (!confirm(`Delete sub-slide "${title}"? Can't be undone.`)) return;
+          try {
+            await callFunction('manage-agenda-slides', {
+              slug, edit_token: key, action: 'delete', slide_id: slideId,
+            });
+            slidesByItem[parentId] = (slidesByItem[parentId] || []).filter((s) => s.id !== slideId);
+            renderAgendaList();
+          } catch (err) {
+            alert('Could not delete: ' + fmtError(err));
+          }
+        }
+
         aList.addEventListener('click', (clickEv) => {
           const target = clickEv.target as HTMLElement;
           if (target.tagName !== 'BUTTON') return;
+          // Sub-slide actions take priority — they have more specific
+          // classes. Fall through to the agenda item actions otherwise.
+          const slideId = target.getAttribute('data-slide-id');
+          const parentId = target.getAttribute('data-parent');
+          if (target.classList.contains('add-sub-slide') && parentId) {
+            openSubSlideForm(parentId);
+            return;
+          }
+          if (target.classList.contains('sub-slide-edit') && slideId) {
+            // Locate the slide in any parent bucket.
+            for (const pid of Object.keys(slidesByItem)) {
+              const found = slidesByItem[pid].find((s) => s.id === slideId);
+              if (found) { openSubSlideForm(pid, found); break; }
+            }
+            return;
+          }
+          if (target.classList.contains('sub-slide-del') && slideId) {
+            handleSubSlideDelete(slideId);
+            return;
+          }
           const id = target.getAttribute('data-id');
           if (!id) return;
           if (target.classList.contains('edit')) {
@@ -4314,6 +4541,97 @@ import Base from '../layouts/Base.astro';
   }
   .t-actions button.edit { background: rgba(255,255,255,0.08); color: #ecf0f1; }
   .t-actions button.del  { background: rgba(231,76,60,0.18); color: #e74c3c; }
+  /* Sub-slides expander on agenda rows: collapsed by default when
+     empty; opens automatically on agenda rows that already have some. */
+  .sub-slides-expander { margin-top: 6px; }
+  .sub-slides-summary {
+    font-size: 11px; font-weight: 700;
+    color: var(--accent, #f39c12);
+    cursor: pointer; user-select: none;
+    list-style: none;
+    padding: 4px 0;
+  }
+  .sub-slides-summary::-webkit-details-marker { display: none; }
+  .sub-slides-summary::before {
+    content: '▸'; display: inline-block;
+    margin-right: 4px; transition: transform 0.15s;
+  }
+  .sub-slides-expander[open] .sub-slides-summary::before { transform: rotate(90deg); }
+  .sub-slides-body {
+    margin-top: 6px;
+    padding: 8px 10px;
+    background: rgba(243,156,18,0.04);
+    border: 1px solid rgba(243,156,18,0.15);
+    border-radius: 6px;
+  }
+  .sub-slides-list { list-style: none; padding: 0; margin: 0 0 6px; display: grid; gap: 4px; }
+  .sub-slide-row {
+    display: grid;
+    grid-template-columns: 40px 1fr auto;
+    align-items: center; gap: 8px;
+    padding: 6px 8px;
+    background: rgba(0,0,0,0.25);
+    border-radius: 6px;
+  }
+  .sub-slide-thumb {
+    width: 40px; height: 40px;
+    object-fit: cover; border-radius: 4px;
+    background: rgba(255,255,255,0.05);
+  }
+  .sub-slide-thumb.empty {
+    display: flex; align-items: center; justify-content: center;
+    color: rgba(255,255,255,0.30); font-size: 13px;
+    border: 1px dashed rgba(255,255,255,0.15);
+  }
+  .sub-slide-info { display: grid; gap: 1px; min-width: 0; }
+  .sub-slide-info strong {
+    font-size: 12px; color: #ecf0f1; font-weight: 700;
+    overflow-wrap: anywhere;
+  }
+  .sub-slide-body-preview { font-size: 11px; color: #95a5a6; }
+  .sub-slide-actions { display: flex; gap: 4px; }
+  .sub-slide-actions button {
+    padding: 4px 8px; font-size: 11px; font-weight: 700;
+    background: rgba(255,255,255,0.06); color: #ecf0f1;
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 4px; cursor: pointer; font-family: inherit;
+  }
+  .sub-slide-actions button.sub-slide-del { color: #e74c3c; }
+  button.add-sub-slide {
+    width: 100%;
+    padding: 6px 10px;
+    font-size: 11px; font-weight: 700;
+    background: transparent;
+    color: var(--accent, #f39c12);
+    border: 1px dashed color-mix(in srgb, var(--accent) 50%, transparent);
+    border-radius: 6px; cursor: pointer; font-family: inherit;
+  }
+  button.add-sub-slide:hover { background: rgba(243,156,18,0.08); }
+  .sub-slide-form {
+    background: rgba(0,0,0,0.30);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+    display: grid; gap: 8px;
+  }
+  .sub-slide-form h4 {
+    font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--accent, #f39c12); font-weight: 800;
+    margin: 0 0 2px;
+  }
+  .sub-slide-form .sub-slide-slot { margin-top: 4px; }
+  .sub-slide-form .sub-slide-preview {
+    aspect-ratio: 16/9;
+    background: rgba(0,0,0,0.3);
+    border: 1px dashed rgba(255,255,255,0.15);
+    border-radius: 6px;
+    overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .sub-slide-form .sub-slide-preview img { width: 100%; height: 100%; object-fit: cover; }
+  .sub-slide-form .sub-slide-preview .empty { color: #555; font-size: 11px; }
+
   .t-empty {
     color: #95a5a6; font-size: 13px;
     padding: 14px 16px;
