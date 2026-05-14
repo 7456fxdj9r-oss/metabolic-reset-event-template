@@ -238,13 +238,22 @@ import Base from '../layouts/Base.astro';
             const thumb = ss.image_url
               ? `<img class="preview-photo" src="${escapeHtml(ss.image_url)}" alt="" />`
               : '<div class="preview-photo empty">💡</div>';
+            // Title optional. Fall back to body snippet or "(image-only)"
+            // so the preview always has a heading line.
+            const titleText = ss.title?.trim();
+            const heading = titleText
+              ? escapeHtml(titleText)
+              : (ss.body
+                ? escapeHtml(ss.body.slice(0, 40)) + (ss.body.length > 40 ? '…' : '')
+                : '(image-only slide)');
+            const showBodySnippet = titleText && ss.body;
             return `
               <div class="preview speaker">
                 ${thumb}
                 <div class="preview-meta">
                   <p class="preview-time">Sub-slide · under ${escapeHtml(slide.parent.segment.slice(0, 40))}${slide.parent.segment.length > 40 ? '…' : ''}</p>
-                  <p class="preview-name">${escapeHtml(ss.title)}</p>
-                  ${ss.body ? `<p class="preview-topic">${escapeHtml(ss.body.slice(0, 80))}${ss.body.length > 80 ? '…' : ''}</p>` : ''}
+                  <p class="preview-name">${heading}</p>
+                  ${showBodySnippet ? `<p class="preview-topic">${escapeHtml(ss.body!.slice(0, 80))}${ss.body!.length > 80 ? '…' : ''}</p>` : ''}
                 </div>
               </div>`;
           }
@@ -298,11 +307,19 @@ import Base from '../layouts/Base.astro';
             }
             if (s.kind === 'sub') {
               // Sub-slides are indented under their parent agenda item.
+              // Title is optional — fall back to body or "(image-only)".
+              const titleText = s.slide.title?.trim();
+              const heading = titleText
+                ? escapeHtml(titleText)
+                : (s.slide.body
+                  ? escapeHtml(s.slide.body.slice(0, 40)) + (s.slide.body.length > 40 ? '…' : '')
+                  : '(image-only slide)');
+              const showBodySnippet = titleText && s.slide.body;
               return `<li class="agenda-row sub${active}" data-idx="${i}">
                 <span class="row-time">💡</span>
                 <span class="row-info">
-                  <strong>${escapeHtml(s.slide.title)}</strong>
-                  ${s.slide.body ? `<span class="row-speaker">${escapeHtml(s.slide.body.slice(0, 60))}${s.slide.body.length > 60 ? '…' : ''}</span>` : ''}
+                  <strong${!titleText ? ' class="dim"' : ''}>${heading}</strong>
+                  ${showBodySnippet ? `<span class="row-speaker">${escapeHtml(s.slide.body!.slice(0, 60))}${s.slide.body!.length > 60 ? '…' : ''}</span>` : ''}
                 </span>
               </li>`;
             }
@@ -613,6 +630,9 @@ import Base from '../layouts/Base.astro';
     font-size: 13px; color: var(--accent);
   }
   .agenda-row.sub .row-info strong { font-size: 12px; }
+  .agenda-row.sub .row-info strong.dim {
+    color: #95a5a6; font-style: italic; font-weight: 600;
+  }
   .agenda-row .row-time {
     font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
     color: var(--accent); font-weight: 700;

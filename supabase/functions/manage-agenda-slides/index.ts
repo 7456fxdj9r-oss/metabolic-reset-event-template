@@ -71,11 +71,16 @@ Deno.serve(async (req) => {
     const agenda_item_id = String(slide.agenda_item_id || '').trim();
     const title = String(slide.title || '').trim();
     if (!agenda_item_id) return errResp(400, 'agenda_item_id required');
-    if (!title) return errResp(400, 'title required');
     const parentErr = await assertParentInEvent(agenda_item_id);
     if (parentErr) return errResp(404, parentErr);
     const body_text = slide.body ? String(slide.body).trim() : null;
     const image_url = slide.image_url ? String(slide.image_url).trim() : null;
+    // Title is optional, but the slide has to carry SOMETHING — title,
+    // body, or image. Otherwise it's a blank slot the presenter can't
+    // distinguish from any other.
+    if (!title && !body_text && !image_url) {
+      return errResp(400, 'sub-slide needs at least a title, body, or image');
+    }
     // Append to the end of the parent's sub-slide list.
     const { data: maxRow } = await supabase
       .from('agenda_slides').select('display_order')
@@ -108,9 +113,8 @@ Deno.serve(async (req) => {
     }
     const patch: Record<string, unknown> = {};
     if ('title' in slide) {
-      const v = String(slide.title || '').trim();
-      if (!v) return errResp(400, 'title cannot be empty');
-      patch.title = v;
+      // Title is optional now — empty string stored, not rejected.
+      patch.title = String(slide.title || '').trim();
     }
     if ('body' in slide) patch.body = slide.body ? String(slide.body).trim() : null;
     if ('image_url' in slide) patch.image_url = slide.image_url ? String(slide.image_url).trim() : null;

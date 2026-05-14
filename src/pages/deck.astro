@@ -226,34 +226,38 @@ import Base from '../layouts/Base.astro';
                 <h2 class="multi-topic">${escapeHtml(it.segment)}</h2>
               </div>`;
           } else if (slide.kind === 'content') {
-            // Sub-slide: title + optional body + optional image. Layout
-            // adapts to what's present.
-            //   image + text  → side-by-side (image left, text right)
-            //   image only    → hero image with title overlay
-            //   text only     → centered title + body, no image
+            // Sub-slide: optional title + optional body + optional image.
+            // Layout adapts to what's present. Title is optional now —
+            // headings are conditionally rendered so an image-only slide
+            // gets a clean hero, no empty overlay.
             const s = slide.slide;
             const hasImage = !!s.image_url;
             const hasBody = !!s.body;
-            if (hasImage && hasBody) {
+            const hasTitle = !!(s.title && s.title.trim());
+            const titleHtml = hasTitle ? `<h2 class="content-title">${escapeHtml(s.title)}</h2>` : '';
+            const bodyHtml = hasBody ? `<p class="content-body">${escapeHtml(s.body!)}</p>` : '';
+            if (hasImage && (hasBody || hasTitle)) {
+              // Image + text → side-by-side
               body = `
                 <div class="slide content-slide layout-split">
                   <img class="content-image" src="${escapeHtml(s.image_url!)}" alt="" />
                   <div class="content-meta">
-                    <h2 class="content-title">${escapeHtml(s.title)}</h2>
-                    <p class="content-body">${escapeHtml(s.body!)}</p>
+                    ${titleHtml}
+                    ${bodyHtml}
                   </div>
                 </div>`;
             } else if (hasImage) {
+              // Image only (no title, no body) → hero, no overlay
               body = `
                 <div class="slide content-slide layout-hero">
                   <img class="content-image hero" src="${escapeHtml(s.image_url!)}" alt="" />
-                  <h2 class="content-title overlay">${escapeHtml(s.title)}</h2>
                 </div>`;
             } else {
+              // Text only — centered title + body (one or both)
               body = `
                 <div class="slide content-slide layout-text">
-                  <h2 class="content-title">${escapeHtml(s.title)}</h2>
-                  ${hasBody ? `<p class="content-body">${escapeHtml(s.body!)}</p>` : ''}
+                  ${titleHtml}
+                  ${bodyHtml}
                 </div>`;
             }
           } else {

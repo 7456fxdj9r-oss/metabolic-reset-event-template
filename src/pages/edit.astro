@@ -3075,12 +3075,25 @@ import Base from '../layouts/Base.astro';
           const thumb = s.image_url
             ? `<img class="sub-slide-thumb" src="${escapeHtml(s.image_url)}" alt="" />`
             : '<div class="sub-slide-thumb empty">—</div>';
+          // Title is optional. When absent, use a dim placeholder so the
+          // row still has a heading — preferring body preview if it
+          // exists, otherwise an image-only marker, otherwise "(untitled)".
+          const titleText = s.title?.trim();
+          const heading = titleText
+            ? `<strong>${escapeHtml(titleText)}</strong>`
+            : (s.body
+              ? `<strong class="dim">${escapeHtml(s.body.slice(0, 40))}${s.body.length > 40 ? '…' : ''}</strong>`
+              : (s.image_url
+                ? '<strong class="dim">(image-only slide)</strong>'
+                : '<strong class="dim">(untitled)</strong>'));
+          // Don't duplicate the body in the preview if it's already in the heading.
+          const showBodyPreview = titleText && bodyPreview;
           return `
             <li class="sub-slide-row" data-slide-id="${s.id}">
               ${thumb}
               <div class="sub-slide-info">
-                <strong>${escapeHtml(s.title)}</strong>
-                ${bodyPreview}
+                ${heading}
+                ${showBodyPreview ? bodyPreview : ''}
               </div>
               <div class="sub-slide-actions">
                 <button type="button" class="sub-slide-edit" data-slide-id="${s.id}">Edit</button>
@@ -3099,8 +3112,8 @@ import Base from '../layouts/Base.astro';
             <form class="sub-slide-form" data-parent="${parentId}" ${slide ? `data-slide-id="${slide.id}"` : ''} novalidate>
               <h4>${slide ? 'Edit sub-slide' : 'New sub-slide'}</h4>
               <label>
-                Title <span class="req">*</span>
-                <input name="title" required maxlength="160" value="${escapeHtml(v.title || '')}" placeholder="Why metabolic health matters" />
+                Title <span class="opt">(optional)</span>
+                <input name="title" maxlength="160" value="${escapeHtml(v.title || '')}" placeholder="Why metabolic health matters" />
               </label>
               <label>
                 Body <span class="opt">(optional)</span>
@@ -4902,6 +4915,9 @@ import Base from '../layouts/Base.astro';
   .sub-slide-info strong {
     font-size: 12px; color: #ecf0f1; font-weight: 700;
     overflow-wrap: anywhere;
+  }
+  .sub-slide-info strong.dim {
+    color: #95a5a6; font-style: italic; font-weight: 600;
   }
   .sub-slide-body-preview { font-size: 11px; color: #95a5a6; }
   .sub-slide-actions { display: flex; gap: 4px; }
