@@ -15,7 +15,7 @@ import '../styles/story.css';
     fetchTransformationBySlug,
     fetchDataPoints,
   } from '../lib/supabase.js';
-  import { eventUrl, scienceUrl } from '../lib/urls.js';
+  import { eventUrl, scienceUrl, storiesUrl } from '../lib/urls.js';
   import { escapeHtml } from '../lib/html.js';
 
   const root = document.getElementById('t-root')!;
@@ -128,7 +128,7 @@ import '../styles/story.css';
 
           <div class="footer-cta">
             <a href="${scienceUrl(base, slug)}">The Science →</a>
-            <a href="${eventUrl(base, slug)}" class="secondary">← Back to the event</a>
+            <a href="${storiesUrl(base, slug)}" class="secondary">← Back to the stories</a>
           </div>
         `;
 
