@@ -3765,6 +3765,49 @@ import Base from '../layouts/Base.astro';
 
         renderList();
 
+        // ---------- Collapsible cards ----------
+        // Wraps each `<section class="card">` in a `<details>` shell so the
+        // initial view stays compact — host taps the section header to
+        // expand. Done at runtime (instead of in the HTML) so existing
+        // event handlers and DOM references inside each card keep working
+        // unchanged. Setup checklist is left alone (always visible).
+        function collapsifyCards() {
+          const cards = document.querySelectorAll<HTMLElement>('section.card');
+          // Sections that open by default; the rest collapse to save scroll.
+          const openByDefault = new Set(['day-of-toolkit', 'event-details', 'raffle']);
+          cards.forEach((card) => {
+            if (card.id === 'setup-checklist') return;
+            if (card.querySelector(':scope > details.card-shell')) return;
+            const h2 = card.querySelector(':scope > h2') as HTMLElement | null;
+            if (!h2) return;
+            const details = document.createElement('details');
+            details.className = 'card-shell';
+            const tour = card.getAttribute('data-tour') || '';
+            if (openByDefault.has(tour)) details.open = true;
+            const summary = document.createElement('summary');
+            summary.className = 'card-summary';
+            // Move the h2 into the summary; preserves its existing styling
+            // (font, audience-tag chip) without any text-content gymnastics.
+            summary.appendChild(h2);
+            details.appendChild(summary);
+            // Move everything else in the card into the details body.
+            while (card.firstChild) details.appendChild(card.firstChild);
+            card.appendChild(details);
+          });
+        }
+
+        // Expand a card-shell if it's collapsed — used by the checklist
+        // click handler and the tour so users land on the right section
+        // visibly opened. No-op for sections that aren't collapsible
+        // (setup-checklist, or any other card we leave alone).
+        function ensureCardOpen(target: Element | null) {
+          if (!target) return;
+          const shell = target.querySelector(':scope > details.card-shell') as HTMLDetailsElement | null;
+          if (shell && !shell.open) shell.open = true;
+        }
+
+        collapsifyCards();
+
         // ---------- Setup checklist + first-time tour ----------
         // Both live at the bottom of the IIFE so they can see every
         // local data array (speakers, transformations, agenda, prizes,
@@ -3833,7 +3876,11 @@ import Base from '../layouts/Base.astro';
             checklistCard.style.display = 'none';
           } else if (target.classList.contains('checklist-label')) {
             const sel = `[data-tour="${target.getAttribute('data-target')}"]`;
-            document.querySelector(sel)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            const section = document.querySelector(sel);
+            // Expand the target card before scrolling so the user lands
+            // on actual content, not just a collapsed header.
+            ensureCardOpen(section);
+            section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
           }
         });
 
@@ -3916,6 +3963,9 @@ import Base from '../layouts/Base.astro';
           const step = tourSteps[tourIdx];
           const target = document.querySelector(step.selector) as HTMLElement | null;
           if (!target) { stepTour(+1); return; }
+          // Expand the target's card-shell if collapsed so the spotlight
+          // lands on real content, not an unexpanded header.
+          ensureCardOpen(target.closest('section.card'));
           // Use the section heading as the visual anchor when the section
           // is bigger than the viewport (e.g. Hosts card with 7 rows): the
           // whole-card spotlight is then 2000+px tall and swallows the
@@ -4253,6 +4303,38 @@ import Base from '../layouts/Base.astro';
     border-radius: 12px;
     padding: 18px 18px 20px;
     margin-bottom: 16px;
+  }
+  /* Collapsible card shell — wraps each card's content at runtime via
+     collapsifyCards(). The summary IS the card's heading row; clicking
+     it toggles the body. Chevron indicates state. */
+  details.card-shell { display: block; }
+  details.card-shell > summary.card-summary {
+    list-style: none;
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+    padding-right: 28px;
+    /* h2 inside already has margin-bottom; when collapsed there's
+       nothing below it, so we squash that bottom margin away. */
+  }
+  details.card-shell > summary.card-summary::-webkit-details-marker { display: none; }
+  details.card-shell > summary.card-summary::after {
+    content: '▾';
+    position: absolute; right: 4px; top: 6px;
+    color: rgba(255,255,255,0.45);
+    font-size: 12px;
+    transition: transform 0.2s ease;
+  }
+  details.card-shell[open] > summary.card-summary::after {
+    transform: rotate(180deg);
+  }
+  details.card-shell > summary.card-summary:hover::after {
+    color: var(--accent, #f39c12);
+  }
+  /* Collapsed state — drop the h2's bottom margin so the card hugs the
+     header. Expanded state keeps the existing spacing under the h2. */
+  details.card-shell:not([open]) > summary.card-summary h2 {
+    margin-bottom: 0;
   }
   .card h2 {
     font-size: 13px; color: #ecf0f1;
