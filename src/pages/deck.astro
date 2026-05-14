@@ -227,33 +227,23 @@ import Base from '../layouts/Base.astro';
               </div>`;
           } else if (slide.kind === 'content') {
             // Sub-slide: optional title + optional body + optional image.
-            // Layout adapts to what's present. Title is optional now —
-            // headings are conditionally rendered so an image-only slide
-            // gets a clean hero, no empty overlay.
+            // When an image is present, the image is the hero — title and
+            // body stack below it (no overlay). Text-only slides center
+            // their title + body.
             const s = slide.slide;
             const hasImage = !!s.image_url;
             const hasBody = !!s.body;
             const hasTitle = !!(s.title && s.title.trim());
             const titleHtml = hasTitle ? `<h2 class="content-title">${escapeHtml(s.title)}</h2>` : '';
             const bodyHtml = hasBody ? `<p class="content-body">${escapeHtml(s.body!)}</p>` : '';
-            if (hasImage && (hasBody || hasTitle)) {
-              // Image + text → side-by-side
+            if (hasImage) {
               body = `
-                <div class="slide content-slide layout-split">
+                <div class="slide content-slide layout-stacked">
                   <img class="content-image" src="${escapeHtml(s.image_url!)}" alt="" />
-                  <div class="content-meta">
-                    ${titleHtml}
-                    ${bodyHtml}
-                  </div>
-                </div>`;
-            } else if (hasImage) {
-              // Image only (no title, no body) → hero, no overlay
-              body = `
-                <div class="slide content-slide layout-hero">
-                  <img class="content-image hero" src="${escapeHtml(s.image_url!)}" alt="" />
+                  ${titleHtml}
+                  ${bodyHtml}
                 </div>`;
             } else {
-              // Text only — centered title + body (one or both)
               body = `
                 <div class="slide content-slide layout-text">
                   ${titleHtml}
@@ -480,56 +470,38 @@ import Base from '../layouts/Base.astro';
     width: 100%;
     text-align: center;
   }
-  .content-slide.layout-split {
-    display: grid;
-    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
-    gap: clamp(20px, 5vw, 80px);
-    align-items: center;
-    text-align: left;
+  /* Stacked layout: big image on top, title and body below — clean,
+     no overlay. Image dominates the slide so the eye lands there first
+     and the text sits in its own breathing room underneath. */
+  .content-slide.layout-stacked {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: clamp(14px, 2.4vh, 28px);
   }
-  .content-slide.layout-split .content-image {
-    width: 100%;
-    max-height: 75vh;
+  .content-slide.layout-stacked .content-image {
+    max-width: 92vw;
+    max-height: 72vh;
     object-fit: contain;
     border-radius: 16px;
     background: rgba(255,255,255,0.04);
-    justify-self: end;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.5);
   }
-  .content-slide.layout-split .content-title {
-    font-size: clamp(28px, 6vh, 56px);
-    font-weight: 900; line-height: 1.1; letter-spacing: -1px;
-    color: #fff; margin-bottom: 16px;
+  /* When no text follows the image, let it claim more vertical room. */
+  .content-slide.layout-stacked .content-image:last-child {
+    max-height: 88vh;
+  }
+  .content-slide.layout-stacked .content-title {
+    font-size: clamp(26px, 4.8vh, 48px);
+    font-weight: 900; line-height: 1.15; letter-spacing: -0.5px;
+    color: #fff;
     overflow-wrap: anywhere;
+    max-width: 38em;
   }
-  .content-slide.layout-split .content-body {
-    font-size: clamp(18px, 2.6vh, 28px);
+  .content-slide.layout-stacked .content-body {
+    font-size: clamp(16px, 2.4vh, 24px);
     color: #ecf0f1; line-height: 1.5;
-    max-width: 30em;
+    max-width: 40em;
     white-space: pre-wrap;
-  }
-  /* Hero image with title overlay */
-  .content-slide.layout-hero {
-    position: relative;
-    width: 100%; height: 80vh;
-    display: flex; align-items: center; justify-content: center;
-  }
-  .content-slide.layout-hero .content-image.hero {
-    width: 100%; height: 100%;
-    object-fit: contain;
-    border-radius: 16px;
-    background: rgba(255,255,255,0.04);
-  }
-  .content-slide.layout-hero .content-title.overlay {
-    position: absolute; bottom: clamp(20px, 4vh, 50px);
-    left: 50%; transform: translateX(-50%);
-    padding: 12px 28px;
-    background: rgba(0,0,0,0.7);
-    backdrop-filter: blur(8px);
-    border-radius: 12px;
-    font-size: clamp(28px, 5vh, 48px);
-    font-weight: 900; color: #fff;
-    overflow-wrap: anywhere;
-    max-width: 90%;
   }
   /* Text-only centered slide */
   .content-slide.layout-text {
@@ -548,15 +520,6 @@ import Base from '../layouts/Base.astro';
     color: #ecf0f1; line-height: 1.5;
     max-width: 36em;
     white-space: pre-wrap;
-  }
-  @media (max-width: 900px), (orientation: portrait) {
-    .content-slide.layout-split {
-      grid-template-columns: 1fr;
-      gap: 24px;
-      text-align: center;
-    }
-    .content-slide.layout-split .content-image { justify-self: center; max-width: 60vh; }
-    .content-slide.layout-split .content-body { margin: 0 auto; }
   }
 
   /* Section slide (no matched speaker) */
