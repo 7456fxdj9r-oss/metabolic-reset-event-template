@@ -7,9 +7,19 @@
   position: fixed; inset: 0;
   background: rgba(0,0,0,0.92);
   z-index: 60;
-  display: flex; align-items: center; justify-content: center;
+  display: flex;
+  /* `safe center` falls back to flex-start when the child is taller
+     than the container, so a long transformation card (photos +
+     chart + takeaway) never gets its top clipped off-screen. The
+     overlay scrolls vertically; the card flows naturally inside. */
+  align-items: safe center;
+  justify-content: safe center;
   padding: 18px 14px;
+  padding-top: max(18px, env(safe-area-inset-top, 18px));
+  padding-bottom: max(18px, env(safe-area-inset-bottom, 18px));
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   animation: audienceIn 0.25s ease-out;
 }
 @keyframes audienceIn {
@@ -21,22 +31,37 @@
   background: #1a252f;
   border: 1px solid color-mix(in srgb, var(--accent, #f39c12) 35%, transparent);
   border-radius: 14px;
-  padding: 22px 18px 24px;
+  /* Top padding includes the close button's footprint so the eyebrow
+     text doesn't collide with it. */
+  padding: 14px 18px 24px;
   text-align: center;
   position: relative;
   box-shadow: 0 20px 60px rgba(0,0,0,0.7);
+  /* Block centering when the card is shorter than the viewport: flex
+     parent uses `safe center` which only kicks in when the card fits.
+     Otherwise overflow scrolls the overlay; card flows from the top. */
 }
 .audience-close {
-  position: absolute;
-  top: 6px; right: 8px;
-  width: 32px; height: 32px;
-  background: transparent; color: #95a5a6;
-  border: none; border-radius: 16px;
+  /* Fixed to the viewport corner so the user can dismiss the popup at
+     any scroll position in a tall card. Sized to the 44px iOS HIG
+     touch target; a translucent background keeps it legible whether
+     it sits over photos, chart, or text. */
+  position: fixed;
+  top: max(8px, env(safe-area-inset-top, 8px));
+  right: max(8px, env(safe-area-inset-right, 8px));
+  width: 44px; height: 44px;
+  background: rgba(26,37,47,0.85);
+  color: #ecf0f1;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 22px;
   font-size: 24px; line-height: 1;
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
+  z-index: 1;
+  -webkit-tap-highlight-color: transparent;
 }
-.audience-close:hover { background: rgba(255,255,255,0.08); color: #fff; }
+.audience-close:hover { background: rgba(255,255,255,0.12); color: #fff; }
+.audience-close:active { background: rgba(255,255,255,0.18); }
 .aud-eyebrow {
   font-size: 11px; letter-spacing: 4px; text-transform: uppercase;
   color: var(--accent, #f39c12); font-weight: 800; margin-bottom: 14px;

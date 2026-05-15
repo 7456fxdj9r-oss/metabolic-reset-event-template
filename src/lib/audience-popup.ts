@@ -137,6 +137,12 @@ function renderAudienceOverlay(payload: AudiencePayload): void {
       ${body}
     </div>`;
   overlay.querySelector('.audience-close')!.addEventListener('click', dismissAudienceOverlay);
+  // Tap the dimmed backdrop (outside the card) to dismiss — easier
+  // than aiming for the X when scrolled into a tall transformation
+  // card. Clicks that bubble up from inside the card are ignored.
+  overlay.addEventListener('click', (clickEv) => {
+    if (clickEv.target === overlay) dismissAudienceOverlay();
+  });
   document.body.appendChild(overlay);
 }
 
