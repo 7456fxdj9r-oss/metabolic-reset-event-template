@@ -3178,46 +3178,81 @@ import Base from '../layouts/Base.astro';
           }
         });
 
-        // After both speakers (already fetched above) and hosts load, sync
-        // host photos → speaker photos when a person is both. Hosts are
-        // where the master typically adds a nicely cropped headshot; the
-        // matching Speaker row often gets filled in without one. Copying
-        // it over means the /speakers page, agenda slide photos, and the
-        // coaching grid all show the same face. Match is case-insensitive
-        // on trimmed full name; we only fill, never overwrite. Idempotent
-        // — re-runs every page load but only does work on mismatches.
-        async function syncHostPhotosToSpeakers() {
-          const hostByName = new Map<string, Host>();
-          for (const h of hostsCache) {
-            if (!h.name || !h.photo_url) continue;
-            hostByName.set(h.name.trim().toLowerCase(), h);
+        // Photo sync: speakers are the source of truth (every speaker has
+        // a headshot — required for slides). Co-hosts and the master often
+        // skip the photo because they're "behind the scenes" — but if they
+        // also speak, we already have the right face. After hosts load,
+        // for each speaker with a photo, find any same-named host or the
+        // master organizer that's missing one and copy it over. Match is
+        // case-insensitive on trimmed full name. Fill-only — never
+        // overwrites an existing host/organizer photo. Idempotent.
+        //
+        // Only the master can patch co-hosts (manage-hosts gates on
+        // is_master) and the master org row, so the sync is a no-op for
+        // co-host viewers. The coaching page benefits because get-event-
+        // hosts returns the master + co-host rows with their photos — so
+        // once filled, the Connect-with-the-coaches grid shows faces.
+        async function syncSpeakerPhotosToHosts() {
+          const speakerByName = new Map<string, Speaker>();
+          for (const sp of speakers) {
+            if (!sp.name || !sp.photo_url) continue;
+            speakerByName.set(sp.name.trim().toLowerCase(), sp);
           }
-          if (hostByName.size === 0) return;
-          const targets = speakers.filter((s) => {
-            if (s.photo_url || !s.name) return false;
-            return hostByName.has(s.name.trim().toLowerCase());
-          });
-          if (targets.length === 0) return;
+          if (speakerByName.size === 0) return;
           let updated = 0;
-          for (const sp of targets) {
-            const host = hostByName.get(sp.name.trim().toLowerCase())!;
+
+          // Co-hosts: patch via manage-hosts.update.
+          if (isMaster) {
+            const hostTargets = hostsCache.filter((h) => {
+              if (h.photo_url || !h.name) return false;
+              return speakerByName.has(h.name.trim().toLowerCase());
+            });
+            for (const h of hostTargets) {
+              const sp = speakerByName.get(h.name!.trim().toLowerCase())!;
+              try {
+                await callFunction('manage-hosts', {
+                  slug, edit_token: key, action: 'update',
+                  host_id: h.id, photo_url: sp.photo_url,
+                });
+                hostsCache = hostsCache.map((x) => x.id === h.id ? { ...x, photo_url: sp.photo_url } : x);
+                updated++;
+              } catch (err) {
+                console.warn('[speaker→host photo sync] failed for', h.name, err);
+              }
+            }
+            if (hostTargets.length > 0) renderHosts(hostsCache);
+          }
+
+          // Master organizer (lives on events.organizer_photo_url, not in
+          // the hosts table). Patch through update-event when the master
+          // speaks and has no organizer photo yet.
+          const orgName = (ev.organizer_name || '').trim().toLowerCase();
+          if (orgName && !ev.organizer_photo_url && speakerByName.has(orgName)) {
+            const sp = speakerByName.get(orgName)!;
             try {
-              await callFunction('manage-speakers', {
-                slug, edit_token: key, action: 'update',
-                speaker: { id: sp.id, photo_url: host.photo_url },
+              await callFunction('update-event', {
+                slug, edit_token: key,
+                organizer_photo_url: sp.photo_url,
               });
-              speakers = speakers.map((x) => x.id === sp.id ? { ...x, photo_url: host.photo_url } : x);
+              ev.organizer_photo_url = sp.photo_url;
+              // Update the organizer photo slot UI so a freshly synced
+              // photo shows immediately without a reload.
+              const previewEl = organizerSlot.querySelector('.photo-preview') as HTMLElement | null;
+              const labelEl = organizerSlot.querySelector('.upload-label') as HTMLElement | null;
+              if (previewEl) previewEl.innerHTML = `<img src="${escapeHtml(sp.photo_url!)}" alt="" />`;
+              if (labelEl) labelEl.textContent = 'Replace photo';
+              organizerPhotoUrl = sp.photo_url;
               updated++;
             } catch (err) {
-              console.warn('[host→speaker photo sync] failed for', sp.name, err);
+              console.warn('[speaker→organizer photo sync] failed', err);
             }
           }
+
           if (updated > 0) {
-            renderSpeakerList();
-            console.log(`[host→speaker photo sync] copied ${updated} photo${updated === 1 ? '' : 's'}`);
+            console.log(`[speaker→host photo sync] copied ${updated} photo${updated === 1 ? '' : 's'}`);
           }
         }
-        loadHosts().then(() => syncHostPhotosToSpeakers());
+        loadHosts().then(() => syncSpeakerPhotosToHosts());
 
         // ---------- Agenda / cue sheet ----------
         type AgendaItem = {

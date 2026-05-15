@@ -15,7 +15,7 @@ import Base from '../layouts/Base.astro';
 </Base>
 
 <script>
-  import { fetchEventBySlug, callFunction } from '../lib/supabase.js';
+  import { fetchEventBySlug, fetchSpeakers, callFunction } from '../lib/supabase.js';
   import { eventUrl, editUrl } from '../lib/urls.js';
   import { escapeHtml } from '../lib/html.js';
 
@@ -106,7 +106,38 @@ import Base from '../layouts/Base.astro';
         }
 
         const teamRes = await callFunction('get-event-hosts', { slug });
-        const teamHosts = (teamRes.hosts || []) as TeamHost[];
+        let teamHosts = (teamRes.hosts || []) as TeamHost[];
+
+        // Speakers are the source of truth for photos (every speaker has
+        // one for slides). For any host/master whose photo is missing
+        // and who's also speaking, fall back to the speaker's data so
+        // the public hosts grid shows a face. Same trimmed-lowercase
+        // name match the edit-page sync uses. The map stays in scope so
+        // the post-toggle re-render can re-apply the fallback.
+        type SpeakerLite = { name: string; photo_url: string | null; bio: string | null; phone: string | null; email: string | null };
+        const speakerByName = new Map<string, SpeakerLite>();
+        try {
+          const speakers = await fetchSpeakers(event.id) as SpeakerLite[];
+          for (const sp of speakers) {
+            if (sp.name) speakerByName.set(sp.name.trim().toLowerCase(), sp);
+          }
+        } catch { /* best-effort */ }
+        function applySpeakerFallback(hosts: TeamHost[]): TeamHost[] {
+          if (speakerByName.size === 0) return hosts;
+          return hosts.map((h) => {
+            if (!h.name) return h;
+            const sp = speakerByName.get(h.name.trim().toLowerCase());
+            if (!sp) return h;
+            return {
+              ...h,
+              photo_url: h.photo_url || sp.photo_url,
+              bio: h.bio || sp.bio,
+              phone: h.phone || sp.phone,
+              email: h.email || sp.email,
+            };
+          });
+        }
+        teamHosts = applySpeakerFallback(teamHosts);
 
         const backHref = adminKey
           ? editUrl(base, slug, adminKey)
@@ -139,7 +170,7 @@ import Base from '../layouts/Base.astro';
                 slug, edit_token: adminKey, action: 'set_primary', host_id: hostId,
               });
               const r = await callFunction('get-event-hosts', { slug });
-              reRenderTeam((r.hosts || []) as TeamHost[]);
+              reRenderTeam(applySpeakerFallback((r.hosts || []) as TeamHost[]));
             } catch (err) {
               alert('Could not change organizer: ' + (err as Error).message);
               target.removeAttribute('disabled');

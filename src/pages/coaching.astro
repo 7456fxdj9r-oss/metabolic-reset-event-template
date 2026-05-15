@@ -65,8 +65,21 @@ import Base from '../layouts/Base.astro';
           photo_url?: string | null; is_master?: boolean; primary?: boolean;
         }>;
 
+        // Build a speaker lookup so we can fall back to speaker data
+        // (photos especially) whenever the host/master row is missing a
+        // field. Speakers are the source of truth for photos because
+        // every speaker has one for slides; hosts often don't.
+        const speakerByName = new Map<string, { name: string; photo_url: string | null; bio: string | null; phone: string | null; email: string | null }>();
+        for (const sp of speakers as Array<{ name: string; photo_url: string | null; bio: string | null; phone: string | null; email: string | null }>) {
+          if (!sp.name) continue;
+          speakerByName.set(sp.name.trim().toLowerCase(), sp);
+        }
+
         // Merge into a single coach list. Dedupe by case-insensitive name
         // so a person who's both a host and a speaker doesn't show twice.
+        // For the merged row: host keeps its host-specific fields (bio,
+        // website, role), but falls back to the speaker's photo/phone/
+        // email/bio when the host record left them empty.
         const seen = new Set<string>();
         const coaches: Coach[] = [];
         for (const h of teamHosts) {
@@ -74,16 +87,19 @@ import Base from '../layouts/Base.astro';
           const key = h.name.trim().toLowerCase();
           if (seen.has(key)) continue;
           seen.add(key);
+          const sp = speakerByName.get(key);
           coaches.push({
             name: h.name,
-            photo_url: h.photo_url || null,
-            bio: h.bio || null,
-            phone: h.phone || null,
-            email: h.email || null,
+            photo_url: h.photo_url || (sp ? sp.photo_url : null),
+            bio: h.bio || (sp ? sp.bio : null),
+            phone: h.phone || (sp ? sp.phone : null),
+            email: h.email || (sp ? sp.email : null),
             website: h.website || null,
             role: h.is_master ? 'master' : 'co-host',
           });
         }
+        // Remaining speakers (those without a host entry) added as their
+        // own coach cards.
         for (const sp of speakers as Array<{ name: string; photo_url: string | null; bio: string | null; phone: string | null; email: string | null }>) {
           if (!sp.name) continue;
           const key = sp.name.trim().toLowerCase();
