@@ -257,14 +257,37 @@ import Base from '../layouts/Base.astro';
   .loading.err { color: #e74c3c; }
 
   @media print {
-    @page { size: letter landscape; margin: 0; }
-    html, body { background: #ffffff; padding: 0; margin: 0; }
+    /* Explicit page margin matches a typical printer's unprintable
+       safe zone — at margin: 0 the accent stripe and the top of the
+       kicker get trimmed by the printer hardware. 0.3in is safe on
+       laser and inkjet. */
+    @page { size: letter landscape; margin: 0.3in; }
+    html, body {
+      background: #ffffff;
+      padding: 0; margin: 0;
+      /* Force backgrounds + colors (accent stripe, header bar,
+         alternating rows) to actually print on Chrome/Safari. */
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+      color-adjust: exact;
+    }
     .page-controls { display: none !important; }
     .sheet {
       box-shadow: none;
       width: 100%;
-      min-height: 100vh;
-      page-break-inside: avoid;
+      /* No min-height — let the sheet flow naturally. min-height:
+         100vh combined with the page margin used to push content
+         past the bottom edge. */
+      min-height: 0;
+      /* The sheet has its own padding (0.4in 0.45in 0.4in) which
+         visually frames the print. Combined with the 0.3in @page
+         margin the content sits ~0.7in from the page edge — plenty
+         of safe area. */
     }
+    /* When the agenda is too long to fit one page, let the table
+       break across pages cleanly with the header row repeated. */
+    table.schedule { page-break-inside: auto; }
+    table.schedule thead { display: table-header-group; }
+    table.schedule tbody tr { page-break-inside: avoid; }
   }
 </style>

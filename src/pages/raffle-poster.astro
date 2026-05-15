@@ -305,20 +305,28 @@ import Base from '../layouts/Base.astro';
   .loading.err { color: #e74c3c; }
 
   /* Print rules: hide the screen controls, drop the dark page chrome,
-     let the .sheet fill the page. */
+     let the .sheet fill the page. 0.3in @page margin matches the
+     typical printer unprintable zone — at margin: 0 the accent
+     stripe and the top of the kicker get hardware-trimmed. */
   @media print {
-    @page { size: letter portrait; margin: 0; }
-    html, body { background: #fff !important; padding: 0 !important; }
+    @page { size: letter portrait; margin: 0.3in; }
+    html, body {
+      background: #fff !important;
+      padding: 0 !important; margin: 0 !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+      color-adjust: exact;
+    }
     .page-controls { display: none !important; }
     main.poster { display: block; }
     .sheet {
       box-shadow: none;
       width: 100%;
-      min-height: 100vh;
-      padding: 0.5in 0.55in 0.4in;
+      min-height: 0;
+      padding: 0.4in 0.4in 0.3in;
       page-break-after: avoid;
     }
-    .sheet::before { height: 18px; }
+    .sheet::before { height: 14px; }
   }
 
   /* Tighten on tablet-ish previews (still > sheet width but small) */
