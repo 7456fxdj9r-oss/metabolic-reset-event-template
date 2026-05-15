@@ -16,7 +16,7 @@ import Base from '../layouts/Base.astro';
 </Base>
 
 <script>
-  import { fetchEventBySlug, fetchCoachSpeakers, fetchCoaches, callFunction } from '../lib/supabase.js';
+  import { fetchEventBySlug, fetchSpeakers, fetchCoachSpeakers, fetchCoaches, callFunction } from '../lib/supabase.js';
   import { eventUrl } from '../lib/urls.js';
   import { escapeHtml } from '../lib/html.js';
 
@@ -71,19 +71,48 @@ import Base from '../layouts/Base.astro';
         type HostRow = { name: string | null; phone: string | null; email?: string | null; website?: string | null; bio?: string | null; photo_url?: string | null; is_coach?: boolean; is_master?: boolean };
         type CustomRow = { name: string; photo_url: string | null; bio: string | null; phone: string | null; email: string | null; website: string | null };
 
-        const [coachSpeakers, hostsRes, customCoaches] = await Promise.all([
+        const [coachSpeakers, allSpeakers, hostsRes, customCoaches] = await Promise.all([
           fetchCoachSpeakers(event.id) as Promise<SpeakerRow[]>,
+          // All speakers (regardless of is_coach) as a fallback source
+          // for fields the host/master row left empty — most importantly
+          // bio. Cheap: events have <15 speakers.
+          fetchSpeakers(event.id) as Promise<SpeakerRow[]>,
           callFunction('get-event-hosts', { slug }).catch(() => ({ hosts: [] })),
           fetchCoaches(event.id) as Promise<CustomRow[]>,
         ]);
         const teamHosts = (hostsRes.hosts || []) as HostRow[];
+        const speakerByName = new Map<string, SpeakerRow>();
+        for (const sp of allSpeakers) {
+          if (sp.name) speakerByName.set(sp.name.trim().toLowerCase(), sp);
+        }
 
         const byName = new Map<string, Coach>();
+        // Merge: the lowest-rank entry wins on identity/ordering (master
+        // first, then host, then speaker, then custom), but per-field
+        // fallback fills missing values from higher-rank records. So if
+        // someone is both a co-host (rank 1, no bio) and a speaker
+        // (rank 2, with a bio), the merged card sits in co-host position
+        // and the speaker's bio fills in. Same idea for photo, phone,
+        // email, website.
         function consider(c: Coach) {
           if (!c.name) return;
           const key = c.name.trim().toLowerCase();
           const prev = byName.get(key);
-          if (!prev || c._rank < prev._rank) byName.set(key, c);
+          if (!prev) {
+            byName.set(key, c);
+            return;
+          }
+          const winnerByRank = c._rank < prev._rank ? c : prev;
+          const otherByRank = c._rank < prev._rank ? prev : c;
+          byName.set(key, {
+            name: winnerByRank.name,
+            photo_url: winnerByRank.photo_url || otherByRank.photo_url,
+            bio: winnerByRank.bio || otherByRank.bio,
+            phone: winnerByRank.phone || otherByRank.phone,
+            email: winnerByRank.email || otherByRank.email,
+            website: winnerByRank.website || otherByRank.website,
+            _rank: winnerByRank._rank,
+          });
         }
         // Master first (rank 0)
         for (const h of teamHosts) {
@@ -150,10 +179,24 @@ import Base from '../layouts/Base.astro';
           const key = c.name.trim().toLowerCase();
           if (used.has(key)) continue;
           // Use the lowest-rank entry we found for this name (computed
-          // earlier in byName).
+          // earlier in byName), then top-up any missing fields from a
+          // same-named speaker row — covers the common case where a
+          // host is flagged is_coach but their host record has no bio,
+          // and the same person's speaker record does.
           const winner = byName.get(key)!;
+          const sp = speakerByName.get(key);
+          if (sp) {
+            coaches.push({
+              ...winner,
+              photo_url: winner.photo_url || sp.photo_url,
+              bio: winner.bio || sp.bio,
+              phone: winner.phone || sp.phone,
+              email: winner.email || sp.email,
+            });
+          } else {
+            coaches.push(winner);
+          }
           used.add(key);
-          coaches.push(winner);
         }
 
         const heroImg = event.coaching_image_url
@@ -242,7 +285,7 @@ import Base from '../layouts/Base.astro';
     font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
     color: var(--accent); font-weight: 700; margin-bottom: 6px;
   }
-  h1 { font-size: 26px; line-height: 1.2; }
+  h1 { font-size: 26px; line-height: 1.2; overflow-wrap: anywhere; }
 
   .hero-image {
     /* Landscape or portrait — natural aspect, no forced crop.
@@ -323,6 +366,11 @@ import Base from '../layouts/Base.astro';
     grid-column: 1 / -1;
     font-size: 12px; color: #95a5a6; font-style: italic;
     margin-top: 2px;
+  }
+
+  @media (max-width: 380px) {
+    .coach-card { grid-template-columns: 56px 1fr; }
+    .coach-photo { width: 56px; height: 56px; }
   }
 
   .empty { color: #95a5a6; font-style: italic; text-align: center; padding: 30px 0; }

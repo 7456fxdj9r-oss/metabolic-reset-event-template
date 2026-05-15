@@ -5398,7 +5398,11 @@ import Base from '../layouts/Base.astro';
     font-weight: 700;
   }
   fieldset.ba-block label { font-size: 12px; }
-  fieldset.ba-block input { padding: 8px 10px; font-size: 14px; }
+  /* 16px font-size on inputs is mandatory on iOS Safari — anything
+     smaller triggers an auto-zoom on focus, which is disorienting when
+     the master is tabbing through weight/BF%/lean fields on phone.
+     Compensate visually by trimming padding. */
+  fieldset.ba-block input { padding: 6px 10px; font-size: 16px; }
 
   /* Computed read-only stats line */
   .computed-stats {
@@ -5985,7 +5989,7 @@ import Base from '../layouts/Base.astro';
   }
   .quickadd-chip {
     display: inline-flex; align-items: center;
-    padding: 6px 10px; min-height: 32px;
+    padding: 6px 10px; min-height: 44px;
     background: rgba(255,255,255,0.04);
     border: 1px solid rgba(255,255,255,0.15);
     border-radius: 16px;
@@ -6139,6 +6143,15 @@ import Base from '../layouts/Base.astro';
   }
   .link-row button {
     padding: 9px 14px; font-size: 13px;
+  }
+  @media (max-width: 480px) {
+    .link-row {
+      flex-wrap: wrap;
+    }
+    .link-row input[readonly] {
+      flex-basis: 100%;
+      margin-bottom: 6px;
+    }
   }
   button.link-secondary {
     background: rgba(255,255,255,0.08); color: #ecf0f1; font-weight: 600;

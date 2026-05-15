@@ -60,6 +60,7 @@ import Base from '../layouts/Base.astro';
         }).join('');
 
         root.innerHTML = `
+          <a class="back-link" href="${eventUrl(base, slug)}">← Back to the event</a>
           <header class="top">
             <p class="eyebrow">Speakers</p>
             <h1>${escapeHtml(event.name)}</h1>
@@ -87,6 +88,17 @@ import Base from '../layouts/Base.astro';
   }
   body { padding: 26px 14px 50px; line-height: 1.5; }
   main.speakers { max-width: 540px; margin: 0 auto; }
+
+  a.back-link {
+    display: inline-block;
+    padding: 8px 12px;
+    color: #ecf0f1; text-decoration: none;
+    font-size: 13px; font-weight: 600;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    margin-bottom: 16px;
+  }
 
   .top { text-align: center; margin-bottom: 22px; }
   .top .eyebrow {
@@ -127,10 +139,10 @@ import Base from '../layouts/Base.astro';
   }
   .sp-contacts a {
     display: inline-flex; align-items: center;
-    padding: 6px 12px; min-height: 36px;
+    padding: 6px 12px; min-height: 44px;
     border-radius: 6px;
     text-decoration: none; font-size: 12px; font-weight: 700;
-    overflow-wrap: anywhere; word-break: break-all;
+    overflow-wrap: anywhere;
   }
   .sp-phone {
     background: rgba(243,156,18,0.18); color: var(--accent);

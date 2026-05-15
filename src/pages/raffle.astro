@@ -110,6 +110,7 @@ import Base from '../layouts/Base.astro';
           </section>`;
 
         root.innerHTML = `
+          <a class="back-link" href="${eventUrl(base, slug)}">← Back to the event</a>
           <header class="top">
             <p class="eyebrow">Raffle Entry</p>
             <h1>🎟️ ${escapeHtml(event.name)}</h1>
@@ -406,12 +407,23 @@ import Base from '../layouts/Base.astro';
   body { padding: 26px 14px 50px; line-height: 1.45; }
   main.raffle { max-width: 540px; margin: 0 auto; }
 
+  a.back-link {
+    display: inline-block;
+    padding: 8px 12px;
+    color: #ecf0f1; text-decoration: none;
+    font-size: 13px; font-weight: 600;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    margin-bottom: 16px;
+  }
+
   .top { text-align: center; margin-bottom: 22px; }
   .top .eyebrow {
     font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
     color: var(--accent); font-weight: 700; margin-bottom: 6px;
   }
-  .top h1 { font-size: 26px; line-height: 1.2; }
+  .top h1 { font-size: 26px; line-height: 1.2; overflow-wrap: anywhere; }
   .top .lede { font-size: 14px; color: #95a5a6; font-style: italic; margin-top: 10px; }
   .top .prize-photo {
     display: block;
@@ -420,7 +432,6 @@ import Base from '../layouts/Base.astro';
     max-width: 220px;
     height: auto;
     border-radius: 10px;
-    background: #000;
   }
   .top .prize {
     margin-top: 14px;

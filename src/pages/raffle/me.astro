@@ -124,6 +124,7 @@ import Base from '../../layouts/Base.astro';
           .join('');
 
         root.innerHTML = `
+          <a class="back-link" href="${eventUrl(base, slug!)}">← Back to the event</a>
           <header class="top">
             <p class="eyebrow">Your raffle entry</p>
             <h1>${escapeHtml(entry.name)}</h1>
@@ -202,8 +203,19 @@ import Base from '../../layouts/Base.astro';
     background: #1a252f; color: #fff;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
   }
-  body { padding: 26px 14px 50px; line-height: 1.45; }
+  body { padding: 26px 14px 120px; line-height: 1.45; }
   main.me { max-width: 540px; margin: 0 auto; }
+
+  a.back-link {
+    display: inline-block;
+    padding: 8px 12px;
+    color: #ecf0f1; text-decoration: none;
+    font-size: 13px; font-weight: 600;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    margin-bottom: 16px;
+  }
 
   .top { text-align: center; margin-bottom: 22px; }
   .top .eyebrow {
@@ -292,7 +304,7 @@ import Base from '../../layouts/Base.astro';
   /* Add to Home Screen hint — iOS Safari only, dismissable per token */
   .a2hs-banner {
     position: fixed;
-    left: 12px; right: 12px; bottom: 14px;
+    left: 12px; right: 12px; bottom: max(14px, env(safe-area-inset-bottom, 14px));
     background: #1a252f;
     border: 1px solid var(--accent, #f39c12);
     border-radius: 12px;
