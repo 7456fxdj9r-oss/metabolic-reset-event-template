@@ -3919,8 +3919,8 @@ import Base from '../layouts/Base.astro';
                 </div>
                 <div class="photo-actions">
                   <label class="upload-btn">
-                    <input type="file" accept="image/*" data-sub-slide-slot hidden ${slide ? '' : 'disabled'} />
-                    <span class="upload-label">${v.image_url ? 'Replace image' : (slide ? 'Upload image' : 'Save the slide first, then upload')}</span>
+                    <input type="file" accept="image/*" data-sub-slide-slot hidden />
+                    <span class="upload-label">${v.image_url ? 'Replace image' : 'Upload image'}</span>
                   </label>
                 </div>
                 <span class="upload-status" data-sub-slide-slot></span>
@@ -4347,6 +4347,13 @@ import Base from '../layouts/Base.astro';
         pasteABtn.addEventListener('click', () => showAgendaPasteForm());
 
         // ---------- Agenda sub-slides ----------
+        // In-memory file for the new-sub-slide flow. The image can't be
+        // uploaded until the slide row exists (storage path needs the
+        // slide id), so we stash the user-selected file here, show a
+        // local preview, and upload after the row is created on submit.
+        // Reset when the form closes or after a successful upload.
+        let pendingSubSlidePhoto: File | null = null;
+
         // Mounts the add-or-edit form into the slot under the parent
         // agenda row. Saving the form re-renders just that row (cheap
         // since renderAgendaList rebuilds the whole list once).
@@ -4354,17 +4361,44 @@ import Base from '../layouts/Base.astro';
           const host = aList.querySelector(`.sub-slide-form-host[data-parent="${parentId}"]`) as HTMLElement | null;
           if (!host) return;
           host.innerHTML = subSlideFormHtml(parentId, slide);
+          pendingSubSlidePhoto = null;
           const form = host.querySelector('form.sub-slide-form') as HTMLFormElement;
           form.addEventListener('submit', (e) => handleSubSlideSubmit(e, parentId, slide));
-          form.querySelector('.cancel-sub-slide')!.addEventListener('click', () => { host.innerHTML = ''; });
-          // Image upload only works after the slide row exists (we need
-          // a slide_id). For the new-slide form the file input is
-          // disabled in the template; for edit mode wire the change.
+          form.querySelector('.cancel-sub-slide')!.addEventListener('click', () => {
+            host.innerHTML = '';
+            pendingSubSlidePhoto = null;
+          });
+          const fileInput = form.querySelector('input[type=file][data-sub-slide-slot]') as HTMLInputElement;
           if (slide) {
-            const fileInput = form.querySelector('input[type=file][data-sub-slide-slot]') as HTMLInputElement;
+            // Edit mode: slide row exists, upload immediately on pick.
             fileInput.addEventListener('change', (e) => handleSubSlideImageUpload(e, slide));
+          } else {
+            // New-slide mode: defer the upload until Create succeeds.
+            // Stash the file, show a local preview so the user can see
+            // what they picked before committing.
+            fileInput.addEventListener('change', handlePendingSubSlidePhoto);
           }
           (form.querySelector('input[name=title]') as HTMLInputElement).focus();
+        }
+
+        function handlePendingSubSlidePhoto(changeEv: Event) {
+          const input = changeEv.target as HTMLInputElement;
+          const file = input.files?.[0];
+          if (!file) return;
+          const slotEl = input.closest('.sub-slide-slot') as HTMLElement;
+          const previewEl = slotEl.querySelector('.photo-preview') as HTMLElement;
+          const labelEl = slotEl.querySelector('.upload-label') as HTMLElement;
+          const statusEl = slotEl.querySelector('.upload-status') as HTMLElement;
+          input.value = '';
+          pendingSubSlidePhoto = file;
+          const reader = new FileReader();
+          reader.onload = () => {
+            previewEl.innerHTML = `<img src="${reader.result}" alt="" />`;
+            labelEl.textContent = 'Replace image';
+            statusEl.textContent = 'Will upload after Create';
+            statusEl.className = 'upload-status';
+          };
+          reader.readAsDataURL(file);
         }
 
         async function handleSubSlideSubmit(submitEv: Event, parentId: string, editing?: AgendaSlide) {
@@ -4373,12 +4407,22 @@ import Base from '../layouts/Base.astro';
           const fd = new FormData(form);
           const statusEl = form.querySelector('.t-status') as HTMLSpanElement;
           const submitBtn = form.querySelector('button[type=submit]') as HTMLButtonElement;
+          const title = String(fd.get('title') || '').trim();
+          const body = String(fd.get('body') || '').trim();
+          // Block totally empty sub-slides — server is now permissive
+          // (it doesn't know about a pending photo), so we validate
+          // here. A pending photo counts as content.
+          if (!editing && !title && !body && !pendingSubSlidePhoto) {
+            statusEl.textContent = 'Add a title, body, or image first.';
+            statusEl.className = 't-status err';
+            return;
+          }
           submitBtn.disabled = true;
           statusEl.textContent = 'Saving…';
           statusEl.className = 't-status';
           const slide: Record<string, unknown> = {
-            title: String(fd.get('title') || '').trim(),
-            body: String(fd.get('body') || '').trim() || null,
+            title,
+            body: body || null,
           };
           if (editing) slide.id = editing.id;
           else slide.agenda_item_id = parentId;
@@ -4388,7 +4432,33 @@ import Base from '../layouts/Base.astro';
               action: editing ? 'update' : 'add',
               slide,
             });
-            const saved = res.slide as AgendaSlide;
+            let saved = res.slide as AgendaSlide;
+
+            // New-slide flow: now that the row exists, upload any photo
+            // the user staged before creating.
+            if (!editing && pendingSubSlidePhoto) {
+              statusEl.textContent = 'Uploading image…';
+              try {
+                const compressed = await compressImage(pendingSubSlidePhoto, 1600, 0.85);
+                const data_b64 = await blobToBase64(compressed);
+                const upRes = await callFunction('upload-event-photo', {
+                  slug, edit_token: key,
+                  kind: 'agenda_slide',
+                  slide_id: saved.id,
+                  filename: 'photo.jpg', data: data_b64,
+                });
+                saved = { ...saved, image_url: upRes.url as string };
+              } catch (err) {
+                // The row was created but the photo upload failed.
+                // Surface the error; the master can re-pick a file in
+                // edit mode without losing the title/body they entered.
+                console.error('Failed to upload sub-slide photo:', err);
+                statusEl.textContent = 'Slide saved, but image upload failed: ' + fmtError(err);
+                statusEl.className = 't-status err';
+              }
+              pendingSubSlidePhoto = null;
+            }
+
             const list = slidesByItem[parentId] || (slidesByItem[parentId] = []);
             if (editing) {
               const idx = list.findIndex((x) => x.id === saved.id);

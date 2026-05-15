@@ -75,12 +75,12 @@ Deno.serve(async (req) => {
     if (parentErr) return errResp(404, parentErr);
     const body_text = slide.body ? String(slide.body).trim() : null;
     const image_url = slide.image_url ? String(slide.image_url).trim() : null;
-    // Title is optional, but the slide has to carry SOMETHING — title,
-    // body, or image. Otherwise it's a blank slot the presenter can't
-    // distinguish from any other.
-    if (!title && !body_text && !image_url) {
-      return errResp(400, 'sub-slide needs at least a title, body, or image');
-    }
+    // Title/body/image are all optional now — the editor flow uploads
+    // the image AFTER the slide row is created (to satisfy the storage
+    // path's coach_id/slide_id requirement), so the row exists briefly
+    // with image_url=null. The edit-page client validates that the
+    // user added something before submitting; a totally empty row is
+    // harmless (presenter can delete or fill it later).
     // Append to the end of the parent's sub-slide list.
     const { data: maxRow } = await supabase
       .from('agenda_slides').select('display_order')
