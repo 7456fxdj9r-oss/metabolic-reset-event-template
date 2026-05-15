@@ -4598,6 +4598,25 @@ import Base from '../layouts/Base.astro';
             while (card.firstChild) details.appendChild(card.firstChild);
             card.appendChild(details);
           });
+
+          // Accordion behavior: opening one card-shell auto-collapses
+          // every other. Native <details> fires a 'toggle' event on
+          // any open-state change; when we see one go open, close the
+          // siblings. Closing another shell fires its own 'toggle'
+          // with open=false, which short-circuits the handler so no
+          // infinite loop. setup-checklist isn't wrapped in a shell,
+          // so it stays visible alongside the open card.
+          const shells = Array.from(
+            document.querySelectorAll<HTMLDetailsElement>('section.card > details.card-shell')
+          );
+          shells.forEach((shell) => {
+            shell.addEventListener('toggle', () => {
+              if (!shell.open) return;
+              for (const other of shells) {
+                if (other !== shell && other.open) other.open = false;
+              }
+            });
+          });
         }
 
         // Expand a card-shell if it's collapsed — used by the checklist
