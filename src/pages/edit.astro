@@ -3178,7 +3178,46 @@ import Base from '../layouts/Base.astro';
           }
         });
 
-        loadHosts();
+        // After both speakers (already fetched above) and hosts load, sync
+        // host photos → speaker photos when a person is both. Hosts are
+        // where the master typically adds a nicely cropped headshot; the
+        // matching Speaker row often gets filled in without one. Copying
+        // it over means the /speakers page, agenda slide photos, and the
+        // coaching grid all show the same face. Match is case-insensitive
+        // on trimmed full name; we only fill, never overwrite. Idempotent
+        // — re-runs every page load but only does work on mismatches.
+        async function syncHostPhotosToSpeakers() {
+          const hostByName = new Map<string, Host>();
+          for (const h of hostsCache) {
+            if (!h.name || !h.photo_url) continue;
+            hostByName.set(h.name.trim().toLowerCase(), h);
+          }
+          if (hostByName.size === 0) return;
+          const targets = speakers.filter((s) => {
+            if (s.photo_url || !s.name) return false;
+            return hostByName.has(s.name.trim().toLowerCase());
+          });
+          if (targets.length === 0) return;
+          let updated = 0;
+          for (const sp of targets) {
+            const host = hostByName.get(sp.name.trim().toLowerCase())!;
+            try {
+              await callFunction('manage-speakers', {
+                slug, edit_token: key, action: 'update',
+                speaker: { id: sp.id, photo_url: host.photo_url },
+              });
+              speakers = speakers.map((x) => x.id === sp.id ? { ...x, photo_url: host.photo_url } : x);
+              updated++;
+            } catch (err) {
+              console.warn('[host→speaker photo sync] failed for', sp.name, err);
+            }
+          }
+          if (updated > 0) {
+            renderSpeakerList();
+            console.log(`[host→speaker photo sync] copied ${updated} photo${updated === 1 ? '' : 's'}`);
+          }
+        }
+        loadHosts().then(() => syncHostPhotosToSpeakers());
 
         // ---------- Agenda / cue sheet ----------
         type AgendaItem = {
