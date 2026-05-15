@@ -3926,7 +3926,11 @@ import Base from '../layouts/Base.astro';
                 </div>
                 <div class="photo-actions">
                   <label class="upload-btn">
-                    <input type="file" accept="image/*,application/pdf,.pdf" data-sub-slide-slot hidden />
+                    <!-- No image/* wildcard — iOS routes that to the Photos
+                         picker which can't see PDFs. Listing extensions
+                         + explicit MIME types keeps the Files app picker
+                         and lets PDFs through on every platform. -->
+                    <input type="file" accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf" data-sub-slide-slot hidden />
                     <span class="upload-label">${v.image_url ? 'Replace' : 'Upload image or PDF'}</span>
                   </label>
                 </div>
