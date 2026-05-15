@@ -1,0 +1,278 @@
+---
+// Public "Metabolic Coaching Program" page. Linked from the /event/
+// hub. Renders the host's coaching pitch (title + body + optional hero
+// image) and a grid of available coaches — every speaker, co-host, and
+// the master organizer with their tap-to-text / email / website
+// affordances. No login needed; one of the attendee-facing pages.
+import Base from '../layouts/Base.astro';
+---
+<Base title="Coaching">
+  <main class="coaching" id="coaching-root">
+    <p class="loading">Loading…</p>
+  </main>
+</Base>
+
+<script>
+  import { fetchEventBySlug, fetchSpeakers, callFunction } from '../lib/supabase.js';
+  import { eventUrl } from '../lib/urls.js';
+  import { escapeHtml } from '../lib/html.js';
+
+  type Coach = {
+    name: string;
+    photo_url: string | null;
+    bio: string | null;
+    phone: string | null;
+    email: string | null;
+    website: string | null;
+    role: 'master' | 'co-host' | 'speaker';
+  };
+
+  const root = document.getElementById('coaching-root')!;
+  const base = import.meta.env.BASE_URL;
+  const params = new URLSearchParams(window.location.search);
+  const slug = params.get('slug');
+
+  function sanitizePhone(raw: string): string {
+    // Strip spaces / parens / dashes for the sms:/tel: target. Keep the
+    // leading + if present so international numbers route correctly.
+    return raw.trim().replace(/[\s()\-.]/g, '');
+  }
+
+  if (!slug) {
+    root.innerHTML = '<p class="loading err">No event specified.</p>';
+  } else {
+    (async () => {
+      try {
+        const event = await fetchEventBySlug(slug);
+        if (!event) {
+          root.innerHTML = '<p class="loading err">Event not found.</p>';
+          return;
+        }
+        document.title = `${event.coaching_title || 'Coaching'} — ${event.name}`;
+        const accent = event.accent_color || '#f39c12';
+        document.documentElement.style.setProperty('--accent', accent);
+
+        // Pull speakers via REST + hosts via the gated function (master is
+        // baked into get-event-hosts so we don't have to special-case it).
+        const [speakers, hostsRes] = await Promise.all([
+          fetchSpeakers(event.id),
+          callFunction('get-event-hosts', { slug }).catch(() => ({ hosts: [] })),
+        ]);
+
+        const teamHosts = (hostsRes.hosts || []) as Array<{
+          name: string | null; phone: string | null;
+          email?: string | null; website?: string | null; bio?: string | null;
+          photo_url?: string | null; is_master?: boolean; primary?: boolean;
+        }>;
+
+        // Merge into a single coach list. Dedupe by case-insensitive name
+        // so a person who's both a host and a speaker doesn't show twice.
+        const seen = new Set<string>();
+        const coaches: Coach[] = [];
+        for (const h of teamHosts) {
+          if (!h.name) continue;
+          const key = h.name.trim().toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          coaches.push({
+            name: h.name,
+            photo_url: h.photo_url || null,
+            bio: h.bio || null,
+            phone: h.phone || null,
+            email: h.email || null,
+            website: h.website || null,
+            role: h.is_master ? 'master' : 'co-host',
+          });
+        }
+        for (const sp of speakers as Array<{ name: string; photo_url: string | null; bio: string | null; phone: string | null; email: string | null }>) {
+          if (!sp.name) continue;
+          const key = sp.name.trim().toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          coaches.push({
+            name: sp.name,
+            photo_url: sp.photo_url,
+            bio: sp.bio,
+            phone: sp.phone,
+            email: sp.email,
+            // Speakers table has no website column today; OK to omit.
+            website: null,
+            role: 'speaker',
+          });
+        }
+
+        const heroImg = event.coaching_image_url
+          ? `<img class="hero-image" src="${escapeHtml(event.coaching_image_url)}" alt="" />`
+          : '';
+        const bodyHtml = event.coaching_body
+          ? `<p class="pitch-body">${escapeHtml(event.coaching_body)}</p>`
+          : '';
+
+        const coachCards = coaches.map((c) => {
+          const thumb = c.photo_url
+            ? `<img class="coach-photo" src="${escapeHtml(c.photo_url)}" alt="" />`
+            : '<div class="coach-photo empty" aria-hidden="true"></div>';
+          const actions: string[] = [];
+          if (c.phone) {
+            const target = sanitizePhone(c.phone);
+            actions.push(
+              `<a class="coach-action primary" href="sms:${escapeHtml(target)}">📱 Text me now</a>`,
+              `<a class="coach-action" href="tel:${escapeHtml(target)}">📞 Call</a>`,
+            );
+          }
+          if (c.email) {
+            actions.push(`<a class="coach-action" href="mailto:${escapeHtml(c.email)}">✉️ Email</a>`);
+          }
+          if (c.website) {
+            actions.push(`<a class="coach-action" href="${escapeHtml(c.website)}" target="_blank" rel="noopener">🌐 Website</a>`);
+          }
+          return `
+            <li class="coach-card">
+              ${thumb}
+              <div class="coach-info">
+                <strong>${escapeHtml(c.name)}</strong>
+                ${c.bio ? `<p class="coach-bio">${escapeHtml(c.bio)}</p>` : ''}
+              </div>
+              ${actions.length ? `<div class="coach-actions">${actions.join('')}</div>` : '<p class="coach-no-contact">No contact info available — ask any host at the event.</p>'}
+            </li>`;
+        }).join('');
+
+        root.innerHTML = `
+          <a class="back-link" href="${eventUrl(base, slug)}">← Back to the event</a>
+          <header class="top">
+            <p class="eyebrow">🥳 Coaching</p>
+            <h1>${escapeHtml(event.coaching_title || 'Metabolic Coaching Program')}</h1>
+          </header>
+          ${heroImg}
+          ${bodyHtml}
+          ${coaches.length > 0
+            ? `<section class="connect">
+                <h2>Connect with a coach</h2>
+                <p class="connect-hint">Tap any coach to send a text, call, or email — right now.</p>
+                <ul class="coach-list">${coachCards}</ul>
+              </section>`
+            : '<p class="empty">No coaches listed yet. Check back at the event.</p>'}
+          <div class="footer-cta">
+            <a class="secondary" href="${eventUrl(base, slug)}">← Back to the event</a>
+          </div>
+        `;
+      } catch (err) {
+        root.innerHTML = `<p class="loading err">${escapeHtml((err as Error).message)}</p>`;
+      }
+    })();
+  }
+</script>
+
+<style is:global>
+  :root { --accent: #f39c12; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: #1a252f; color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  }
+  body { padding: 20px 14px 50px; line-height: 1.45; }
+  main.coaching { max-width: 540px; margin: 0 auto; }
+
+  a.back-link {
+    display: inline-block; padding: 8px 12px;
+    color: #ecf0f1; text-decoration: none;
+    font-size: 13px; font-weight: 600;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px; margin-bottom: 16px;
+  }
+
+  .top { text-align: center; margin-bottom: 18px; }
+  .eyebrow {
+    font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; margin-bottom: 6px;
+  }
+  h1 { font-size: 26px; line-height: 1.2; }
+
+  .hero-image {
+    display: block; width: 100%;
+    max-height: 320px; object-fit: cover;
+    border-radius: 12px;
+    margin-bottom: 16px;
+  }
+  .pitch-body {
+    font-size: 15px; color: #ecf0f1; line-height: 1.55;
+    margin-bottom: 22px;
+    white-space: pre-wrap;
+  }
+
+  .connect h2 {
+    font-size: 13px; letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; margin-bottom: 6px;
+  }
+  .connect-hint {
+    font-size: 13px; color: #95a5a6; font-style: italic;
+    margin-bottom: 12px;
+  }
+  ul.coach-list {
+    list-style: none; padding: 0; margin: 0;
+    display: grid; gap: 12px;
+  }
+  .coach-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 12px;
+    padding: 14px;
+    display: grid;
+    grid-template-columns: 72px 1fr;
+    gap: 12px;
+    align-items: start;
+  }
+  .coach-photo {
+    width: 72px; height: 72px;
+    object-fit: cover; border-radius: 50%;
+    background: rgba(0,0,0,0.30);
+    flex-shrink: 0;
+  }
+  .coach-photo.empty { border: 1px dashed rgba(255,255,255,0.18); }
+  .coach-info { min-width: 0; }
+  .coach-info strong { font-size: 16px; color: #fff; display: block; margin-bottom: 4px; }
+  .coach-bio {
+    font-size: 13px; color: #bdc3c7; line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+  .coach-actions {
+    grid-column: 1 / -1;
+    display: flex; flex-wrap: wrap; gap: 8px;
+    margin-top: 4px;
+  }
+  .coach-action {
+    display: inline-flex; align-items: center;
+    padding: 10px 14px; min-height: 40px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    color: #ecf0f1; text-decoration: none;
+    font-size: 13px; font-weight: 700;
+    overflow-wrap: anywhere;
+  }
+  .coach-action.primary {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+    color: var(--accent);
+  }
+  .coach-action:hover { background: rgba(255,255,255,0.10); }
+  .coach-action.primary:hover { background: color-mix(in srgb, var(--accent) 32%, transparent); }
+  .coach-no-contact {
+    grid-column: 1 / -1;
+    font-size: 12px; color: #95a5a6; font-style: italic;
+    margin-top: 2px;
+  }
+
+  .empty { color: #95a5a6; font-style: italic; text-align: center; padding: 30px 0; }
+  .loading { color: #95a5a6; text-align: center; padding: 40px 0; font-size: 14px; }
+  .loading.err { color: #e74c3c; }
+
+  .footer-cta { display: grid; gap: 10px; margin-top: 22px; }
+  .footer-cta a {
+    display: block; text-align: center; padding: 12px;
+    background: transparent; color: #ecf0f1;
+    border: 1px solid rgba(255,255,255,0.20); border-radius: 8px;
+    text-decoration: none; font-weight: 600; font-size: 14px;
+  }
+</style>

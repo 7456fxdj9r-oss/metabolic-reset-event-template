@@ -43,6 +43,7 @@ Deno.serve(async (req) => {
   for (const k of [
     'organizer_name', 'organizer_email', 'organizer_phone', 'organizer_website', 'organizer_bio',
     'organizer_photo_url',
+    'coaching_title', 'coaching_body', 'coaching_image_url',
   ]) {
     if (k in body) patch[k] = body[k] || null;
   }

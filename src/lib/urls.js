@@ -36,6 +36,7 @@ export const hostsUrl    = (base, slug, key) =>
 export const storiesUrl  = (base, slug) => `${base}stories/${enc(slug)}`;
 export const journeyUrl  = (base, slug) => `${base}journey/${enc(slug)}`;
 export const raffleUrl   = (base, slug) => `${base}raffle/${enc(slug)}`;
+export const coachingUrl = (base, slug) => `${base}coaching/${enc(slug)}`;
 
 // Transformation deep-dive — slug + transformation-slug.
 export const tUrl = (base, slug, tslug) =>

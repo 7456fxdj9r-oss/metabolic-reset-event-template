@@ -8,6 +8,8 @@
 //     → multi-prize: patches raffle_prizes.photo_url for the given row
 //   { slug, edit_token, kind: 'organizer',     filename, data }
 //     → master organizer headshot, patches events.organizer_photo_url
+//   { slug, edit_token, kind: 'coaching',      filename, data }
+//     → coaching-program hero image, patches events.coaching_image_url
 //   { slug, edit_token, kind: 'agenda_slide',  slide_id, filename, data }
 //     → presenter-built sub-slide image, patches agenda_slides.image_url
 //
@@ -31,8 +33,9 @@ const ALLOWED_EXTS: Record<string, string> = {
 const KIND_COLUMN: Record<string, string> = {
   prize: 'raffle_prize_photo_url',
   organizer: 'organizer_photo_url',
+  coaching: 'coaching_image_url',
 };
-const VALID_KINDS = ['prize', 'prize_item', 'organizer', 'agenda_slide'];
+const VALID_KINDS = ['prize', 'prize_item', 'organizer', 'agenda_slide', 'coaching'];
 
 Deno.serve(async (req) => {
   const preflight = handleOptions(req);

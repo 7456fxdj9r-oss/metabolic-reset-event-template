@@ -11,7 +11,7 @@ import Base from '../layouts/Base.astro';
   import { fetchEventBySlug, fetchTransformations, fetchSpeakers, callFunction } from '../lib/supabase.js';
   import {
     eventUrl, raffleUrl, wheelUrl, storiesUrl, speakersUrl,
-    journeyUrl, scienceUrl, hostsUrl,
+    journeyUrl, scienceUrl, hostsUrl, coachingUrl,
   } from '../lib/urls.js';
   import { escapeHtml } from '../lib/html.js';
   // qrcode (~50KB) is dynamic-imported below — see toCanvas call.
@@ -126,6 +126,11 @@ import Base from '../layouts/Base.astro';
         );
         buttons.push(
           `<a class="event-btn science" href="${scienceUrl(base, slug)}">🧠 Why It Works (the science)</a>`
+        );
+        // Coaching Program — pitch + grid of coaches with tap-to-text/call/email.
+        // Title has a sensible DB default so the button always renders.
+        buttons.push(
+          `<a class="event-btn coaching" href="${coachingUrl(base, slug)}">🥳 ${escapeHtml(event.coaching_title || 'Metabolic Coaching Program')}</a>`
         );
         // Connect-with-the-hosts moved off the main event page into its own
         // route so the hub stays clean. The button preserves the admin key

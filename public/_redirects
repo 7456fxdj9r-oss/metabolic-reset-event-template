@@ -26,6 +26,7 @@
 /speakers/:slug          /speakers/?slug=:slug                200
 /stories/:slug           /stories/?slug=:slug                 200
 /journey/:slug           /journey/?slug=:slug                 200
+/coaching/:slug          /coaching/?slug=:slug                200
 /raffle/:slug            /raffle/?slug=:slug                  200
 /hosts/:slug             /hosts/?slug=:slug                   200
 /wheel/:slug             /wheel/?slug=:slug                   200

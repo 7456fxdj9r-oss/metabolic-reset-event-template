@@ -955,6 +955,52 @@ import Base from '../layouts/Base.astro';
             </ul>
           </section>
 
+          <section class="card" data-tour="coaching" id="coaching">
+            <h2>Coaching Program <span class="audience-tag">Public</span></h2>
+            <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;line-height:1.5;">
+              Attendees land here from the <strong>🥳 Metabolic Coaching Program</strong>
+              button on the event page. They see your pitch + a grid of every
+              coach (hosts + speakers) with one-tap text, call, email, and
+              website buttons. Edit the pitch here; the coach list is built
+              automatically from the people you've already added above.
+            </p>
+            <form id="coaching-form" class="organizer-subform" novalidate>
+              <label>
+                Page title
+                <input name="coaching_title" maxlength="120" value="${escapeHtml(ev.coaching_title || 'Metabolic Coaching Program')}" />
+              </label>
+              <label>
+                Pitch / body <span class="opt">(what's the program, why join — line breaks preserved)</span>
+                <textarea name="coaching_body" rows="6" maxlength="3000">${escapeHtml(ev.coaching_body || '')}</textarea>
+              </label>
+              <div class="photo-slot coaching-slot" data-coaching-slot>
+                <span class="slot-label">Hero image <span class="opt">(optional)</span></span>
+                <div class="photo-preview">
+                  ${ev.coaching_image_url
+                    ? `<img src="${escapeHtml(ev.coaching_image_url)}" alt="" />`
+                    : '<div class="empty">No image</div>'}
+                </div>
+                <div class="photo-actions">
+                  <label class="upload-btn">
+                    <input type="file" accept="image/*" data-coaching-slot hidden />
+                    <span class="upload-label">${ev.coaching_image_url ? 'Replace image' : 'Upload image'}</span>
+                  </label>
+                  ${ev.coaching_image_url
+                    ? '<button type="button" class="upload-btn recrop-btn" data-recrop-coaching>✂️ Re-crop current</button>'
+                    : ''}
+                  ${ev.coaching_image_url
+                    ? '<button type="button" class="upload-btn" data-remove-coaching>Remove image</button>'
+                    : ''}
+                </div>
+                <span class="upload-status" data-coaching-slot></span>
+              </div>
+              <div class="row">
+                <button type="submit" id="coaching-save-btn">Save</button>
+                <span id="coaching-save-status" role="status" aria-live="polite"></span>
+              </div>
+            </form>
+          </section>
+
           <section class="card" data-tour="share">
             <h2>Share &amp; save your links <span class="audience-tag mixed">Mixed</span></h2>
             <p class="link-blurb">
@@ -2501,6 +2547,141 @@ import Base from '../layouts/Base.astro';
         const initialRecropBtn = organizerSlot.querySelector('[data-recrop-organizer]') as HTMLButtonElement | null;
         if (initialRecropBtn) initialRecropBtn.addEventListener('click', handleOrganizerRecrop);
 
+        // ---------- Coaching Program card ----------
+        // Title/body/image save through update-event partials, hero image
+        // uploads via upload-event-photo kind=coaching (parallels the
+        // organizer/prize photo flow above).
+        const coachingForm = document.getElementById('coaching-form') as HTMLFormElement;
+        const coachingSaveBtn = document.getElementById('coaching-save-btn') as HTMLButtonElement;
+        const coachingSaveStatus = document.getElementById('coaching-save-status')!;
+        coachingForm.addEventListener('submit', async (submitEv) => {
+          submitEv.preventDefault();
+          coachingSaveBtn.disabled = true;
+          coachingSaveStatus.textContent = 'Saving…';
+          coachingSaveStatus.className = '';
+          const fd = new FormData(coachingForm);
+          try {
+            await callFunction('update-event', {
+              slug, edit_token: key,
+              coaching_title: (fd.get('coaching_title') as string)?.trim() || null,
+              coaching_body: (fd.get('coaching_body') as string)?.trim() || null,
+            });
+            coachingSaveStatus.textContent = 'Saved ✓';
+            coachingSaveStatus.className = 'ok';
+          } catch (err) {
+            coachingSaveStatus.textContent = fmtError(err);
+            coachingSaveStatus.className = 'err';
+          } finally {
+            coachingSaveBtn.disabled = false;
+          }
+        });
+
+        // Coaching hero image — wider aspect (16:9) since it's a page banner,
+        // not a portrait. Same crop+compress+upload flow as the organizer.
+        let coachingImageUrl: string | null = ev.coaching_image_url || null;
+        const coachingSlot = coachingForm.querySelector('.coaching-slot') as HTMLElement;
+        async function uploadCoachingCrop(file: File, statusEl: HTMLElement, previewEl: HTMLElement, labelEl: HTMLElement, recropExisting: boolean): Promise<void> {
+          statusEl.textContent = 'Opening crop tool…';
+          statusEl.className = 'upload-status';
+          const cropped = await openCropModal(file, 16 / 9, recropExisting ? `Re-crop hero image` : `Crop hero image`);
+          if (!cropped) { statusEl.textContent = ''; return; }
+          statusEl.textContent = 'Uploading…';
+          const compressed = await compressImage(new File([cropped], 'hero.jpg', { type: 'image/jpeg' }), 1600, 0.82);
+          const data_b64 = await blobToBase64(compressed);
+          const res = await callFunction('upload-event-photo', {
+            slug, edit_token: key, kind: 'coaching',
+            filename: 'hero.jpg', data: data_b64,
+          });
+          const url = res.url as string;
+          coachingImageUrl = url;
+          previewEl.innerHTML = `<img src="${escapeHtml(appendCacheBust(url))}" alt="" />`;
+          labelEl.textContent = 'Replace image';
+          statusEl.textContent = recropExisting ? 'Re-cropped ✓' : 'Uploaded ✓';
+          statusEl.className = 'upload-status ok';
+          const actions = coachingSlot.querySelector('.photo-actions');
+          if (actions && !coachingSlot.querySelector('[data-recrop-coaching]')) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'upload-btn recrop-btn';
+            btn.setAttribute('data-recrop-coaching', '');
+            btn.textContent = '✂️ Re-crop current';
+            btn.addEventListener('click', handleCoachingRecrop);
+            actions.appendChild(btn);
+          }
+          if (actions && !coachingSlot.querySelector('[data-remove-coaching]')) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'upload-btn';
+            btn.setAttribute('data-remove-coaching', '');
+            btn.textContent = 'Remove image';
+            btn.addEventListener('click', handleCoachingRemove);
+            actions.appendChild(btn);
+          }
+        }
+        const coachingFileInput = coachingSlot.querySelector('input[type=file][data-coaching-slot]') as HTMLInputElement;
+        coachingFileInput.addEventListener('change', async (changeEv) => {
+          const file = (changeEv.target as HTMLInputElement).files?.[0];
+          if (!file) return;
+          (changeEv.target as HTMLInputElement).value = '';
+          const previewEl = coachingSlot.querySelector('.photo-preview') as HTMLElement;
+          const labelEl = coachingSlot.querySelector('.upload-label') as HTMLElement;
+          const statusEl = coachingSlot.querySelector('.upload-status') as HTMLElement;
+          try {
+            await uploadCoachingCrop(file, statusEl, previewEl, labelEl, false);
+          } catch (err) {
+            statusEl.textContent = fmtError(err);
+            statusEl.className = 'upload-status err';
+          }
+        });
+        async function handleCoachingRecrop(): Promise<void> {
+          if (!coachingImageUrl) return;
+          const previewEl = coachingSlot.querySelector('.photo-preview') as HTMLElement;
+          const labelEl = coachingSlot.querySelector('.upload-label') as HTMLElement;
+          const statusEl = coachingSlot.querySelector('.upload-status') as HTMLElement;
+          const recropBtn = coachingSlot.querySelector('[data-recrop-coaching]') as HTMLButtonElement | null;
+          if (recropBtn) recropBtn.disabled = true;
+          statusEl.textContent = 'Fetching current image…';
+          statusEl.className = 'upload-status';
+          try {
+            const fetched = await fetch(appendCacheBust(coachingImageUrl));
+            if (!fetched.ok) throw new Error('Could not load the saved image (HTTP ' + fetched.status + ')');
+            const blob = await fetched.blob();
+            const file = new File([blob], 'hero.jpg', { type: blob.type || 'image/jpeg' });
+            await uploadCoachingCrop(file, statusEl, previewEl, labelEl, true);
+          } catch (err) {
+            statusEl.textContent = fmtError(err);
+            statusEl.className = 'upload-status err';
+          } finally {
+            if (recropBtn) recropBtn.disabled = false;
+          }
+        }
+        async function handleCoachingRemove(): Promise<void> {
+          const previewEl = coachingSlot.querySelector('.photo-preview') as HTMLElement;
+          const labelEl = coachingSlot.querySelector('.upload-label') as HTMLElement;
+          const statusEl = coachingSlot.querySelector('.upload-status') as HTMLElement;
+          statusEl.textContent = 'Removing…';
+          statusEl.className = 'upload-status';
+          try {
+            await callFunction('update-event', {
+              slug, edit_token: key, coaching_image_url: null,
+            });
+            coachingImageUrl = null;
+            previewEl.innerHTML = '<div class="empty">No image</div>';
+            labelEl.textContent = 'Upload image';
+            coachingSlot.querySelector('[data-recrop-coaching]')?.remove();
+            coachingSlot.querySelector('[data-remove-coaching]')?.remove();
+            statusEl.textContent = 'Removed ✓';
+            statusEl.className = 'upload-status ok';
+          } catch (err) {
+            statusEl.textContent = fmtError(err);
+            statusEl.className = 'upload-status err';
+          }
+        }
+        const initialCoachingRecrop = coachingSlot.querySelector('[data-recrop-coaching]') as HTMLButtonElement | null;
+        if (initialCoachingRecrop) initialCoachingRecrop.addEventListener('click', handleCoachingRecrop);
+        const initialCoachingRemove = coachingSlot.querySelector('[data-remove-coaching]') as HTMLButtonElement | null;
+        if (initialCoachingRemove) initialCoachingRemove.addEventListener('click', handleCoachingRemove);
+
         // ---------- Co-hosts ----------
         type Host = {
           id: string;
@@ -3973,6 +4154,7 @@ import Base from '../layouts/Base.astro';
           { selector: '[data-tour="agenda"]', title: 'Agenda / run of show', body: 'The minute-by-minute schedule. Each item becomes one slide on the projector — speaker slides get a face, "Snack Break" stays a clean title slide. Drag the ⋮⋮ handle to reorder.' },
           { selector: '[data-tour="raffle"]', title: 'Raffle setup', body: 'Add the grand prize and any spot prizes. Quantity > 1 means multiple winners of the same item. Raffle control (on your phone during the event) runs the draws, and the wheel spins for the audience.' },
           { selector: '[data-tour="hosts"]', title: 'You + your co-hosts', body: 'You\'re the master (the original creator). Add co-hosts to share editing — each gets their own private edit link. The "Organizer" badge can be passed to a co-host if they\'re the public face of the event.' },
+          { selector: '[data-tour="coaching"]', title: 'Coaching Program', body: 'The audience-facing 🥳 Metabolic Coaching Program page. Edit the title, pitch, and hero image here; the list of coaches builds itself from your speakers and hosts, with one-tap text/call/email/website buttons for each.' },
           { selector: '[data-tour="share"]', title: 'Share & save your links', body: 'Bookmark the edit URL — it\'s the only way back into this admin page. The public event link goes on flyers and QR codes; the raffle entry link is what attendees scan at the venue.' },
         ];
 
