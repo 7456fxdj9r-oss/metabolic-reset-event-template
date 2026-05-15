@@ -235,8 +235,11 @@ import Base from '../layouts/Base.astro';
           }
           if (slide.kind === 'sub') {
             const ss = slide.slide;
+            const isPdf = !!(ss.image_url && /\.pdf(\?|$)/i.test(ss.image_url));
             const thumb = ss.image_url
-              ? `<img class="preview-photo" src="${escapeHtml(ss.image_url)}" alt="" />`
+              ? (isPdf
+                  ? '<div class="preview-photo empty pdf-thumb">📄</div>'
+                  : `<img class="preview-photo" src="${escapeHtml(ss.image_url)}" alt="" />`)
               : '<div class="preview-photo empty">💡</div>';
             // Title optional. Fall back to body snippet or "(image-only)"
             // so the preview always has a heading line.
@@ -540,6 +543,13 @@ import Base from '../layouts/Base.astro';
     display: flex; align-items: center; justify-content: center;
     font-size: 28px; color: rgba(255,255,255,0.30);
     border: 1px dashed rgba(255,255,255,0.15);
+  }
+  /* PDF sub-slide preview tile — red-tinted so it's distinct from
+     the "no image" placeholder. */
+  .preview-photo.pdf-thumb {
+    color: #e74c3c;
+    background: rgba(231,76,60,0.10);
+    border: 1px solid rgba(231,76,60,0.30);
   }
   /* Multi-speaker preview: row of small avatars + "+N more" badge */
   .preview-avatars {

@@ -22,12 +22,21 @@ import { authEditAccess } from '../_shared/auth.ts';
 import { getServiceClient } from '../_shared/client.ts';
 
 const MAX_BYTES = 5 * 1024 * 1024;
+// PDFs (currently sub-slide only) can be larger — flyers and one-pagers
+// often exceed 5MB. Gated below so other kinds don't accidentally
+// upgrade past the image cap.
+const MAX_BYTES_PDF = 15 * 1024 * 1024;
 const ALLOWED_EXTS: Record<string, string> = {
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
   png: 'image/png',
   webp: 'image/webp',
+  pdf: 'application/pdf',
 };
+// PDFs only make sense for sub-slides (a flyer presenter shows mid-
+// agenda). Other photo kinds (avatars, hero banners, prize shots)
+// expect a real image.
+const PDF_ALLOWED_KINDS = new Set(['agenda_slide']);
 
 // Map of kind → which column to patch on the event row. Only used for
 // event-row writes; the 'prize_item' kind targets raffle_prizes instead
@@ -65,7 +74,12 @@ Deno.serve(async (req) => {
 
   const ext = (filename.split('.').pop() || 'jpg').toLowerCase();
   const contentType = ALLOWED_EXTS[ext];
-  if (!contentType) return errResp(400, 'unsupported file type (jpg, png, webp only)');
+  if (!contentType) return errResp(400, 'unsupported file type (jpg, png, webp, pdf only)');
+  // PDFs are restricted to sub-slides; a coach headshot PDF doesn't
+  // render as a circle avatar.
+  if (ext === 'pdf' && !PDF_ALLOWED_KINDS.has(kind)) {
+    return errResp(400, `PDFs are only supported for kind=${[...PDF_ALLOWED_KINDS].join(', ')}`);
+  }
 
   let bytes: Uint8Array;
   try {
@@ -76,7 +90,11 @@ Deno.serve(async (req) => {
   } catch {
     return errResp(400, 'invalid base64 data');
   }
-  if (bytes.byteLength > MAX_BYTES) return errResp(413, 'file too large (5MB max)');
+  const cap = ext === 'pdf' ? MAX_BYTES_PDF : MAX_BYTES;
+  if (bytes.byteLength > cap) {
+    const capMb = Math.round(cap / 1024 / 1024);
+    return errResp(413, `file too large (${capMb}MB max)`);
+  }
 
   const supabase = getServiceClient();
   const auth = await authEditAccess(

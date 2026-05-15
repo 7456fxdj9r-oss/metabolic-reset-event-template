@@ -237,9 +237,17 @@ import Base from '../layouts/Base.astro';
             const titleHtml = hasTitle ? `<h2 class="content-title">${escapeHtml(s.title)}</h2>` : '';
             const bodyHtml = hasBody ? `<p class="content-body">${escapeHtml(s.body!)}</p>` : '';
             if (hasImage) {
+              // PDFs render via <embed type="application/pdf"> so the
+              // projector shows the first page (most browsers display
+              // an inline scroll-through too — the presenter can use
+              // arrow keys / trackpad to flip pages mid-slide).
+              const isPdf = /\.pdf(\?|$)/i.test(s.image_url!);
+              const media = isPdf
+                ? `<embed class="content-image content-pdf" src="${escapeHtml(s.image_url!)}#view=FitH&toolbar=0&navpanes=0" type="application/pdf" />`
+                : `<img class="content-image" src="${escapeHtml(s.image_url!)}" alt="" />`;
               body = `
                 <div class="slide content-slide layout-stacked">
-                  <img class="content-image" src="${escapeHtml(s.image_url!)}" alt="" />
+                  ${media}
                   ${titleHtml}
                   ${bodyHtml}
                 </div>`;
@@ -489,6 +497,18 @@ import Base from '../layouts/Base.astro';
   /* When no text follows the image, let it claim more vertical room. */
   .content-slide.layout-stacked .content-image:last-child {
     max-height: 88vh;
+  }
+  /* PDF sub-slide: <embed> doesn't respect object-fit, so size the
+     element directly. White background since PDFs are typically
+     light-themed and our deck background is dark — looks crisper.
+     Display the same dimensions an image would. */
+  .content-slide.layout-stacked .content-pdf {
+    width: 92vw;
+    height: 72vh;
+    background: #fff;
+  }
+  .content-slide.layout-stacked .content-pdf:last-child {
+    height: 88vh;
   }
   .content-slide.layout-stacked .content-title {
     font-size: clamp(26px, 4.8vh, 48px);

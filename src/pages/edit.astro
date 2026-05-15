@@ -3863,8 +3863,11 @@ import Base from '../layouts/Base.astro';
           const bodyPreview = s.body
             ? `<span class="sub-slide-body-preview">${escapeHtml(s.body.slice(0, 80))}${s.body.length > 80 ? '…' : ''}</span>`
             : '';
+          const isPdf = !!(s.image_url && /\.pdf(\?|$)/i.test(s.image_url));
           const thumb = s.image_url
-            ? `<img class="sub-slide-thumb" src="${escapeHtml(s.image_url)}" alt="" />`
+            ? (isPdf
+                ? '<div class="sub-slide-thumb pdf-thumb" aria-label="PDF">📄</div>'
+                : `<img class="sub-slide-thumb" src="${escapeHtml(s.image_url)}" alt="" />`)
             : '<div class="sub-slide-thumb empty">—</div>';
           // Title is optional. When absent, use a dim placeholder so the
           // row still has a heading — preferring body preview if it
@@ -3899,6 +3902,12 @@ import Base from '../layouts/Base.astro';
         function subSlideFormHtml(parentId: string, slide?: AgendaSlide): string {
           const v = slide || ({} as Partial<AgendaSlide>);
           const showRecrop = !!(slide && v.image_url);
+          const isPdf = !!(v.image_url && /\.pdf(\?|$)/i.test(v.image_url));
+          const previewInner = !v.image_url
+            ? '<div class="empty">No image</div>'
+            : isPdf
+              ? `<a class="pdf-chip" href="${escapeHtml(v.image_url!)}" target="_blank" rel="noopener">📄 PDF · View</a>`
+              : `<img src="${escapeHtml(v.image_url!)}" alt="" />`;
           return `
             <form class="sub-slide-form" data-parent="${parentId}" ${slide ? `data-slide-id="${slide.id}"` : ''} novalidate>
               <h4>${slide ? 'Edit sub-slide' : 'New sub-slide'}</h4>
@@ -3911,16 +3920,14 @@ import Base from '../layouts/Base.astro';
                 <textarea name="body" rows="3" maxlength="1000" placeholder="Supporting text under the title.">${escapeHtml(v.body || '')}</textarea>
               </label>
               <div class="photo-slot sub-slide-slot" data-sub-slide-slot>
-                <span class="slot-label">Image <span class="opt">(optional)</span></span>
+                <span class="slot-label">Image or PDF <span class="opt">(optional, PDF up to 15MB)</span></span>
                 <div class="photo-preview sub-slide-preview">
-                  ${v.image_url
-                    ? `<img src="${escapeHtml(v.image_url)}" alt="" />`
-                    : '<div class="empty">No image</div>'}
+                  ${previewInner}
                 </div>
                 <div class="photo-actions">
                   <label class="upload-btn">
-                    <input type="file" accept="image/*" data-sub-slide-slot hidden />
-                    <span class="upload-label">${v.image_url ? 'Replace image' : 'Upload image'}</span>
+                    <input type="file" accept="image/*,application/pdf,.pdf" data-sub-slide-slot hidden />
+                    <span class="upload-label">${v.image_url ? 'Replace' : 'Upload image or PDF'}</span>
                   </label>
                 </div>
                 <span class="upload-status" data-sub-slide-slot></span>
@@ -4391,10 +4398,20 @@ import Base from '../layouts/Base.astro';
           const statusEl = slotEl.querySelector('.upload-status') as HTMLElement;
           input.value = '';
           pendingSubSlidePhoto = file;
+          const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+          if (isPdf) {
+            // No raster preview for PDFs — show a chip with the filename
+            // so the user can see what they picked.
+            previewEl.innerHTML = `<div class="pdf-chip">📄 ${escapeHtml(file.name)}</div>`;
+            labelEl.textContent = 'Replace';
+            statusEl.textContent = 'Will upload after Create';
+            statusEl.className = 'upload-status';
+            return;
+          }
           const reader = new FileReader();
           reader.onload = () => {
             previewEl.innerHTML = `<img src="${reader.result}" alt="" />`;
-            labelEl.textContent = 'Replace image';
+            labelEl.textContent = 'Replace';
             statusEl.textContent = 'Will upload after Create';
             statusEl.className = 'upload-status';
           };
@@ -4434,18 +4451,24 @@ import Base from '../layouts/Base.astro';
             });
             let saved = res.slide as AgendaSlide;
 
-            // New-slide flow: now that the row exists, upload any photo
-            // the user staged before creating.
+            // New-slide flow: now that the row exists, upload any media
+            // the user staged before creating. PDFs are passed through
+            // as-is; images get the usual compress pass.
             if (!editing && pendingSubSlidePhoto) {
-              statusEl.textContent = 'Uploading image…';
+              const file = pendingSubSlidePhoto;
+              const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+              statusEl.textContent = isPdf ? 'Uploading PDF…' : 'Uploading image…';
               try {
-                const compressed = await compressImage(pendingSubSlidePhoto, 1600, 0.85);
-                const data_b64 = await blobToBase64(compressed);
+                const blob: Blob = isPdf
+                  ? file
+                  : await compressImage(file, 1600, 0.85);
+                const data_b64 = await blobToBase64(blob);
+                const filename = isPdf ? (file.name || 'attachment.pdf') : 'photo.jpg';
                 const upRes = await callFunction('upload-event-photo', {
                   slug, edit_token: key,
                   kind: 'agenda_slide',
                   slide_id: saved.id,
-                  filename: 'photo.jpg', data: data_b64,
+                  filename, data: data_b64,
                 });
                 saved = { ...saved, image_url: upRes.url as string };
               } catch (err) {
@@ -4483,25 +4506,29 @@ import Base from '../layouts/Base.astro';
           const labelEl = slotEl.querySelector('.upload-label') as HTMLElement;
           const statusEl = slotEl.querySelector('.upload-status') as HTMLElement;
           input.value = '';
-          statusEl.textContent = 'Compressing…';
+          const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+          statusEl.textContent = isPdf ? 'Uploading PDF…' : 'Compressing…';
           statusEl.className = 'upload-status';
           try {
-            const compressed = await compressImage(file, 1600, 0.85);
-            statusEl.textContent = 'Uploading…';
-            const data_b64 = await blobToBase64(compressed);
+            const blob: Blob = isPdf ? file : await compressImage(file, 1600, 0.85);
+            if (!isPdf) statusEl.textContent = 'Uploading…';
+            const data_b64 = await blobToBase64(blob);
+            const filename = isPdf ? (file.name || 'attachment.pdf') : 'photo.jpg';
             const res = await callFunction('upload-event-photo', {
               slug, edit_token: key,
               kind: 'agenda_slide',
               slide_id: slide.id,
-              filename: 'photo.jpg', data: data_b64,
+              filename, data: data_b64,
             });
             const url = res.url as string;
             slide.image_url = url;
             const list = slidesByItem[slide.agenda_item_id] || [];
             const idx = list.findIndex((x) => x.id === slide.id);
             if (idx >= 0) list[idx].image_url = url;
-            previewEl.innerHTML = `<img src="${escapeHtml(url)}" alt="" />`;
-            labelEl.textContent = 'Replace image';
+            previewEl.innerHTML = isPdf
+              ? `<a class="pdf-chip" href="${escapeHtml(url)}" target="_blank" rel="noopener">📄 PDF · View</a>`
+              : `<img src="${escapeHtml(url)}" alt="" />`;
+            labelEl.textContent = 'Replace';
             statusEl.textContent = 'Uploaded ✓';
             statusEl.className = 'upload-status ok';
             renderAgendaList();
@@ -5796,6 +5823,31 @@ import Base from '../layouts/Base.astro';
     color: rgba(255,255,255,0.30); font-size: 13px;
     border: 1px dashed rgba(255,255,255,0.15);
   }
+  .sub-slide-thumb.pdf-thumb {
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    background: rgba(231,76,60,0.15);
+    border: 1px solid rgba(231,76,60,0.3);
+  }
+  /* PDF preview chip — shown inside .sub-slide-preview and .photo-preview
+     when the saved or staged file is a PDF. Has a tap target so the
+     master can open the PDF in a new tab. */
+  .pdf-chip {
+    display: flex; align-items: center; justify-content: center;
+    gap: 6px;
+    width: 100%; height: 100%;
+    min-height: 56px;
+    padding: 10px 12px;
+    background: rgba(231,76,60,0.10);
+    border: 1px solid rgba(231,76,60,0.30);
+    border-radius: 6px;
+    color: #ecf0f1;
+    text-decoration: none;
+    font-size: 13px; font-weight: 600;
+    word-break: break-word;
+    text-align: center;
+  }
+  .pdf-chip:hover { background: rgba(231,76,60,0.18); }
   .sub-slide-info { display: grid; gap: 1px; min-width: 0; }
   .sub-slide-info strong {
     font-size: 12px; color: #ecf0f1; font-weight: 700;
