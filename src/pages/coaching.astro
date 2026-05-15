@@ -16,18 +16,22 @@ import Base from '../layouts/Base.astro';
 </Base>
 
 <script>
-  import { fetchEventBySlug, fetchCoaches } from '../lib/supabase.js';
+  import { fetchEventBySlug, fetchCoachSpeakers, fetchCoaches, callFunction } from '../lib/supabase.js';
   import { eventUrl } from '../lib/urls.js';
   import { escapeHtml } from '../lib/html.js';
 
   type Coach = {
-    id: string;
     name: string;
     photo_url: string | null;
     bio: string | null;
     phone: string | null;
     email: string | null;
     website: string | null;
+    // For dedup ordering: lower numbers win. master=0, host=1,
+    // speaker=2, custom=3. So if the same person is flagged in two
+    // places (e.g., a host who's also a speaker, both is_coach=true),
+    // the host card (with its website field) wins.
+    _rank: number;
   };
 
   const root = document.getElementById('coaching-root')!;
@@ -55,7 +59,102 @@ import Base from '../layouts/Base.astro';
         const accent = event.accent_color || '#f39c12';
         document.documentElement.style.setProperty('--accent', accent);
 
-        const coaches = (await fetchCoaches(event.id)) as Coach[];
+        // Pull all four sources in parallel:
+        //   1. master organizer if organizer_is_coach
+        //   2. co-hosts flagged is_coach
+        //   3. speakers flagged is_coach
+        //   4. fully custom coaches from the coaches table
+        // Then merge into a single list, deduped by case-insensitive
+        // name so a person flagged in multiple places doesn't show up
+        // twice.
+        type SpeakerRow = { name: string; photo_url: string | null; bio: string | null; phone: string | null; email: string | null };
+        type HostRow = { name: string | null; phone: string | null; email?: string | null; website?: string | null; bio?: string | null; photo_url?: string | null; is_coach?: boolean; is_master?: boolean };
+        type CustomRow = { name: string; photo_url: string | null; bio: string | null; phone: string | null; email: string | null; website: string | null };
+
+        const [coachSpeakers, hostsRes, customCoaches] = await Promise.all([
+          fetchCoachSpeakers(event.id) as Promise<SpeakerRow[]>,
+          callFunction('get-event-hosts', { slug }).catch(() => ({ hosts: [] })),
+          fetchCoaches(event.id) as Promise<CustomRow[]>,
+        ]);
+        const teamHosts = (hostsRes.hosts || []) as HostRow[];
+
+        const byName = new Map<string, Coach>();
+        function consider(c: Coach) {
+          if (!c.name) return;
+          const key = c.name.trim().toLowerCase();
+          const prev = byName.get(key);
+          if (!prev || c._rank < prev._rank) byName.set(key, c);
+        }
+        // Master first (rank 0)
+        for (const h of teamHosts) {
+          if (!h.is_master || !h.is_coach || !h.name) continue;
+          consider({
+            name: h.name, photo_url: h.photo_url || null,
+            bio: h.bio || null, phone: h.phone || null,
+            email: h.email || null, website: h.website || null,
+            _rank: 0,
+          });
+        }
+        // Co-hosts (rank 1)
+        for (const h of teamHosts) {
+          if (h.is_master || !h.is_coach || !h.name) continue;
+          consider({
+            name: h.name, photo_url: h.photo_url || null,
+            bio: h.bio || null, phone: h.phone || null,
+            email: h.email || null, website: h.website || null,
+            _rank: 1,
+          });
+        }
+        // Speakers (rank 2)
+        for (const sp of coachSpeakers) {
+          if (!sp.name) continue;
+          consider({
+            name: sp.name, photo_url: sp.photo_url,
+            bio: sp.bio, phone: sp.phone, email: sp.email,
+            website: null, _rank: 2,
+          });
+        }
+        // Custom coaches (rank 3)
+        for (const c of customCoaches) {
+          if (!c.name) continue;
+          consider({
+            name: c.name, photo_url: c.photo_url,
+            bio: c.bio, phone: c.phone, email: c.email,
+            website: c.website, _rank: 3,
+          });
+        }
+        // Render in rank order, then by their natural source order
+        // (already sorted in the source arrays). Simplest is to
+        // iterate the sources again and skip any name already taken
+        // by a lower rank.
+        const used = new Set<string>();
+        const coaches: Coach[] = [];
+        const sources: Coach[] = [];
+        for (const h of teamHosts) {
+          if (!h.is_master || !h.is_coach || !h.name) continue;
+          sources.push({ name: h.name, photo_url: h.photo_url || null, bio: h.bio || null, phone: h.phone || null, email: h.email || null, website: h.website || null, _rank: 0 });
+        }
+        for (const h of teamHosts) {
+          if (h.is_master || !h.is_coach || !h.name) continue;
+          sources.push({ name: h.name, photo_url: h.photo_url || null, bio: h.bio || null, phone: h.phone || null, email: h.email || null, website: h.website || null, _rank: 1 });
+        }
+        for (const sp of coachSpeakers) {
+          if (!sp.name) continue;
+          sources.push({ name: sp.name, photo_url: sp.photo_url, bio: sp.bio, phone: sp.phone, email: sp.email, website: null, _rank: 2 });
+        }
+        for (const c of customCoaches) {
+          if (!c.name) continue;
+          sources.push({ name: c.name, photo_url: c.photo_url, bio: c.bio, phone: c.phone, email: c.email, website: c.website, _rank: 3 });
+        }
+        for (const c of sources) {
+          const key = c.name.trim().toLowerCase();
+          if (used.has(key)) continue;
+          // Use the lowest-rank entry we found for this name (computed
+          // earlier in byName).
+          const winner = byName.get(key)!;
+          used.add(key);
+          coaches.push(winner);
+        }
 
         const heroImg = event.coaching_image_url
           ? `<img class="hero-image" src="${escapeHtml(event.coaching_image_url)}" alt="" />`

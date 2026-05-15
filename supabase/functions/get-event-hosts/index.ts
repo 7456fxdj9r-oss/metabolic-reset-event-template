@@ -26,12 +26,12 @@ Deno.serve(async (req) => {
 
   const { data: ev } = await supabase
     .from('events')
-    .select('id, primary_host_id, show_organizer_badge, organizer_name, organizer_email, organizer_phone, organizer_website, organizer_bio, organizer_photo_url')
+    .select('id, primary_host_id, show_organizer_badge, organizer_name, organizer_email, organizer_phone, organizer_website, organizer_bio, organizer_photo_url, organizer_is_coach')
     .eq('slug', slug).maybeSingle();
   if (!ev) return errResp(404, 'event not found');
 
   const { data: cohosts, error } = await supabase
-    .from('hosts').select('id, name, phone, email, bio, website, photo_url, display_order')
+    .from('hosts').select('id, name, phone, email, bio, website, photo_url, is_coach, display_order')
     .eq('event_id', ev.id)
     .order('display_order', { ascending: true })
     .order('created_at', { ascending: true });
@@ -44,6 +44,7 @@ Deno.serve(async (req) => {
     website?: string | null;
     bio?: string | null;
     photo_url?: string | null;
+    is_coach?: boolean;
     primary?: boolean;
     _is_master?: boolean;
     _id?: string;
@@ -60,6 +61,7 @@ Deno.serve(async (req) => {
           website: ev.organizer_website,
           bio: ev.organizer_bio,
           photo_url: ev.organizer_photo_url,
+          is_coach: !!ev.organizer_is_coach,
           _is_master: true,
         }
       : null;
@@ -69,6 +71,7 @@ Deno.serve(async (req) => {
     .map((c) => ({
       _id: c.id, name: c.name, phone: c.phone, email: c.email,
       bio: c.bio, website: c.website, photo_url: c.photo_url,
+      is_coach: !!c.is_coach,
     }));
 
   // Pick the public organizer. If primary_host_id matches a co-host, that

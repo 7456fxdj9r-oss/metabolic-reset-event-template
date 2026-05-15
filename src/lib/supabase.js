@@ -80,6 +80,15 @@ export async function fetchSpeakers(eventId) {
   );
 }
 
+// Just the speakers flagged is_coach=true — used by the public
+// /coaching page (and avoids dragging all speaker rows down to the
+// client when the event has many).
+export async function fetchCoachSpeakers(eventId) {
+  return request(
+    `/rest/v1/speakers?event_id=eq.${eventId}&is_coach=eq.true&select=*&order=display_order.asc`
+  );
+}
+
 // Public read of the curated coach list — feeds the /coaching/<slug>
 // page. Reads are open via RLS; writes go through manage-coaches.
 export async function fetchCoaches(eventId) {

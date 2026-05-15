@@ -939,6 +939,10 @@ import Base from '../layouts/Base.astro';
                 <input type="checkbox" name="show_organizer_badge" ${ev.show_organizer_badge === false ? '' : 'checked'} />
                 <span>Show <strong>ORGANIZER</strong> badge on the public page</span>
               </label>
+              <label class="checkbox-line">
+                <input type="checkbox" name="organizer_is_coach" ${ev.organizer_is_coach ? 'checked' : ''} />
+                <span>🥳 Show me on the Coaching Program page</span>
+              </label>
               <div class="row">
                 <button type="submit" id="organizer-save-btn">Save</button>
                 <span id="organizer-save-status" role="status" aria-live="polite"></span>
@@ -959,14 +963,16 @@ import Base from '../layouts/Base.astro';
             <h2>Coaching Program <span class="audience-tag">Public</span></h2>
             <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;line-height:1.5;">
               Attendees land here from the <strong>🥳 Metabolic Coaching Program</strong>
-              button on the event page. They see your pitch + a curated grid of
-              coaches with one-tap text, call, email, and website buttons.
-              Edit the pitch here, then build the coach list below — use
-              <strong>Quick-add</strong> chips to pull in a speaker or host
-              with one tap, or add a custom coach for someone who isn't
-              elsewhere on the event. The coaches list is independent, so
-              you can split compound speakers like "Annie and David Burgeson"
-              into a solo coach without affecting the slide deck.
+              button on the event page — your pitch + a grid of coaches with
+              one-tap text, call, email, and website buttons.
+              <br/><br/>
+              <strong>The fastest way to include someone:</strong> flip the
+              <strong>🥳 Show on the Coaching Program page</strong> checkbox
+              on their speaker, co-host, or master organizer form (above).
+              Use the <strong>Custom coaches</strong> section below only for
+              edge cases — splitting a compound speaker like "Annie and David
+              Burgeson" into a solo "Annie", or adding someone who isn't on
+              the event at all.
             </p>
             <form id="coaching-form" class="organizer-subform" novalidate>
               <label>
@@ -1004,11 +1010,13 @@ import Base from '../layouts/Base.astro';
               </div>
             </form>
 
-            <div class="hosts-subhead" style="margin-top:18px;">Coaches on this page</div>
+            <div class="hosts-subhead" style="margin-top:18px;">Custom coaches</div>
             <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:10px;line-height:1.5;">
-              Drag the ⋮⋮ handle to reorder. Each coach can have a name,
-              photo, short bio, phone (becomes "📱 Text me now" on the
-              public page), email, and website.
+              For people who aren't speakers / hosts, or for splitting a
+              compound speaker into a solo coach. Use <strong>Quick-add</strong>
+              to seed from an existing speaker/host (then trim the name),
+              or <strong>+ Add custom coach</strong> for someone new.
+              Drag the ⋮⋮ handle to reorder within this section.
             </p>
             <div id="coaches-quickadd" class="coaches-quickadd"></div>
             <button id="add-coach-btn" type="button" class="add-btn">+ Add custom coach</button>
@@ -2104,6 +2112,7 @@ import Base from '../layouts/Base.astro';
           bio: string | null;
           phone: string | null;
           email: string | null;
+          is_coach: boolean;
           display_order: number;
         };
         let speakers: Speaker[] = await fetchSpeakers(ev.id);
@@ -2164,6 +2173,10 @@ import Base from '../layouts/Base.astro';
                 </label>
               </div>
               ${photoBlock}
+              <label class="checkbox-line">
+                <input type="checkbox" name="is_coach" ${v.is_coach ? 'checked' : ''} />
+                <span>🥳 Show on the Coaching Program page</span>
+              </label>
               <div class="row">
                 <button type="submit">${sp ? 'Save changes' : 'Create'}</button>
                 <button type="button" class="cancel">${sp ? 'Done' : 'Cancel'}</button>
@@ -2183,7 +2196,7 @@ import Base from '../layouts/Base.astro';
                 ? `<img class="t-thumb" src="${escapeHtml(sp.photo_url)}" alt="" style="border-radius:50%;width:56px;height:56px;" />`
                 : '<div class="t-thumb empty" style="border-radius:50%;width:56px;height:56px;"></div>'}
               <div class="t-info">
-                <strong>${escapeHtml(sp.name)}</strong>
+                <strong>${escapeHtml(sp.name)}${sp.is_coach ? ' <span class="coach-flag" title="Shown on the Coaching Program page">🥳</span>' : ''}</strong>
                 ${contactBits.length ? `<span class="t-meta">${contactBits.join(' · ')}</span>` : ''}
                 ${sp.bio ? `<span class="t-meta">${escapeHtml(sp.bio.slice(0, 60))}${sp.bio.length > 60 ? '…' : ''}</span>` : ''}
               </div>
@@ -2371,6 +2384,7 @@ import Base from '../layouts/Base.astro';
             bio: fd.get('bio') || null,
             phone: fd.get('phone') || null,
             email: fd.get('email') || null,
+            is_coach: fd.get('is_coach') === 'on',
           };
           if (editing) speaker.id = editing.id;
 
@@ -2472,6 +2486,7 @@ import Base from '../layouts/Base.astro';
               organizer_phone: fd.get('organizer_phone') || null,
               organizer_website: fd.get('organizer_website') || null,
               show_organizer_badge: fd.get('show_organizer_badge') === 'on',
+              organizer_is_coach: fd.get('organizer_is_coach') === 'on',
             });
             organizerSaveStatus.textContent = 'Saved ✓';
             organizerSaveStatus.className = 'ok';
@@ -3147,6 +3162,7 @@ import Base from '../layouts/Base.astro';
           name: string | null;
           email: string | null;
           phone: string | null;
+          is_coach?: boolean;
           bio: string | null;
           website: string | null;
           photo_url: string | null;
@@ -3348,6 +3364,7 @@ import Base from '../layouts/Base.astro';
                   <strong>
                     ${escapeHtml(h.name || 'Unnamed co-host')}
                     ${isCurrentOrganizer ? '<span class="host-organizer-badge">organizer</span>' : ''}
+                    ${h.is_coach ? '<span class="coach-flag" title="Shown on the Coaching Program page">🥳</span>' : ''}
                   </strong>
                   ${contactBits.length ? `<span class="t-meta">${contactBits.join(' · ')}</span>` : ''}
                   ${h.bio ? `<span class="t-meta">${escapeHtml(h.bio.slice(0, 80))}${h.bio.length > 80 ? '…' : ''}</span>` : ''}
@@ -3476,6 +3493,10 @@ import Base from '../layouts/Base.astro';
                 <input type="url" name="website" placeholder="https://example.com" />
               </label>
               ${hostPhotoSlotHtml()}
+              <label class="checkbox-line">
+                <input type="checkbox" name="is_coach" />
+                <span>🥳 Show on the Coaching Program page</span>
+              </label>
               <div class="row">
                 <button type="submit">+ Generate co-host link</button>
                 <span id="add-host-status" role="status" aria-live="polite"></span>
@@ -3515,6 +3536,10 @@ import Base from '../layouts/Base.astro';
                 <input type="url" name="website" value="${escapeHtml(h.website || '')}" placeholder="https://example.com" />
               </label>
               ${hostPhotoSlotHtml(h)}
+              <label class="checkbox-line">
+                <input type="checkbox" name="is_coach" ${h.is_coach ? 'checked' : ''} />
+                <span>🥳 Show on the Coaching Program page</span>
+              </label>
               <div class="row">
                 <button type="submit">Save changes</button>
                 <button type="button" id="cancel-edit-host">Cancel</button>
@@ -3550,6 +3575,7 @@ import Base from '../layouts/Base.astro';
               email: fd.get('email') || null,
               bio: fd.get('bio') || null,
               website: fd.get('website') || null,
+              is_coach: fd.get('is_coach') === 'on',
             });
             await loadHosts();
             renderAddHostForm();
@@ -3580,6 +3606,7 @@ import Base from '../layouts/Base.astro';
               phone: fd.get('phone') || null,
               bio: fd.get('bio') || null,
               website: fd.get('website') || null,
+              is_coach: fd.get('is_coach') === 'on',
             });
             const newHostId = addRes?.host?.id as string | undefined;
             if (pendingHostPhoto && newHostId) {
@@ -6053,6 +6080,13 @@ import Base from '../layouts/Base.astro';
   .host-row.is-organizer {
     border-color: rgba(243,156,18,0.4);
     background: rgba(243,156,18,0.04);
+  }
+  /* Tiny "I'm on the coaches page" indicator next to a name. Just an
+     emoji — title attr explains it on hover. */
+  .coach-flag {
+    display: inline-block; vertical-align: middle;
+    margin-left: 4px; font-size: 14px;
+    cursor: help;
   }
 
   .org-banner {

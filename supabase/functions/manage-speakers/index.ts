@@ -38,7 +38,7 @@ Deno.serve(async (req) => {
 
   if (action === 'list') {
     const { data: rows, error } = await supabase
-      .from('speakers').select('id, name, photo_url, bio, phone, email, display_order, created_at')
+      .from('speakers').select('id, name, photo_url, bio, phone, email, is_coach, display_order, created_at')
       .eq('event_id', ev.id)
       .order('display_order', { ascending: true });
     if (error) return errResp(500, error.message);
@@ -69,6 +69,7 @@ Deno.serve(async (req) => {
       bio: sp.bio || null,
       phone: sp.phone || null,
       email: sp.email || null,
+      is_coach: !!sp.is_coach,
       display_order: (maxOrder?.display_order ?? -1) + 1,
     };
     const { data: ins, error: insErr } = await supabase
@@ -97,6 +98,7 @@ Deno.serve(async (req) => {
     if ('email' in sp) patch.email = sp.email || null;
     if ('display_order' in sp) patch.display_order = numOrNull(sp.display_order) ?? 0;
     if ('photo_url' in sp) patch.photo_url = sp.photo_url || null;
+    if ('is_coach' in sp) patch.is_coach = !!sp.is_coach;
 
     if (Object.keys(patch).length === 0) return errResp(400, 'no fields to update');
 

@@ -40,6 +40,7 @@ Deno.serve(async (req) => {
   if ('raffle_prize' in body) patch.raffle_prize = body.raffle_prize || null;
   if ('raffle_prize_photo_url' in body) patch.raffle_prize_photo_url = body.raffle_prize_photo_url || null;
   if ('show_organizer_badge' in body) patch.show_organizer_badge = !!body.show_organizer_badge;
+  if ('organizer_is_coach' in body) patch.organizer_is_coach = !!body.organizer_is_coach;
   for (const k of [
     'organizer_name', 'organizer_email', 'organizer_phone', 'organizer_website', 'organizer_bio',
     'organizer_photo_url',

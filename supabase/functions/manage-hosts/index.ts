@@ -48,7 +48,7 @@ Deno.serve(async (req) => {
   if (action === 'list') {
     const { data: rows, error } = await supabase
       .from('hosts')
-      .select('id, name, email, phone, bio, website, photo_url, display_order, host_token, created_at')
+      .select('id, name, email, phone, bio, website, photo_url, is_coach, display_order, host_token, created_at')
       .eq('event_id', ev.id)
       .order('display_order', { ascending: true })
       .order('created_at', { ascending: true });
@@ -62,6 +62,7 @@ Deno.serve(async (req) => {
       bio: row.bio,
       website: row.website,
       photo_url: row.photo_url,
+      is_coach: !!row.is_coach,
       display_order: row.display_order,
       created_at: row.created_at,
       host_token: isMaster ? row.host_token : null,
@@ -89,10 +90,11 @@ Deno.serve(async (req) => {
       .eq('event_id', ev.id)
       .order('display_order', { ascending: false }).limit(1).maybeSingle();
     const display_order = (maxOrder?.display_order ?? -1) + 1;
+    const is_coach = !!body.is_coach;
     const { data: inserted, error } = await supabase
       .from('hosts')
-      .insert({ event_id: ev.id, host_token, name, email, phone, bio, website, display_order })
-      .select('id, name, email, phone, bio, website, photo_url, display_order, host_token, created_at')
+      .insert({ event_id: ev.id, host_token, name, email, phone, bio, website, is_coach, display_order })
+      .select('id, name, email, phone, bio, website, photo_url, is_coach, display_order, host_token, created_at')
       .single();
     if (error) return errResp(500, error.message);
     return ok({ host: inserted });
@@ -137,11 +139,12 @@ Deno.serve(async (req) => {
       const n = Number(body.display_order);
       patch.display_order = Number.isFinite(n) ? Math.floor(n) : 0;
     }
+    if ('is_coach' in body) patch.is_coach = !!body.is_coach;
     if (Object.keys(patch).length === 0) return errResp(400, 'no fields to update');
 
     const { data: upd, error } = await supabase
       .from('hosts').update(patch).eq('id', host_id)
-      .select('id, name, email, phone, bio, website, photo_url, display_order, host_token, created_at').single();
+      .select('id, name, email, phone, bio, website, photo_url, is_coach, display_order, host_token, created_at').single();
     if (error) return errResp(500, error.message);
     return ok({ host: upd });
   }
