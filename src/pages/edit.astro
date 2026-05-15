@@ -9,9 +9,14 @@ import Base from '../layouts/Base.astro';
   <div class="crop-modal" id="crop-modal" style="display:none;">
     <div class="crop-modal-inner">
       <h3 id="crop-title">Adjust the photo</h3>
-      <p class="crop-hint">Drag the corners to resize · drag inside to reposition</p>
+      <p class="crop-hint">Drag inside to reposition · pinch or scroll to zoom · use the buttons below for precise control</p>
       <div class="cropper-wrap">
         <img id="cropper-source" alt="" />
+      </div>
+      <div class="crop-zoom-controls">
+        <button type="button" id="crop-zoom-out" class="crop-zoom-btn" aria-label="Zoom out">−</button>
+        <button type="button" id="crop-reset" class="crop-zoom-btn crop-reset" aria-label="Reset zoom">Reset</button>
+        <button type="button" id="crop-zoom-in" class="crop-zoom-btn" aria-label="Zoom in">+</button>
       </div>
       <div class="crop-actions">
         <button type="button" id="crop-cancel" class="crop-cancel">Cancel</button>
@@ -246,14 +251,28 @@ import Base from '../layouts/Base.astro';
   // cropped JPEG blob (already at the right aspect ratio + capped at
   // 1200x1600). User cancels → resolves null. Used for transformation
   // photos (3:4) and speaker headshots (1:1).
+  //
+  // Options:
+  //   freeZoom — when true, viewMode=0 lets the user zoom way out so the
+  //   image is smaller than the crop box (useful for transformation
+  //   stories where context matters). viewMode=1 keeps the crop tight
+  //   against the image edges (good for avatars).
   let activeCropper: Cropper | null = null;
-  function openCropModal(file: File, aspectRatio: number, title: string): Promise<Blob | null> {
+  function openCropModal(
+    file: File,
+    aspectRatio: number,
+    title: string,
+    options: { freeZoom?: boolean } = {},
+  ): Promise<Blob | null> {
     return new Promise((resolve) => {
       const modal = document.getElementById('crop-modal')!;
       const img = document.getElementById('cropper-source') as HTMLImageElement;
       const titleEl = document.getElementById('crop-title')!;
       const confirmBtn = document.getElementById('crop-confirm')!;
       const cancelBtn = document.getElementById('crop-cancel')!;
+      const zoomInBtn = document.getElementById('crop-zoom-in')!;
+      const zoomOutBtn = document.getElementById('crop-zoom-out')!;
+      const resetBtn = document.getElementById('crop-reset')!;
       titleEl.textContent = title;
 
       const reader = new FileReader();
@@ -265,8 +284,13 @@ import Base from '../layouts/Base.astro';
         const Cropper = await loadCropper();
         activeCropper = new Cropper(img, {
           aspectRatio,
-          viewMode: 1,
-          autoCropArea: 1,
+          // 0 = no constraints (crop box can sit anywhere, image can be
+          // scaled smaller than the crop box). 1 = crop box restricted
+          // to canvas, which limits how far the user can zoom out.
+          viewMode: options.freeZoom ? 0 : 1,
+          // Slight inset on free-zoom so the user sees the crop box
+          // distinctly framed against the image at first.
+          autoCropArea: options.freeZoom ? 0.9 : 1,
           dragMode: 'move',
           background: false,
           modal: true,
@@ -276,8 +300,13 @@ import Base from '../layouts/Base.astro';
           rotatable: false,
           scalable: true,
           zoomable: true,
+          zoomOnTouch: true,
+          zoomOnWheel: true,
           responsive: true,
           checkOrientation: true,
+          // Zoom range: 0.1x to 5x in the free-zoom case so the user
+          // can really get close on a face or zoom out to see context.
+          minCropBoxWidth: options.freeZoom ? 50 : 0,
         });
       };
       reader.onerror = () => {
@@ -293,6 +322,9 @@ import Base from '../layouts/Base.astro';
         img.src = '';
         confirmBtn.replaceWith(confirmBtn.cloneNode(true));
         cancelBtn.replaceWith(cancelBtn.cloneNode(true));
+        zoomInBtn.replaceWith(zoomInBtn.cloneNode(true));
+        zoomOutBtn.replaceWith(zoomOutBtn.cloneNode(true));
+        resetBtn.replaceWith(resetBtn.cloneNode(true));
       }
 
       document.getElementById('crop-confirm')!.addEventListener('click', () => {
@@ -318,6 +350,17 @@ import Base from '../layouts/Base.astro';
       document.getElementById('crop-cancel')!.addEventListener('click', () => {
         cleanup();
         resolve(null);
+      });
+      // Explicit zoom controls — work alongside the native pinch/wheel
+      // gestures. zoom(±0.1) maps to a comfortable per-click step.
+      document.getElementById('crop-zoom-in')!.addEventListener('click', () => {
+        activeCropper?.zoom(0.1);
+      });
+      document.getElementById('crop-zoom-out')!.addEventListener('click', () => {
+        activeCropper?.zoom(-0.1);
+      });
+      document.getElementById('crop-reset')!.addEventListener('click', () => {
+        activeCropper?.reset();
       });
     });
   }
@@ -1071,6 +1114,7 @@ import Base from '../layouts/Base.astro';
 
           const cropped = await openCropModal(
             file, 3 / 4, slot === 'before' ? 'Crop the before photo' : 'Crop the after photo',
+            { freeZoom: true },
           );
           if (!cropped) {
             statusEl.textContent = '';
@@ -1363,6 +1407,7 @@ import Base from '../layouts/Base.astro';
           try {
             const cropped = await openCropModal(
               file, 3 / 4, slot === 'before' ? 'Crop the before photo' : 'Crop the after photo',
+              { freeZoom: true },
             );
             if (!cropped) {
               statusEl.textContent = '';
@@ -5370,5 +5415,31 @@ import Base from '../layouts/Base.astro';
   button.crop-confirm {
     background: var(--accent, #f39c12); color: #1a252f;
     border: none;
+  }
+  /* Zoom controls sit between the crop preview and the Save / Cancel
+     row. Two big + / − buttons plus a Reset in the middle so the host
+     can iterate without learning pinch/scroll. */
+  .crop-zoom-controls {
+    display: flex; gap: 8px;
+    justify-content: center; align-items: center;
+    margin: 10px 0;
+  }
+  button.crop-zoom-btn {
+    min-width: 44px; min-height: 44px;
+    padding: 0 14px;
+    font-size: 22px; font-weight: 800; line-height: 1;
+    border-radius: 8px; cursor: pointer;
+    background: rgba(255,255,255,0.06); color: #ecf0f1;
+    border: 1px solid rgba(255,255,255,0.18);
+    font-family: inherit;
+  }
+  button.crop-zoom-btn:hover {
+    background: rgba(255,255,255,0.12);
+    border-color: rgba(255,255,255,0.3);
+  }
+  button.crop-zoom-btn.crop-reset {
+    font-size: 13px;
+    padding: 0 16px;
+    text-transform: uppercase; letter-spacing: 1px;
   }
 </style>
