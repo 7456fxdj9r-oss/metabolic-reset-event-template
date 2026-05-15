@@ -2193,8 +2193,8 @@ import Base from '../layouts/Base.astro';
             <li class="t-row" data-id="${sp.id}">
               ${dragHandleHtml()}
               ${sp.photo_url
-                ? `<img class="t-thumb" src="${escapeHtml(sp.photo_url)}" alt="" style="border-radius:50%;width:56px;height:56px;" />`
-                : '<div class="t-thumb empty" style="border-radius:50%;width:56px;height:56px;"></div>'}
+                ? `<img class="t-thumb is-avatar" src="${escapeHtml(sp.photo_url)}" alt="" />`
+                : '<div class="t-thumb empty is-avatar"></div>'}
               <div class="t-info">
                 <strong>${escapeHtml(sp.name)}${sp.is_coach ? ' <span class="coach-flag" title="Shown on the Coaching Program page">🥳</span>' : ''}</strong>
                 ${contactBits.length ? `<span class="t-meta">${contactBits.join(' · ')}</span>` : ''}
@@ -2749,8 +2749,8 @@ import Base from '../layouts/Base.astro';
             <li class="t-row" data-id="${c.id}">
               ${dragHandleHtml()}
               ${c.photo_url
-                ? `<img class="t-thumb" src="${escapeHtml(c.photo_url)}" alt="" style="border-radius:50%;width:56px;height:56px;" />`
-                : '<div class="t-thumb empty" style="border-radius:50%;width:56px;height:56px;"></div>'}
+                ? `<img class="t-thumb is-avatar" src="${escapeHtml(c.photo_url)}" alt="" />`
+                : '<div class="t-thumb empty is-avatar"></div>'}
               <div class="t-info">
                 <strong>${escapeHtml(c.name)}</strong>
                 ${contactBits.length ? `<span class="t-meta">${contactBits.join(' · ')}</span>` : ''}
@@ -3358,8 +3358,8 @@ import Base from '../layouts/Base.astro';
               <li class="t-row host-row ${isCurrentOrganizer ? 'is-organizer' : ''}" data-id="${h.id}">
                 ${isMaster ? dragHandleHtml() : ''}
                 ${h.photo_url
-                  ? `<img class="t-thumb" src="${escapeHtml(h.photo_url)}" alt="" style="border-radius:50%;width:56px;height:56px;" />`
-                  : '<div class="t-thumb empty" style="border-radius:50%;width:56px;height:56px;"></div>'}
+                  ? `<img class="t-thumb is-avatar" src="${escapeHtml(h.photo_url)}" alt="" />`
+                  : '<div class="t-thumb empty is-avatar"></div>'}
                 <div class="t-info">
                   <strong>
                     ${escapeHtml(h.name || 'Unnamed co-host')}
@@ -4949,19 +4949,48 @@ import Base from '../layouts/Base.astro';
           spotlight.style.width = rect.width + 'px';
           spotlight.style.height = maxH + 'px';
           const tooltip = tourOverlay.querySelector('.tour-tooltip') as HTMLElement;
-          const ttHeight = tooltip.offsetHeight || 220;
+          // If the tooltip is taller than the viewport (short landscape
+          // phone), clear any previous overrides first so offsetHeight
+          // reflects natural height before we decide to clamp.
+          tooltip.style.maxHeight = '';
+          tooltip.style.overflowY = '';
+          const vpH = window.innerHeight;
+          const vpW = window.innerWidth;
+          let ttHeight = tooltip.offsetHeight || 220;
           const ttWidth = tooltip.offsetWidth || 360;
+          // Short-viewport fallback: if the tooltip itself can't fit,
+          // cap its height and let the user scroll inside it. Recompute
+          // ttHeight after the cap so the clamp pass below is accurate.
+          if (ttHeight > vpH - 16) {
+            tooltip.style.maxHeight = 'calc(100vh - 16px)';
+            tooltip.style.overflowY = 'auto';
+            ttHeight = tooltip.offsetHeight || (vpH - 16);
+          }
           const spotBottom = rect.top + maxH;
           const below = spotBottom + 16;
           const above = rect.top - ttHeight - 16;
-          if (below + ttHeight < window.innerHeight) {
-            tooltip.style.top = below + 'px';
+          let ttTop: number;
+          if (below + ttHeight < vpH) {
+            ttTop = below;
           } else if (above > 8) {
-            tooltip.style.top = above + 'px';
+            ttTop = above;
           } else {
-            tooltip.style.top = Math.max(8, window.innerHeight - ttHeight - 16) + 'px';
+            ttTop = Math.max(8, vpH - ttHeight - 16);
           }
-          tooltip.style.left = Math.max(12, Math.min(rect.left, window.innerWidth - ttWidth - 12)) + 'px';
+          let ttLeft = Math.max(12, Math.min(rect.left, vpW - ttWidth - 12));
+          // Final viewport clamp — guarantees the tooltip never renders
+          // off-screen even on very short viewports (landscape iPhone,
+          // 360x640) where the spotlighted element is near an edge.
+          // 8px margin matches the existing fallback above. If the
+          // tooltip ends up far from the spotlight here, that's better
+          // than being invisible — the arrow's spotlight relationship
+          // is best-effort, viewport visibility is non-negotiable.
+          if (ttTop < 8) ttTop = 8;
+          if (ttTop + ttHeight > vpH - 8) ttTop = Math.max(8, vpH - ttHeight - 8);
+          if (ttLeft < 8) ttLeft = 8;
+          if (ttLeft + ttWidth > vpW - 8) ttLeft = Math.max(8, vpW - ttWidth - 8);
+          tooltip.style.top = ttTop + 'px';
+          tooltip.style.left = ttLeft + 'px';
         }
 
         function stepTour(delta: number) {
@@ -5794,6 +5823,7 @@ import Base from '../layouts/Base.astro';
     border-radius: 4px; background: rgba(0,0,0,0.4);
   }
   .t-thumb.empty { border: 1px dashed rgba(255,255,255,0.12); }
+  .t-thumb.is-avatar { border-radius: 50%; width: 56px; height: 56px; }
   .t-info { display: grid; gap: 2px; min-width: 0; }
   .t-info strong { font-size: 14px; color: #fff; }
   .t-meta { font-size: 11px; color: #95a5a6; }

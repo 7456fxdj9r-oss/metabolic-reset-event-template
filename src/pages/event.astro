@@ -14,6 +14,7 @@ import Base from '../layouts/Base.astro';
     journeyUrl, scienceUrl, hostsUrl, coachingUrl,
   } from '../lib/urls.js';
   import { escapeHtml } from '../lib/html.js';
+  import { installA2hs } from '../lib/a2hs.ts';
   // qrcode (~50KB) is dynamic-imported below — see toCanvas call.
 
   const root = document.getElementById('event-root')!;
@@ -205,31 +206,12 @@ import Base from '../layouts/Base.astro';
           if (themeMeta) themeMeta.setAttribute('content', accent);
         } catch { /* non-fatal */ }
 
-        // Add-to-Home-Screen hint, iOS Safari only (Chrome shows its own
-        // install prompt; other iOS browsers don't support installing).
-        // Dismissed-by-user state is per-slug in localStorage.
-        try {
-          const ua = navigator.userAgent;
-          const isIOS = /iPhone|iPad|iPod/.test(ua) && !(/CriOS|FxiOS|EdgiOS/.test(ua));
-          const isStandalone = (window.navigator as { standalone?: boolean }).standalone === true
-            || window.matchMedia('(display-mode: standalone)').matches;
-          const dismissKey = `a2hs-dismissed:${slug}`;
-          const alreadyDismissed = localStorage.getItem(dismissKey) === '1';
-          if (isIOS && !isStandalone && !alreadyDismissed) {
-            const banner = document.createElement('aside');
-            banner.className = 'a2hs-banner';
-            banner.innerHTML = `
-              <button type="button" class="a2hs-close" aria-label="Dismiss">×</button>
-              <p class="a2hs-line">📲 <strong>Save this to your phone</strong></p>
-              <p class="a2hs-detail">Tap the <strong>Share</strong> button below, then <strong>Add to Home Screen</strong> — keeps the event one tap away.</p>
-            `;
-            document.body.appendChild(banner);
-            banner.querySelector('.a2hs-close')!.addEventListener('click', () => {
-              localStorage.setItem(dismissKey, '1');
-              banner.remove();
-            });
-          }
-        } catch { /* non-fatal */ }
+        // Add-to-Home-Screen hint — see src/lib/a2hs.ts. Per-slug
+        // dismissal key so dismissing one event doesn't suppress others.
+        installA2hs({
+          dismissKey: `a2hs-dismissed:${slug}`,
+          detailHtml: 'Tap the <strong>Share</strong> button below, then <strong>Add to Home Screen</strong> — keeps the event one tap away.',
+        });
       } catch (err) {
         root.innerHTML = `<p class="loading err">${escapeHtml((err as Error).message)}</p>`;
       }
@@ -285,38 +267,6 @@ import Base from '../layouts/Base.astro';
   .loading.err { color: #e74c3c; }
 
   /* Audience-hub popup CSS now lives in src/styles/audience-popup.css
-     (imported by Base.astro so every public page inherits it). */
-
-  /* Add to Home Screen hint — iOS Safari only, dismissable */
-  .a2hs-banner {
-    position: fixed;
-    left: 12px; right: 12px; bottom: max(14px, env(safe-area-inset-bottom, 14px));
-    background: #1a252f;
-    border: 1px solid var(--accent, #f39c12);
-    border-radius: 12px;
-    padding: 14px 36px 14px 16px;
-    color: #ecf0f1;
-    box-shadow: 0 12px 30px rgba(0,0,0,0.55);
-    z-index: 50;
-    max-width: 540px; margin: 0 auto;
-  }
-  .a2hs-banner .a2hs-line {
-    font-size: 14px; margin-bottom: 4px;
-  }
-  .a2hs-banner .a2hs-line strong { color: var(--accent, #f39c12); }
-  .a2hs-banner .a2hs-detail {
-    font-size: 12px; color: #bdc3c7; line-height: 1.45;
-  }
-  .a2hs-banner .a2hs-detail strong { color: #fff; font-weight: 700; }
-  .a2hs-banner .a2hs-close {
-    position: absolute;
-    top: 6px; right: 8px;
-    width: 28px; height: 28px;
-    background: transparent; color: #95a5a6;
-    border: none; border-radius: 14px;
-    font-size: 22px; line-height: 1;
-    cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-  }
-  .a2hs-banner .a2hs-close:hover { background: rgba(255,255,255,0.06); color: #fff; }
+     and A2HS banner CSS lives in src/styles/a2hs.css — both imported by
+     Base.astro so every public page inherits them. */
 </style>
