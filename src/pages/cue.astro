@@ -265,6 +265,7 @@ import Base from '../layouts/Base.astro';
     html, body {
       background: #ffffff;
       padding: 0; margin: 0;
+      width: auto;
       /* Force backgrounds + colors (accent stripe, header bar,
          alternating rows) to actually print on Chrome/Safari. */
       -webkit-print-color-adjust: exact;
@@ -272,17 +273,20 @@ import Base from '../layouts/Base.astro';
       color-adjust: exact;
     }
     .page-controls { display: none !important; }
+    /* Drop the flex centering in print — the @page area already
+       defines the printable rectangle, and a flex parent with no
+       defined cross-axis was collapsing the sheet to zero height. */
+    main.cue { display: block; }
     .sheet {
       box-shadow: none;
-      width: 100%;
-      /* No min-height — let the sheet flow naturally. min-height:
-         100vh combined with the page margin used to push content
-         past the bottom edge. */
+      /* Let the sheet size itself to the page area. width:100% or
+         a fixed 11in fights @page margins; auto lets the block flow
+         naturally inside whatever the printable area is. */
+      width: auto;
       min-height: 0;
-      /* The sheet has its own padding (0.4in 0.45in 0.4in) which
-         visually frames the print. Combined with the 0.3in @page
-         margin the content sits ~0.7in from the page edge — plenty
-         of safe area. */
+      overflow: visible;
+      /* Keep the sheet's own padding so the layout still has the
+         framed look — it's separate from the @page margin. */
     }
     /* When the agenda is too long to fit one page, let the table
        break across pages cleanly with the header row repeated. */

@@ -313,6 +313,7 @@ import Base from '../layouts/Base.astro';
     html, body {
       background: #fff !important;
       padding: 0 !important; margin: 0 !important;
+      width: auto;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
       color-adjust: exact;
@@ -321,8 +322,12 @@ import Base from '../layouts/Base.astro';
     main.poster { display: block; }
     .sheet {
       box-shadow: none;
-      width: 100%;
+      /* Let the sheet flow inside the @page area — width:100% or
+         fixed sizes can collapse to zero height under some flex
+         parents. */
+      width: auto;
       min-height: 0;
+      overflow: visible;
       padding: 0.4in 0.4in 0.3in;
       page-break-after: avoid;
     }
