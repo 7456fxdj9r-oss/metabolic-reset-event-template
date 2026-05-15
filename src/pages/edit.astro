@@ -3863,11 +3863,8 @@ import Base from '../layouts/Base.astro';
           const bodyPreview = s.body
             ? `<span class="sub-slide-body-preview">${escapeHtml(s.body.slice(0, 80))}${s.body.length > 80 ? '…' : ''}</span>`
             : '';
-          const isPdf = !!(s.image_url && /\.pdf(\?|$)/i.test(s.image_url));
           const thumb = s.image_url
-            ? (isPdf
-                ? '<div class="sub-slide-thumb pdf-thumb" aria-label="PDF">📄</div>'
-                : `<img class="sub-slide-thumb" src="${escapeHtml(s.image_url)}" alt="" />`)
+            ? `<img class="sub-slide-thumb" src="${escapeHtml(s.image_url)}" alt="" />`
             : '<div class="sub-slide-thumb empty">—</div>';
           // Title is optional. When absent, use a dim placeholder so the
           // row still has a heading — preferring body preview if it
@@ -3902,12 +3899,6 @@ import Base from '../layouts/Base.astro';
         function subSlideFormHtml(parentId: string, slide?: AgendaSlide): string {
           const v = slide || ({} as Partial<AgendaSlide>);
           const showRecrop = !!(slide && v.image_url);
-          const isPdf = !!(v.image_url && /\.pdf(\?|$)/i.test(v.image_url));
-          const previewInner = !v.image_url
-            ? '<div class="empty">No image</div>'
-            : isPdf
-              ? `<a class="pdf-chip" href="${escapeHtml(v.image_url!)}" target="_blank" rel="noopener">📄 PDF · View</a>`
-              : `<img src="${escapeHtml(v.image_url!)}" alt="" />`;
           return `
             <form class="sub-slide-form" data-parent="${parentId}" ${slide ? `data-slide-id="${slide.id}"` : ''} novalidate>
               <h4>${slide ? 'Edit sub-slide' : 'New sub-slide'}</h4>
@@ -3920,9 +3911,11 @@ import Base from '../layouts/Base.astro';
                 <textarea name="body" rows="3" maxlength="1000" placeholder="Supporting text under the title.">${escapeHtml(v.body || '')}</textarea>
               </label>
               <div class="photo-slot sub-slide-slot" data-sub-slide-slot>
-                <span class="slot-label">Image or PDF <span class="opt">(optional, PDF up to 15MB)</span></span>
+                <span class="slot-label">Image or PDF <span class="opt">(optional — PDFs become page-1 images)</span></span>
                 <div class="photo-preview sub-slide-preview">
-                  ${previewInner}
+                  ${v.image_url
+                    ? `<img src="${escapeHtml(v.image_url)}" alt="" />`
+                    : '<div class="empty">No image</div>'}
                 </div>
                 <div class="photo-actions">
                   <label class="upload-btn">
@@ -4392,7 +4385,7 @@ import Base from '../layouts/Base.astro';
           (form.querySelector('input[name=title]') as HTMLInputElement).focus();
         }
 
-        function handlePendingSubSlidePhoto(changeEv: Event) {
+        async function handlePendingSubSlidePhoto(changeEv: Event) {
           const input = changeEv.target as HTMLInputElement;
           const file = input.files?.[0];
           if (!file) return;
@@ -4401,17 +4394,34 @@ import Base from '../layouts/Base.astro';
           const labelEl = slotEl.querySelector('.upload-label') as HTMLElement;
           const statusEl = slotEl.querySelector('.upload-status') as HTMLElement;
           input.value = '';
-          pendingSubSlidePhoto = file;
           const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
           if (isPdf) {
-            // No raster preview for PDFs — show a chip with the filename
-            // so the user can see what they picked.
-            previewEl.innerHTML = `<div class="pdf-chip">📄 ${escapeHtml(file.name)}</div>`;
-            labelEl.textContent = 'Replace';
-            statusEl.textContent = 'Will upload after Create';
+            // Rasterize the first page to a JPG client-side so the
+            // upload path / deck / thumbnail logic stays image-only.
+            // The PDF reader chunk (~1MB) lazy-loads on first use.
+            statusEl.textContent = 'Rendering PDF…';
             statusEl.className = 'upload-status';
+            try {
+              const { pdfToJpg } = await import('../lib/pdf-to-jpg');
+              const jpg = await pdfToJpg(file, 1600, 0.85);
+              const jpgFile = new File([jpg], (file.name || 'page').replace(/\.pdf$/i, '') + '.jpg', { type: 'image/jpeg' });
+              pendingSubSlidePhoto = jpgFile;
+              const reader = new FileReader();
+              reader.onload = () => {
+                previewEl.innerHTML = `<img src="${reader.result}" alt="" />`;
+                labelEl.textContent = 'Replace';
+                statusEl.textContent = 'Will upload after Create';
+                statusEl.className = 'upload-status';
+              };
+              reader.readAsDataURL(jpg);
+            } catch (err) {
+              statusEl.textContent = 'PDF render failed: ' + fmtError(err);
+              statusEl.className = 'upload-status err';
+              pendingSubSlidePhoto = null;
+            }
             return;
           }
+          pendingSubSlidePhoto = file;
           const reader = new FileReader();
           reader.onload = () => {
             previewEl.innerHTML = `<img src="${reader.result}" alt="" />`;
@@ -4455,24 +4465,19 @@ import Base from '../layouts/Base.astro';
             });
             let saved = res.slide as AgendaSlide;
 
-            // New-slide flow: now that the row exists, upload any media
-            // the user staged before creating. PDFs are passed through
-            // as-is; images get the usual compress pass.
+            // New-slide flow: now that the row exists, upload the image
+            // the user staged before creating. PDFs were rasterized to
+            // JPG at pick-time, so this path always sees an image.
             if (!editing && pendingSubSlidePhoto) {
-              const file = pendingSubSlidePhoto;
-              const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
-              statusEl.textContent = isPdf ? 'Uploading PDF…' : 'Uploading image…';
+              statusEl.textContent = 'Uploading image…';
               try {
-                const blob: Blob = isPdf
-                  ? file
-                  : await compressImage(file, 1600, 0.85);
-                const data_b64 = await blobToBase64(blob);
-                const filename = isPdf ? (file.name || 'attachment.pdf') : 'photo.jpg';
+                const compressed = await compressImage(pendingSubSlidePhoto, 1600, 0.85);
+                const data_b64 = await blobToBase64(compressed);
                 const upRes = await callFunction('upload-event-photo', {
                   slug, edit_token: key,
                   kind: 'agenda_slide',
                   slide_id: saved.id,
-                  filename, data: data_b64,
+                  filename: 'photo.jpg', data: data_b64,
                 });
                 saved = { ...saved, image_url: upRes.url as string };
               } catch (err) {
@@ -4511,27 +4516,33 @@ import Base from '../layouts/Base.astro';
           const statusEl = slotEl.querySelector('.upload-status') as HTMLElement;
           input.value = '';
           const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
-          statusEl.textContent = isPdf ? 'Uploading PDF…' : 'Compressing…';
+          statusEl.textContent = isPdf ? 'Rendering PDF…' : 'Compressing…';
           statusEl.className = 'upload-status';
           try {
-            const blob: Blob = isPdf ? file : await compressImage(file, 1600, 0.85);
-            if (!isPdf) statusEl.textContent = 'Uploading…';
-            const data_b64 = await blobToBase64(blob);
-            const filename = isPdf ? (file.name || 'attachment.pdf') : 'photo.jpg';
+            // PDFs are rasterized to a JPG first so the deck (and every
+            // other render path) treats them as plain images. Embedded
+            // PDF rendering across projector laptops is too unreliable.
+            let imgBlob: Blob;
+            if (isPdf) {
+              const { pdfToJpg } = await import('../lib/pdf-to-jpg');
+              imgBlob = await pdfToJpg(file, 1600, 0.85);
+            } else {
+              imgBlob = await compressImage(file, 1600, 0.85);
+            }
+            statusEl.textContent = 'Uploading…';
+            const data_b64 = await blobToBase64(imgBlob);
             const res = await callFunction('upload-event-photo', {
               slug, edit_token: key,
               kind: 'agenda_slide',
               slide_id: slide.id,
-              filename, data: data_b64,
+              filename: 'photo.jpg', data: data_b64,
             });
             const url = res.url as string;
             slide.image_url = url;
             const list = slidesByItem[slide.agenda_item_id] || [];
             const idx = list.findIndex((x) => x.id === slide.id);
             if (idx >= 0) list[idx].image_url = url;
-            previewEl.innerHTML = isPdf
-              ? `<a class="pdf-chip" href="${escapeHtml(url)}" target="_blank" rel="noopener">📄 PDF · View</a>`
-              : `<img src="${escapeHtml(url)}" alt="" />`;
+            previewEl.innerHTML = `<img src="${escapeHtml(url)}" alt="" />`;
             labelEl.textContent = 'Replace';
             statusEl.textContent = 'Uploaded ✓';
             statusEl.className = 'upload-status ok';
@@ -5827,31 +5838,6 @@ import Base from '../layouts/Base.astro';
     color: rgba(255,255,255,0.30); font-size: 13px;
     border: 1px dashed rgba(255,255,255,0.15);
   }
-  .sub-slide-thumb.pdf-thumb {
-    display: flex; align-items: center; justify-content: center;
-    font-size: 22px;
-    background: rgba(231,76,60,0.15);
-    border: 1px solid rgba(231,76,60,0.3);
-  }
-  /* PDF preview chip — shown inside .sub-slide-preview and .photo-preview
-     when the saved or staged file is a PDF. Has a tap target so the
-     master can open the PDF in a new tab. */
-  .pdf-chip {
-    display: flex; align-items: center; justify-content: center;
-    gap: 6px;
-    width: 100%; height: 100%;
-    min-height: 56px;
-    padding: 10px 12px;
-    background: rgba(231,76,60,0.10);
-    border: 1px solid rgba(231,76,60,0.30);
-    border-radius: 6px;
-    color: #ecf0f1;
-    text-decoration: none;
-    font-size: 13px; font-weight: 600;
-    word-break: break-word;
-    text-align: center;
-  }
-  .pdf-chip:hover { background: rgba(231,76,60,0.18); }
   .sub-slide-info { display: grid; gap: 1px; min-width: 0; }
   .sub-slide-info strong {
     font-size: 12px; color: #ecf0f1; font-weight: 700;
