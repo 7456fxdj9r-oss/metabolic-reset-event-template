@@ -3832,7 +3832,7 @@ import Base from '../layouts/Base.astro';
         function collapsifyCards() {
           const cards = document.querySelectorAll<HTMLElement>('section.card');
           // Sections that open by default; the rest collapse to save scroll.
-          const openByDefault = new Set(['day-of-toolkit', 'event-details', 'raffle']);
+          const openByDefault = new Set(['day-of-toolkit', 'event-details']);
           cards.forEach((card) => {
             if (card.id === 'setup-checklist') return;
             if (card.querySelector(':scope > details.card-shell')) return;
