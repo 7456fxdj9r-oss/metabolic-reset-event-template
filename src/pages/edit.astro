@@ -2576,14 +2576,17 @@ import Base from '../layouts/Base.astro';
           }
         });
 
-        // Coaching hero image — wider aspect (16:9) since it's a page banner,
-        // not a portrait. Same crop+compress+upload flow as the organizer.
+        // Coaching hero image — free aspect ratio so the user can pick
+        // landscape (banner) or portrait (poster) depending on the source.
+        // The public page displays whatever shape they choose.
         let coachingImageUrl: string | null = ev.coaching_image_url || null;
         const coachingSlot = coachingForm.querySelector('.coaching-slot') as HTMLElement;
         async function uploadCoachingCrop(file: File, statusEl: HTMLElement, previewEl: HTMLElement, labelEl: HTMLElement, recropExisting: boolean): Promise<void> {
           statusEl.textContent = 'Opening crop tool…';
           statusEl.className = 'upload-status';
-          const cropped = await openCropModal(file, 16 / 9, recropExisting ? `Re-crop hero image` : `Crop hero image`);
+          // NaN = free aspect (cropperjs convention); freeZoom lets them
+          // pull the crop box to any size relative to the source image.
+          const cropped = await openCropModal(file, NaN, recropExisting ? `Re-crop hero image` : `Crop hero image (landscape or portrait)`, { freeZoom: true });
           if (!cropped) { statusEl.textContent = ''; return; }
           statusEl.textContent = 'Uploading…';
           const compressed = await compressImage(new File([cropped], 'hero.jpg', { type: 'image/jpeg' }), 1600, 0.82);
