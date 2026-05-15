@@ -4690,9 +4690,17 @@ import Base from '../layouts/Base.astro';
         function collapsifyCards() {
           const cards = document.querySelectorAll<HTMLElement>('section.card');
           // Sections that open by default; the rest collapse to save scroll.
-          const openByDefault = new Set(['day-of-toolkit', 'event-details']);
+          const openByDefault = new Set(['event-details']);
+          // Cards that stay flat (no <details> wrapper, never collapse).
+          // Setup checklist is the progress bar; day-of toolkit is the
+          // master's command surface during the event — both should be
+          // permanently visible so the accordion behavior doesn't hide
+          // them when the user opens an edit section.
+          const alwaysOpen = new Set(['setup-checklist']);
+          const alwaysOpenTours = new Set(['day-of-toolkit']);
           cards.forEach((card) => {
-            if (card.id === 'setup-checklist') return;
+            if (alwaysOpen.has(card.id)) return;
+            if (alwaysOpenTours.has(card.getAttribute('data-tour') || '')) return;
             if (card.querySelector(':scope > details.card-shell')) return;
             const h2 = card.querySelector(':scope > h2') as HTMLElement | null;
             if (!h2) return;
