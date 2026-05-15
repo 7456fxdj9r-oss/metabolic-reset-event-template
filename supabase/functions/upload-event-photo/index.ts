@@ -12,6 +12,8 @@
 //     → coaching-program hero image, patches events.coaching_image_url
 //   { slug, edit_token, kind: 'agenda_slide',  slide_id, filename, data }
 //     → presenter-built sub-slide image, patches agenda_slides.image_url
+//   { slug, edit_token, kind: 'coach',         coach_id, filename, data }
+//     → curated coach headshot, patches coaches.photo_url for the row
 //
 // Writes to event-photos/<event_slug>/<kind>-<id>-<ts>.<ext>.
 import { handleOptions } from '../_shared/cors.ts';
@@ -35,7 +37,7 @@ const KIND_COLUMN: Record<string, string> = {
   organizer: 'organizer_photo_url',
   coaching: 'coaching_image_url',
 };
-const VALID_KINDS = ['prize', 'prize_item', 'organizer', 'agenda_slide', 'coaching'];
+const VALID_KINDS = ['prize', 'prize_item', 'organizer', 'agenda_slide', 'coaching', 'coach'];
 
 Deno.serve(async (req) => {
   const preflight = handleOptions(req);
@@ -57,6 +59,9 @@ Deno.serve(async (req) => {
   // For sub-slide uploads, slide_id targets which agenda_slides row to patch.
   const slide_id = kind === 'agenda_slide' ? String(body.slide_id || '').trim() : '';
   if (kind === 'agenda_slide' && !slide_id) return errResp(400, 'slide_id required when kind=agenda_slide');
+  // For coach uploads, coach_id targets which coaches row to patch.
+  const coach_id = kind === 'coach' ? String(body.coach_id || '').trim() : '';
+  if (kind === 'coach' && !coach_id) return errResp(400, 'coach_id required when kind=coach');
 
   const ext = (filename.split('.').pop() || 'jpg').toLowerCase();
   const contentType = ALLOWED_EXTS[ext];
@@ -107,9 +112,16 @@ Deno.serve(async (req) => {
       return errResp(404, 'sub-slide not found in this event');
     }
   }
+  if (kind === 'coach') {
+    const { data: coach } = await supabase
+      .from('coaches').select('id')
+      .eq('id', coach_id).eq('event_id', ev.id).maybeSingle();
+    if (!coach) return errResp(404, 'coach not found in this event');
+  }
 
   const idSegment = kind === 'prize_item' ? `prize_item-${prize_id}`
     : kind === 'agenda_slide' ? `agenda_slide-${slide_id}`
+    : kind === 'coach' ? `coach-${coach_id}`
     : kind;
   const path = `${ev.slug}/${idSegment}-${Date.now()}.${ext}`;
   const { error: upErr } = await supabase.storage
@@ -127,6 +139,10 @@ Deno.serve(async (req) => {
   } else if (kind === 'agenda_slide') {
     const { error: updErr } = await supabase
       .from('agenda_slides').update({ image_url: publicUrl }).eq('id', slide_id);
+    if (updErr) return errResp(500, updErr.message);
+  } else if (kind === 'coach') {
+    const { error: updErr } = await supabase
+      .from('coaches').update({ photo_url: publicUrl }).eq('id', coach_id);
     if (updErr) return errResp(500, updErr.message);
   } else {
     const column = KIND_COLUMN[kind];

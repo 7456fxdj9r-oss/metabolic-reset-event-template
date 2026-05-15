@@ -80,6 +80,14 @@ export async function fetchSpeakers(eventId) {
   );
 }
 
+// Public read of the curated coach list — feeds the /coaching/<slug>
+// page. Reads are open via RLS; writes go through manage-coaches.
+export async function fetchCoaches(eventId) {
+  return request(
+    `/rest/v1/coaches?event_id=eq.${eventId}&select=*&order=display_order.asc,created_at.asc`
+  );
+}
+
 export async function fetchAgendaItems(eventId) {
   return request(
     `/rest/v1/agenda_items?event_id=eq.${eventId}&select=*&order=display_order.asc`

@@ -959,10 +959,14 @@ import Base from '../layouts/Base.astro';
             <h2>Coaching Program <span class="audience-tag">Public</span></h2>
             <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:12px;line-height:1.5;">
               Attendees land here from the <strong>🥳 Metabolic Coaching Program</strong>
-              button on the event page. They see your pitch + a grid of every
-              coach (hosts + speakers) with one-tap text, call, email, and
-              website buttons. Edit the pitch here; the coach list is built
-              automatically from the people you've already added above.
+              button on the event page. They see your pitch + a curated grid of
+              coaches with one-tap text, call, email, and website buttons.
+              Edit the pitch here, then build the coach list below — use
+              <strong>Quick-add</strong> chips to pull in a speaker or host
+              with one tap, or add a custom coach for someone who isn't
+              elsewhere on the event. The coaches list is independent, so
+              you can split compound speakers like "Annie and David Burgeson"
+              into a solo coach without affecting the slide deck.
             </p>
             <form id="coaching-form" class="organizer-subform" novalidate>
               <label>
@@ -999,6 +1003,17 @@ import Base from '../layouts/Base.astro';
                 <span id="coaching-save-status" role="status" aria-live="polite"></span>
               </div>
             </form>
+
+            <div class="hosts-subhead" style="margin-top:18px;">Coaches on this page</div>
+            <p class="opt" style="font-size:12px;color:#95a5a6;margin-bottom:10px;line-height:1.5;">
+              Drag the ⋮⋮ handle to reorder. Each coach can have a name,
+              photo, short bio, phone (becomes "📱 Text me now" on the
+              public page), email, and website.
+            </p>
+            <div id="coaches-quickadd" class="coaches-quickadd"></div>
+            <button id="add-coach-btn" type="button" class="add-btn">+ Add custom coach</button>
+            <div id="coach-form-host"></div>
+            <ul id="coach-list" class="t-list"></ul>
           </section>
 
           <section class="card" data-tour="share">
@@ -2685,6 +2700,447 @@ import Base from '../layouts/Base.astro';
         const initialCoachingRemove = coachingSlot.querySelector('[data-remove-coaching]') as HTMLButtonElement | null;
         if (initialCoachingRemove) initialCoachingRemove.addEventListener('click', handleCoachingRemove);
 
+        // ---------- Coaches (curated list for the /coaching page) ----------
+        // Lives in the same Coaching Program card. Independent from
+        // speakers/hosts so the master can split compound speaker entries
+        // (e.g., "Annie and David Burgeson" → solo "Annie") or drop
+        // duplicates. Quick-add chips offer one-tap seeding from the
+        // people already on the event so most coaches don't have to be
+        // re-typed.
+        type Coach = {
+          id: string;
+          name: string;
+          photo_url: string | null;
+          bio: string | null;
+          phone: string | null;
+          email: string | null;
+          website: string | null;
+          display_order: number;
+        };
+        let coaches: Coach[] = [];
+        let pendingCoachPhoto: File | null = null;
+        let coachSortable: Sortable | null = null;
+        const coachList = document.getElementById('coach-list')!;
+        const coachFormHost = document.getElementById('coach-form-host')!;
+        const addCoachBtn = document.getElementById('add-coach-btn') as HTMLButtonElement;
+        const coachesQuickAdd = document.getElementById('coaches-quickadd')!;
+
+        function coachRowHtml(c: Coach): string {
+          const contactBits: string[] = [];
+          if (c.phone) contactBits.push(`📞 ${escapeHtml(c.phone)}`);
+          if (c.email) contactBits.push(`✉️ ${escapeHtml(c.email)}`);
+          if (c.website) contactBits.push(`🌐 site`);
+          return `
+            <li class="t-row" data-id="${c.id}">
+              ${dragHandleHtml()}
+              ${c.photo_url
+                ? `<img class="t-thumb" src="${escapeHtml(c.photo_url)}" alt="" style="border-radius:50%;width:56px;height:56px;" />`
+                : '<div class="t-thumb empty" style="border-radius:50%;width:56px;height:56px;"></div>'}
+              <div class="t-info">
+                <strong>${escapeHtml(c.name)}</strong>
+                ${contactBits.length ? `<span class="t-meta">${contactBits.join(' · ')}</span>` : ''}
+                ${c.bio ? `<span class="t-meta">${escapeHtml(c.bio.slice(0, 60))}${c.bio.length > 60 ? '…' : ''}</span>` : ''}
+              </div>
+              <div class="t-actions">
+                <button class="edit coach-edit" data-id="${c.id}">Edit</button>
+                <button class="del coach-del" data-id="${c.id}">Delete</button>
+              </div>
+            </li>`;
+        }
+
+        function coachFormHtml(c?: Coach): string {
+          const v = c || ({} as Partial<Coach>);
+          const showRecrop = !!(c && v.photo_url);
+          const photoBlock = `
+            <div class="photo-slot coach-slot" data-coach-slot>
+              <span class="slot-label">Photo</span>
+              <div class="photo-preview speaker-preview">
+                ${v.photo_url
+                  ? `<img src="${escapeHtml(v.photo_url)}" alt="" />`
+                  : '<div class="empty">No photo</div>'}
+              </div>
+              <div class="photo-actions">
+                <label class="upload-btn">
+                  <input type="file" accept="image/*" data-coach-slot hidden />
+                  <span class="upload-label">${v.photo_url ? 'Replace photo' : 'Upload photo'}</span>
+                </label>
+                ${showRecrop
+                  ? `<button type="button" class="upload-btn recrop-btn" data-recrop-coach>✂️ Re-crop current</button>`
+                  : ''}
+              </div>
+              ${showRecrop
+                ? '<span class="recrop-hint">Re-crop adjusts the saved photo. To recover area outside the original crop, use Replace photo with the original file.</span>'
+                : ''}
+              <span class="upload-status" data-coach-slot></span>
+            </div>`;
+          return `
+            <form class="t-form" ${c ? `data-id="${c.id}"` : ''} novalidate>
+              <h3>${c ? 'Edit coach' : 'New coach'}</h3>
+              <label>
+                Name
+                <input name="name" required maxlength="120" value="${escapeHtml(v.name || '')}" placeholder="Coach's display name" />
+              </label>
+              <label>
+                Short bio <span class="opt">(optional, 2–3 sentences)</span>
+                <textarea name="bio" rows="3" maxlength="2000" placeholder="What does this coach help with?">${escapeHtml(v.bio || '')}</textarea>
+              </label>
+              <div class="grid-2">
+                <label>
+                  Phone <span class="opt">(becomes "Text me now")</span>
+                  <input type="tel" name="phone" value="${escapeHtml(v.phone || '')}" placeholder="555-123-4567" />
+                </label>
+                <label>
+                  Email <span class="opt">(optional)</span>
+                  <input type="email" name="email" value="${escapeHtml(v.email || '')}" />
+                </label>
+              </div>
+              <label>
+                Website <span class="opt">(optional)</span>
+                <input type="url" name="website" value="${escapeHtml(v.website || '')}" placeholder="https://example.com" />
+              </label>
+              ${photoBlock}
+              <div class="row">
+                <button type="submit">${c ? 'Save changes' : 'Create'}</button>
+                <button type="button" class="cancel">${c ? 'Done' : 'Cancel'}</button>
+                <span class="t-status" role="status" aria-live="polite"></span>
+              </div>
+            </form>`;
+        }
+
+        function renderCoachList() {
+          if (coachSortable) { coachSortable.destroy(); coachSortable = null; }
+          if (coaches.length === 0) {
+            coachList.innerHTML = `<li class="t-empty">
+              <strong>No coaches yet.</strong>
+              Tap a quick-add chip above to pull in a speaker or host, or
+              tap <strong>+ Add custom coach</strong> for someone who isn't
+              already on the event. Each coach gets a tap-to-text card on
+              the <strong>🥳 Metabolic Coaching Program</strong> page.
+            </li>`;
+          } else {
+            coachList.innerHTML = coaches.map(coachRowHtml).join('');
+            coachSortable = wireSortable(coachList, (order) => applyReorder({
+              order,
+              items: coaches,
+              setItems: (next) => { coaches = next as Coach[]; },
+              patchOne: (o) => callFunction('manage-coaches', {
+                slug, edit_token: key, action: 'update',
+                coach: { id: o.id, display_order: o.display_order },
+              }),
+              onFailure: async () => {
+                await loadCoaches();
+              },
+            }));
+          }
+          renderCoachQuickAdd();
+        }
+
+        // Quick-add chips: speakers + hosts (master + co-hosts) not yet
+        // represented as a coach by case-insensitive name. Tap a chip →
+        // creates a coach pre-filled with that person's name/photo/
+        // phone/email/bio, then opens the edit form so the master can
+        // trim "Annie and David Burgeson" down to "Annie Burgeson" etc.
+        function renderCoachQuickAdd() {
+          const existingNames = new Set(
+            coaches.map((c) => c.name.trim().toLowerCase())
+          );
+          // Build candidate pool from speakers + hostsCache + master row.
+          type Candidate = {
+            label: string;
+            source: 'speaker' | 'host' | 'master';
+            seed: Partial<Coach> & { photo_url?: string | null };
+          };
+          const candidates: Candidate[] = [];
+          for (const sp of speakers) {
+            if (!sp.name) continue;
+            if (existingNames.has(sp.name.trim().toLowerCase())) continue;
+            candidates.push({
+              label: sp.name,
+              source: 'speaker',
+              seed: { name: sp.name, photo_url: sp.photo_url, bio: sp.bio, phone: sp.phone, email: sp.email },
+            });
+          }
+          for (const h of hostsCache) {
+            if (!h.name) continue;
+            const lc = h.name.trim().toLowerCase();
+            if (existingNames.has(lc)) continue;
+            // Skip if we already added a same-named speaker candidate.
+            if (candidates.some((cn) => cn.label.trim().toLowerCase() === lc)) continue;
+            candidates.push({
+              label: h.name,
+              source: 'host',
+              seed: { name: h.name, photo_url: h.photo_url, bio: h.bio, phone: h.phone, email: h.email, website: h.website },
+            });
+          }
+          // The master organizer (you) — not in hostsCache; pulled from ev.
+          if (ev.organizer_name) {
+            const lc = ev.organizer_name.trim().toLowerCase();
+            if (!existingNames.has(lc) && !candidates.some((cn) => cn.label.trim().toLowerCase() === lc)) {
+              candidates.push({
+                label: ev.organizer_name,
+                source: 'master',
+                seed: {
+                  name: ev.organizer_name,
+                  photo_url: ev.organizer_photo_url,
+                  bio: ev.organizer_bio,
+                  phone: ev.organizer_phone,
+                  email: ev.organizer_email,
+                  website: ev.organizer_website,
+                },
+              });
+            }
+          }
+
+          if (candidates.length === 0) {
+            coachesQuickAdd.innerHTML = '';
+            return;
+          }
+          coachesQuickAdd.innerHTML = `
+            <div class="coaches-quickadd-label">Quick-add from this event:</div>
+            <div class="coaches-quickadd-chips">
+              ${candidates.map((c, i) => `
+                <button type="button" class="quickadd-chip" data-qa-i="${i}">
+                  + ${escapeHtml(c.label)} <span class="qa-src">${c.source}</span>
+                </button>
+              `).join('')}
+            </div>`;
+          coachesQuickAdd.querySelectorAll<HTMLButtonElement>('.quickadd-chip').forEach((btn) => {
+            btn.addEventListener('click', async () => {
+              const i = Number(btn.getAttribute('data-qa-i'));
+              const cand = candidates[i];
+              if (!cand) return;
+              btn.disabled = true;
+              try {
+                const res = await callFunction('manage-coaches', {
+                  slug, edit_token: key, action: 'add',
+                  coach: {
+                    name: cand.seed.name,
+                    bio: cand.seed.bio || null,
+                    phone: cand.seed.phone || null,
+                    email: cand.seed.email || null,
+                    website: cand.seed.website || null,
+                    photo_url: cand.seed.photo_url || null,
+                  },
+                });
+                const added = res.coach as Coach;
+                coaches = [...coaches, added];
+                renderCoachList();
+                showCoachForm(added);
+              } catch (err) {
+                btn.disabled = false;
+                alert('Could not add coach: ' + (err as Error).message);
+              }
+            });
+          });
+        }
+
+        function showCoachForm(c?: Coach) {
+          coachFormHost.innerHTML = coachFormHtml(c);
+          addCoachBtn.style.display = 'none';
+          pendingCoachPhoto = null;
+          const newForm = coachFormHost.querySelector('form.t-form') as HTMLFormElement;
+          newForm.addEventListener('submit', (e) => handleCoachSubmit(e, c));
+          newForm.querySelector('button.cancel')!.addEventListener('click', hideCoachForm);
+          const fileInput = newForm.querySelector('input[type=file][data-coach-slot]') as HTMLInputElement;
+          fileInput.addEventListener('change', (e) => {
+            if (c) handleCoachPhotoUpload(e, c);
+            else handlePendingCoachPhoto(e);
+          });
+          const recropBtn = newForm.querySelector('[data-recrop-coach]') as HTMLButtonElement | null;
+          if (recropBtn && c) {
+            recropBtn.addEventListener('click', () => handleCoachRecrop(c));
+          }
+          if (!c) (newForm.querySelector('input[name=name]') as HTMLInputElement).focus();
+        }
+
+        function hideCoachForm() {
+          coachFormHost.innerHTML = '';
+          addCoachBtn.style.display = '';
+          pendingCoachPhoto = null;
+        }
+
+        async function handlePendingCoachPhoto(changeEv: Event) {
+          const input = changeEv.target as HTMLInputElement;
+          const file = input.files?.[0];
+          if (!file) return;
+          const slotEl = input.closest('.coach-slot') as HTMLElement;
+          const previewEl = slotEl.querySelector('.photo-preview') as HTMLElement;
+          const labelEl = slotEl.querySelector('.upload-label') as HTMLElement;
+          const statusEl = slotEl.querySelector('.upload-status') as HTMLElement;
+          input.value = '';
+          statusEl.textContent = 'Opening crop tool…';
+          statusEl.className = 'upload-status';
+          const cropped = await openCropModal(file, 1, 'Crop the coach photo');
+          if (!cropped) { statusEl.textContent = ''; return; }
+          pendingCoachPhoto = new File([cropped], 'photo.jpg', { type: 'image/jpeg' });
+          const reader = new FileReader();
+          reader.onload = () => {
+            previewEl.innerHTML = `<img src="${reader.result}" alt="" />`;
+            labelEl.textContent = 'Replace photo';
+            statusEl.textContent = 'Will upload after Create';
+            statusEl.className = 'upload-status';
+          };
+          reader.readAsDataURL(cropped);
+        }
+
+        async function uploadCoachPhoto(coachId: string, file: File): Promise<string> {
+          const compressed = await compressImage(file, 1200, 0.82);
+          const data_b64 = await blobToBase64(compressed);
+          const res = await callFunction('upload-event-photo', {
+            slug, edit_token: key, kind: 'coach',
+            coach_id: coachId, filename: 'photo.jpg', data: data_b64,
+          });
+          return res.url as string;
+        }
+
+        async function handleCoachPhotoUpload(changeEv: Event, c: Coach) {
+          const input = changeEv.target as HTMLInputElement;
+          const file = input.files?.[0];
+          if (!file) return;
+          const slotEl = input.closest('.coach-slot') as HTMLElement;
+          const previewEl = slotEl.querySelector('.photo-preview') as HTMLElement;
+          const labelEl = slotEl.querySelector('.upload-label') as HTMLElement;
+          const statusEl = slotEl.querySelector('.upload-status') as HTMLElement;
+          input.value = '';
+          statusEl.textContent = 'Opening crop tool…';
+          statusEl.className = 'upload-status';
+          try {
+            const cropped = await openCropModal(file, 1, `Crop ${c.name}'s photo`);
+            if (!cropped) { statusEl.textContent = ''; return; }
+            statusEl.textContent = 'Uploading…';
+            const url = await uploadCoachPhoto(c.id, new File([cropped], 'photo.jpg', { type: 'image/jpeg' }));
+            coaches = coaches.map((x) => x.id === c.id ? { ...x, photo_url: url } : x);
+            c.photo_url = url;
+            previewEl.innerHTML = `<img src="${escapeHtml(appendCacheBust(url))}" alt="" />`;
+            labelEl.textContent = 'Replace photo';
+            statusEl.textContent = 'Uploaded ✓';
+            statusEl.className = 'upload-status ok';
+            renderCoachList();
+          } catch (err) {
+            statusEl.textContent = fmtError(err);
+            statusEl.className = 'upload-status err';
+          }
+        }
+
+        async function handleCoachRecrop(c: Coach) {
+          if (!c.photo_url) return;
+          const slotEl = coachFormHost.querySelector('.coach-slot') as HTMLElement;
+          const newUrl = await recropFromUrl(
+            c.photo_url, `Re-crop ${c.name}'s photo`, 1,
+            async (cropped) => uploadCoachPhoto(c.id, new File([cropped], 'photo.jpg', { type: 'image/jpeg' })),
+            slotEl,
+          );
+          if (newUrl) {
+            coaches = coaches.map((x) => x.id === c.id ? { ...x, photo_url: newUrl } : x);
+            c.photo_url = newUrl;
+            renderCoachList();
+          }
+        }
+
+        async function handleCoachSubmit(submitEv: Event, editing?: Coach) {
+          submitEv.preventDefault();
+          const formEl = submitEv.target as HTMLFormElement;
+          const fd = new FormData(formEl);
+          const tStatus = formEl.querySelector('.t-status') as HTMLSpanElement;
+          const submit = formEl.querySelector('button[type=submit]') as HTMLButtonElement;
+          submit.disabled = true;
+          tStatus.textContent = 'Saving…';
+          tStatus.className = 't-status';
+          const coachPayload: Record<string, unknown> = {
+            name: fd.get('name'),
+            bio: fd.get('bio') || null,
+            phone: fd.get('phone') || null,
+            email: fd.get('email') || null,
+            website: fd.get('website') || null,
+          };
+          if (editing) coachPayload.id = editing.id;
+
+          try {
+            const res = await callFunction('manage-coaches', {
+              action: editing ? 'update' : 'add',
+              slug, edit_token: key, coach: coachPayload,
+            });
+            let saved = res.coach as Coach;
+
+            if (!editing && pendingCoachPhoto) {
+              tStatus.textContent = 'Uploading photo…';
+              try {
+                const url = await uploadCoachPhoto(saved.id, pendingCoachPhoto);
+                saved = { ...saved, photo_url: url };
+              } catch (err) {
+                console.error('Failed to upload coach photo:', err);
+              }
+              pendingCoachPhoto = null;
+            }
+
+            if (editing) {
+              coaches = coaches.map((x) => x.id === saved.id ? saved : x);
+            } else {
+              coaches = [...coaches, saved];
+            }
+            renderCoachList();
+
+            if (editing) {
+              tStatus.textContent = 'Saved ✓';
+              tStatus.className = 't-status ok';
+              submit.disabled = false;
+            } else {
+              showCoachForm(saved);
+              const reopenStatus = coachFormHost.querySelector('.t-status') as HTMLSpanElement;
+              if (reopenStatus) {
+                reopenStatus.textContent = 'Created ✓';
+                reopenStatus.className = 't-status ok';
+              }
+            }
+          } catch (err) {
+            tStatus.textContent = fmtError(err);
+            tStatus.className = 't-status err';
+            submit.disabled = false;
+          }
+        }
+
+        async function handleCoachDelete(id: string) {
+          const c = coaches.find((x) => x.id === id);
+          if (!c) return;
+          if (!confirm(`Remove ${c.name} from the coaches page?`)) return;
+          try {
+            await callFunction('manage-coaches', {
+              slug, edit_token: key, action: 'delete', coach_id: id,
+            });
+            coaches = coaches.filter((x) => x.id !== id);
+            renderCoachList();
+          } catch (err) {
+            alert('Could not delete coach: ' + (err as Error).message);
+          }
+        }
+
+        coachList.addEventListener('click', (clickEv) => {
+          const target = clickEv.target as HTMLElement;
+          const id = target.getAttribute('data-id');
+          if (!id) return;
+          if (target.classList.contains('coach-edit')) {
+            const c = coaches.find((x) => x.id === id);
+            if (c) showCoachForm(c);
+          } else if (target.classList.contains('coach-del')) {
+            handleCoachDelete(id);
+          }
+        });
+        addCoachBtn.addEventListener('click', () => showCoachForm());
+
+        async function loadCoaches() {
+          try {
+            const res = await callFunction('manage-coaches', {
+              slug, edit_token: key, action: 'list',
+            });
+            coaches = (res.coaches || []) as Coach[];
+          } catch (err) {
+            console.warn('[load coaches] failed:', err);
+            coaches = [];
+          }
+          renderCoachList();
+        }
+        loadCoaches();
+
         // ---------- Co-hosts ----------
         type Host = {
           id: string;
@@ -3252,7 +3708,12 @@ import Base from '../layouts/Base.astro';
             console.log(`[speaker→host photo sync] copied ${updated} photo${updated === 1 ? '' : 's'}`);
           }
         }
-        loadHosts().then(() => syncSpeakerPhotosToHosts());
+        loadHosts().then(() => {
+          syncSpeakerPhotosToHosts();
+          // hostsCache is populated now; re-render coach quick-add chips
+          // so host candidates show up too.
+          if (typeof renderCoachQuickAdd === 'function') renderCoachQuickAdd();
+        });
 
         // ---------- Agenda / cue sheet ----------
         type AgendaItem = {
@@ -4231,7 +4692,7 @@ import Base from '../layouts/Base.astro';
           { selector: '[data-tour="agenda"]', title: 'Agenda / run of show', body: 'The minute-by-minute schedule. Each item becomes one slide on the projector — speaker slides get a face, "Snack Break" stays a clean title slide. Drag the ⋮⋮ handle to reorder.' },
           { selector: '[data-tour="raffle"]', title: 'Raffle setup', body: 'Add the grand prize and any spot prizes. Quantity > 1 means multiple winners of the same item. Raffle control (on your phone during the event) runs the draws, and the wheel spins for the audience.' },
           { selector: '[data-tour="hosts"]', title: 'You + your co-hosts', body: 'You\'re the master (the original creator). Add co-hosts to share editing — each gets their own private edit link. The "Organizer" badge can be passed to a co-host if they\'re the public face of the event.' },
-          { selector: '[data-tour="coaching"]', title: 'Coaching Program', body: 'The audience-facing 🥳 Metabolic Coaching Program page. Edit the title, pitch, and hero image here; the list of coaches builds itself from your speakers and hosts, with one-tap text/call/email/website buttons for each.' },
+          { selector: '[data-tour="coaching"]', title: 'Coaching Program', body: 'The audience-facing 🥳 Metabolic Coaching Program page. Edit the title, pitch, and hero image, then build the coaches list. Use Quick-add chips to pull in a speaker or host with one tap, or + Add custom coach for someone who isn\'t already on the event. Each coach gets a tap-to-text card on the public page.' },
           { selector: '[data-tour="share"]', title: 'Share & save your links', body: 'Bookmark the edit URL — it\'s the only way back into this admin page. The public event link goes on flyers and QR codes; the raffle entry link is what attendees scan at the venue.' },
         ];
 
@@ -5469,7 +5930,8 @@ import Base from '../layouts/Base.astro';
   }
 
   /* Hosts card — split into master organizer + co-hosts subsections */
-  .hosts-card .hosts-subhead {
+  .hosts-card .hosts-subhead,
+  [data-tour="coaching"] .hosts-subhead {
     margin-top: 16px;
     margin-bottom: 10px;
     font-size: 12px;
@@ -5481,6 +5943,41 @@ import Base from '../layouts/Base.astro';
     border-bottom: 1px solid rgba(255,255,255,0.10);
   }
   .hosts-card .hosts-subhead:first-of-type { margin-top: 6px; }
+
+  /* Coaches quick-add chips: one button per speaker/host not yet in the
+     coaches list. Tapping creates a coach pre-filled with that person's
+     name + contact + photo, then opens the edit form so the master can
+     trim the name (e.g., "Annie and David Burgeson" → "Annie Burgeson"). */
+  .coaches-quickadd { margin-bottom: 10px; }
+  .coaches-quickadd-label {
+    font-size: 12px; color: #95a5a6;
+    margin-bottom: 6px; letter-spacing: 0.3px;
+  }
+  .coaches-quickadd-chips {
+    display: flex; flex-wrap: wrap; gap: 6px;
+  }
+  .quickadd-chip {
+    display: inline-flex; align-items: center;
+    padding: 6px 10px; min-height: 32px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 16px;
+    color: #ecf0f1;
+    font-size: 12px; font-weight: 600;
+    cursor: pointer;
+    line-height: 1.2;
+  }
+  .quickadd-chip:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 14%, rgba(255,255,255,0.04));
+    border-color: color-mix(in srgb, var(--accent) 45%, rgba(255,255,255,0.15));
+  }
+  .quickadd-chip:disabled { opacity: 0.5; cursor: progress; }
+  .quickadd-chip .qa-src {
+    margin-left: 6px;
+    font-size: 10px; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    color: #95a5a6;
+  }
   form.organizer-subform { display: grid; gap: 12px; margin-bottom: 6px; }
   .host-bio-preview { font-style: italic; color: #95a5a6; }
 
