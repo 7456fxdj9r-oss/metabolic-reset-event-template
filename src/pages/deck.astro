@@ -264,11 +264,11 @@ import Base from '../layouts/Base.astro';
               //      the browser renders if the codec fails.
               const embed = parseVideoEmbed(s.video_url);
               if (embed && embed.type === 'iframe') {
-                // Big play button below the iframe — presenter clicks
-                // it to programmatically start the video (postMessage
-                // command to the Vimeo / YouTube player). Cleaner UX
-                // than hunting for Vimeo's own center play button on
-                // a 70-inch screen.
+                // Iframe is identified by id + data-provider so the
+                // play-video broadcast handler can find it and post
+                // the provider-specific play command. Presenter's
+                // phone (deck-console) drives playback remotely —
+                // there's no on-slide button here.
                 body = `
                   <div class="slide content-slide layout-stacked">
                     <iframe class="content-image content-embed" id="content-embed-iframe"
@@ -278,9 +278,6 @@ import Base from '../layouts/Base.astro';
                             referrerpolicy="strict-origin-when-cross-origin"
                             frameborder="0"
                             data-provider="${embed.provider}"></iframe>
-                    <button type="button" class="content-play-btn" id="content-play-btn">
-                      ▶ Play video
-                    </button>
                     ${titleHtml}
                     ${bodyHtml}
                   </div>`;
@@ -335,34 +332,29 @@ import Base from '../layouts/Base.astro';
               color: { dark: '#ffffff', light: '#1a252f' },
             }).catch(() => { /* QR is decorative; failure shouldn't break the slide */ });
           }
-          // Wire the Play button on video sub-slides. Uses each
-          // provider's postMessage protocol — no extra SDK download.
-          // Both Vimeo and YouTube accept a JSON-string command on
-          // their player iframe's contentWindow.
-          const playBtn = document.getElementById('content-play-btn') as HTMLButtonElement | null;
+        }
+
+        // Trigger play on the current slide's embed iframe (Vimeo /
+        // YouTube). Called from the realtime 'play-video' broadcast —
+        // the presenter's deck-console sends it; this listener tells
+        // the embed to start playback via postMessage.
+        function playCurrentEmbed(): void {
           const embedIframe = document.getElementById('content-embed-iframe') as HTMLIFrameElement | null;
-          if (playBtn && embedIframe) {
-            playBtn.addEventListener('click', () => {
-              const provider = embedIframe.getAttribute('data-provider');
-              try {
-                if (provider === 'vimeo') {
-                  embedIframe.contentWindow?.postMessage(
-                    JSON.stringify({ method: 'play' }),
-                    'https://player.vimeo.com',
-                  );
-                } else if (provider === 'youtube') {
-                  embedIframe.contentWindow?.postMessage(
-                    JSON.stringify({ event: 'command', func: 'playVideo', args: [] }),
-                    'https://www.youtube.com',
-                  );
-                }
-              } catch { /* postMessage rejected — slot back the manual play button */ }
-              // Fade the overlay button so the player is unobstructed
-              // once playback starts. Click again surfaces nothing —
-              // by then the player's own controls take over.
-              playBtn.classList.add('played');
-            });
-          }
+          if (!embedIframe) return;
+          const provider = embedIframe.getAttribute('data-provider');
+          try {
+            if (provider === 'vimeo') {
+              embedIframe.contentWindow?.postMessage(
+                JSON.stringify({ method: 'play' }),
+                'https://player.vimeo.com',
+              );
+            } else if (provider === 'youtube') {
+              embedIframe.contentWindow?.postMessage(
+                JSON.stringify({ event: 'command', func: 'playVideo', args: [] }),
+                'https://www.youtube.com',
+              );
+            }
+          } catch { /* postMessage may be rejected — silent no-op */ }
         }
 
         function setIndex(i: number): void {
@@ -463,6 +455,11 @@ import Base from '../layouts/Base.astro';
           });
           channel.on('broadcast', { event: 'advance' }, ({ payload }) => {
             if (typeof payload?.index === 'number') setIndex(payload.index);
+          });
+          // Presenter taps "▶ Play video" on their phone (deck-console)
+          // → this fires and tells the current iframe to start.
+          channel.on('broadcast', { event: 'play-video' }, () => {
+            playCurrentEmbed();
           });
           channel.subscribe();
         }
@@ -723,32 +720,6 @@ import Base from '../layouts/Base.astro';
   }
   .content-slide.layout-stacked .content-embed:last-child {
     max-height: 88vh;
-  }
-  /* Big Play button below the embed — visible from the back of the
-     room, easier to tap on a touchscreen than the Vimeo player's own
-     small center triangle. Fades after first click so the player has
-     a clean canvas. */
-  .content-slide.layout-stacked .content-play-btn {
-    margin: 16px auto 0;
-    padding: 14px 36px;
-    font-size: clamp(18px, 2.6vh, 24px);
-    font-weight: 800;
-    letter-spacing: 1.5px;
-    color: #1a252f;
-    background: var(--accent);
-    border: none;
-    border-radius: 999px;
-    cursor: pointer;
-    box-shadow: 0 8px 22px rgba(0,0,0,0.4);
-    transition: opacity 0.5s ease, transform 0.15s ease;
-    align-self: center;
-  }
-  .content-slide.layout-stacked .content-play-btn:hover {
-    transform: scale(1.04);
-  }
-  .content-slide.layout-stacked .content-play-btn.played {
-    opacity: 0;
-    pointer-events: none;
   }
   .content-slide.layout-stacked .content-title {
     font-size: clamp(26px, 4.8vh, 48px);

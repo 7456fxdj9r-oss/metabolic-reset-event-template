@@ -17,6 +17,7 @@ import Base from '../layouts/Base.astro';
   import { createClient } from '@supabase/supabase-js';
   import { editUrl } from '../lib/urls.js';
   import { escapeHtml } from '../lib/html.js';
+  import { parseVideoEmbed } from '../lib/embed-url.ts';
 
   type Speaker = {
     id: string; name: string;
@@ -367,6 +368,21 @@ import Base from '../layouts/Base.astro';
               <button type="button" id="btn-prev" class="ctl prev" ${atStart ? 'disabled' : ''}>← Previous</button>
               <button type="button" id="btn-next" class="ctl next" ${atEnd ? 'disabled' : ''}>${atEnd ? 'End of deck' : 'Next ▶'}</button>
             </section>
+            ${(() => {
+              // Only show "Play video" when the current slide carries a
+              // Vimeo / YouTube embed iframe — raw <video> sub-slides
+              // already use the projector laptop's native browser
+              // controls (no remote-play hook needed).
+              const cur = slides[currentIndex];
+              if (cur.kind !== 'sub') return '';
+              const embed = parseVideoEmbed(cur.slide.video_url);
+              if (!embed || embed.type !== 'iframe') return '';
+              return `
+                <section class="play-video-control">
+                  <button type="button" id="btn-play-video" class="ctl play">▶ Play video on projector</button>
+                  <p class="play-hint">Tap to start the ${embed.provider === 'vimeo' ? 'Vimeo' : 'YouTube'} clip on /deck.</p>
+                </section>`;
+            })()}
             <section class="agenda-list">
               <h2>Tap to jump</h2>
               <ul>${agendaListHtml()}</ul>
@@ -426,6 +442,29 @@ import Base from '../layouts/Base.astro';
             <p class="cx-hint" id="cx-hint">${channel ? 'Synced with projector' : "No realtime config — projector won't follow"}</p>`;
           (document.getElementById('btn-prev') as HTMLButtonElement).addEventListener('click', () => goTo(currentIndex - 1));
           (document.getElementById('btn-next') as HTMLButtonElement).addEventListener('click', () => goTo(currentIndex + 1));
+          // Play-video button is only rendered for embed sub-slides;
+          // broadcast a 'play-video' event that /deck listens for and
+          // forwards as a postMessage to the iframe.
+          const playBtn = document.getElementById('btn-play-video') as HTMLButtonElement | null;
+          if (playBtn) {
+            playBtn.addEventListener('click', () => {
+              if (channel) {
+                channel.send({
+                  type: 'broadcast', event: 'play-video',
+                  payload: { index: currentIndex },
+                });
+              }
+              // Visual ack on the console — the presenter's phone
+              // confirms the tap landed even though playback is
+              // happening on the projector, not here.
+              playBtn.classList.add('played');
+              playBtn.textContent = '▶ Sent to projector ✓';
+              setTimeout(() => {
+                playBtn.classList.remove('played');
+                playBtn.textContent = '▶ Play video on projector';
+              }, 2000);
+            });
+          }
           document.querySelectorAll('.agenda-row').forEach((row) => {
             row.addEventListener('click', () => {
               const i = Number((row as HTMLElement).getAttribute('data-idx') || '0');
@@ -618,6 +657,30 @@ import Base from '../layouts/Base.astro';
     font-size: 18px;
   }
   .ctl:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  /* Play-video remote — only shows for embed (Vimeo/YouTube) sub-
+     slides. Stacked under Previous/Next so the tap target is large
+     and obvious; full-width to read at a glance. */
+  .play-video-control {
+    margin: -8px 0 18px;
+    display: grid; gap: 4px;
+  }
+  .ctl.play {
+    width: 100%;
+    padding: 18px 14px;
+    font-size: 17px;
+    background: rgba(52,152,219,0.18);
+    color: #ecf0f1;
+    border-color: rgba(52,152,219,0.4);
+  }
+  .ctl.play.played {
+    background: rgba(46,204,113,0.20);
+    border-color: rgba(46,204,113,0.5);
+  }
+  .play-hint {
+    font-size: 11px; color: #95a5a6;
+    font-style: italic; text-align: center;
+  }
 
   /* Agenda list — tap to jump */
   .agenda-list h2 {
