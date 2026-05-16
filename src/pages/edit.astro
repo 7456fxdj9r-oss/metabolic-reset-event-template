@@ -3758,6 +3758,7 @@ import Base from '../layouts/Base.astro';
           title: string;
           body: string | null;
           image_url: string | null;
+          video_url: string | null;
           display_order: number;
           created_at: string;
         };
@@ -3865,7 +3866,10 @@ import Base from '../layouts/Base.astro';
             : '';
           const thumb = s.image_url
             ? `<img class="sub-slide-thumb" src="${escapeHtml(s.image_url)}" alt="" />`
-            : '<div class="sub-slide-thumb empty">—</div>';
+            : (s.video_url
+                ? '<div class="sub-slide-thumb video-thumb" aria-label="Video">📹</div>'
+                : '<div class="sub-slide-thumb empty">—</div>');
+          const videoBadge = (s.video_url && s.image_url) ? '<span class="sub-slide-video-badge">📹</span>' : '';
           // Title is optional. When absent, use a dim placeholder so the
           // row still has a heading — preferring body preview if it
           // exists, otherwise an image-only marker, otherwise "(untitled)".
@@ -3883,7 +3887,7 @@ import Base from '../layouts/Base.astro';
             <li class="sub-slide-row" data-slide-id="${s.id}">
               ${thumb}
               <div class="sub-slide-info">
-                ${heading}
+                ${heading}${videoBadge}
                 ${showBodyPreview ? bodyPreview : ''}
               </div>
               <div class="sub-slide-actions">
@@ -3929,6 +3933,27 @@ import Base from '../layouts/Base.astro';
                 </div>
                 <span class="upload-status" data-sub-slide-slot></span>
               </div>
+              ${slide ? `
+              <div class="photo-slot sub-slide-video-slot" data-sub-slide-video-slot>
+                <span class="slot-label">Video <span class="opt">(optional, .mp4 up to 50MB — plays on the projector deck)</span></span>
+                <div class="photo-preview sub-slide-video-preview">
+                  ${v.video_url
+                    ? `<video src="${escapeHtml(v.video_url)}" controls preload="metadata" playsinline></video>`
+                    : '<div class="empty">No video</div>'}
+                </div>
+                <div class="photo-actions">
+                  <label class="upload-btn">
+                    <input type="file" accept=".mp4,.webm,.mov,video/mp4,video/webm,video/quicktime" data-sub-slide-video-slot hidden />
+                    <span class="upload-label">${v.video_url ? 'Replace video' : 'Upload video'}</span>
+                  </label>
+                  ${v.video_url
+                    ? '<button type="button" class="upload-btn" data-remove-sub-slide-video>Remove video</button>'
+                    : ''}
+                </div>
+                <span class="upload-status" data-sub-slide-video-slot></span>
+                <span class="recrop-hint">Tip: use .mp4 (H.264). iPhone .mov clips often use HEVC and won't play on every projector laptop — export as MP4 first. The image above shows as a fallback if the video can't be played.</span>
+              </div>
+              ` : '<p class="opt" style="font-size:11px;color:#95a5a6;margin-top:4px;">Save the slide first, then a video upload section will appear here.</p>'}
               <div class="row">
                 <button type="submit">${slide ? 'Save changes' : 'Create'}</button>
                 <button type="button" class="cancel-sub-slide">Cancel</button>
@@ -4376,6 +4401,12 @@ import Base from '../layouts/Base.astro';
           if (slide) {
             // Edit mode: slide row exists, upload immediately on pick.
             fileInput.addEventListener('change', (e) => handleSubSlideImageUpload(e, slide));
+            // Video upload — only when the slide already exists. Videos
+            // are too big to defer through the pending-photo pattern.
+            const videoInput = form.querySelector('input[type=file][data-sub-slide-video-slot]') as HTMLInputElement | null;
+            if (videoInput) videoInput.addEventListener('change', (e) => handleSubSlideVideoUpload(e, slide));
+            const removeVideoBtn = form.querySelector('[data-remove-sub-slide-video]') as HTMLButtonElement | null;
+            if (removeVideoBtn) removeVideoBtn.addEventListener('click', () => handleSubSlideVideoRemove(slide));
           } else {
             // New-slide mode: defer the upload until Create succeeds.
             // Stash the file, show a local preview so the user can see
@@ -4383,6 +4414,81 @@ import Base from '../layouts/Base.astro';
             fileInput.addEventListener('change', handlePendingSubSlidePhoto);
           }
           (form.querySelector('input[name=title]') as HTMLInputElement).focus();
+        }
+
+        async function handleSubSlideVideoUpload(changeEv: Event, slide: AgendaSlide) {
+          const input = changeEv.target as HTMLInputElement;
+          const file = input.files?.[0];
+          if (!file) return;
+          const slotEl = input.closest('.sub-slide-video-slot') as HTMLElement;
+          const previewEl = slotEl.querySelector('.photo-preview') as HTMLElement;
+          const labelEl = slotEl.querySelector('.upload-label') as HTMLElement;
+          const statusEl = slotEl.querySelector('.upload-status') as HTMLElement;
+          input.value = '';
+          // Hard size check up front — server caps at 50MB and big files
+          // base64-encoded waste a lot of memory/time before failing.
+          const MAX = 50 * 1024 * 1024;
+          if (file.size > MAX) {
+            statusEl.textContent = `File too large (${Math.round(file.size / 1024 / 1024)}MB). 50MB max.`;
+            statusEl.className = 'upload-status err';
+            return;
+          }
+          statusEl.textContent = 'Uploading… (this can take a minute over slow wifi)';
+          statusEl.className = 'upload-status';
+          try {
+            const data_b64 = await blobToBase64(file);
+            const ext = (file.name.split('.').pop() || 'mp4').toLowerCase();
+            const res = await callFunction('upload-event-photo', {
+              slug, edit_token: key,
+              kind: 'agenda_slide_video',
+              slide_id: slide.id,
+              filename: `video.${ext}`, data: data_b64,
+            });
+            const url = res.url as string;
+            slide.video_url = url;
+            const list = slidesByItem[slide.agenda_item_id] || [];
+            const idx = list.findIndex((x) => x.id === slide.id);
+            if (idx >= 0) list[idx].video_url = url;
+            previewEl.innerHTML = `<video src="${escapeHtml(appendCacheBust(url))}" controls preload="metadata" playsinline></video>`;
+            labelEl.textContent = 'Replace video';
+            statusEl.textContent = 'Uploaded ✓';
+            statusEl.className = 'upload-status ok';
+            // Surface the Remove button now that a saved video exists.
+            const actions = slotEl.querySelector('.photo-actions');
+            if (actions && !slotEl.querySelector('[data-remove-sub-slide-video]')) {
+              const btn = document.createElement('button');
+              btn.type = 'button';
+              btn.className = 'upload-btn';
+              btn.setAttribute('data-remove-sub-slide-video', '');
+              btn.textContent = 'Remove video';
+              btn.addEventListener('click', () => handleSubSlideVideoRemove(slide));
+              actions.appendChild(btn);
+            }
+            renderAgendaList();
+          } catch (err) {
+            statusEl.textContent = fmtError(err);
+            statusEl.className = 'upload-status err';
+          }
+        }
+
+        async function handleSubSlideVideoRemove(slide: AgendaSlide) {
+          if (!slide.video_url) return;
+          if (!confirm('Remove the video from this slide?')) return;
+          try {
+            await callFunction('manage-agenda-slides', {
+              slug, edit_token: key, action: 'update',
+              slide: { id: slide.id, video_url: null },
+            });
+            slide.video_url = null;
+            const list = slidesByItem[slide.agenda_item_id] || [];
+            const idx = list.findIndex((x) => x.id === slide.id);
+            if (idx >= 0) list[idx].video_url = null;
+            // Re-open the form to reset the video slot UI.
+            openSubSlideForm(slide.agenda_item_id, slide);
+            renderAgendaList();
+          } catch (err) {
+            alert('Could not remove video: ' + fmtError(err));
+          }
         }
 
         async function handlePendingSubSlidePhoto(changeEv: Event) {
@@ -5875,6 +5981,45 @@ import Base from '../layouts/Base.astro';
     display: flex; align-items: center; justify-content: center;
     color: rgba(255,255,255,0.30); font-size: 13px;
     border: 1px dashed rgba(255,255,255,0.15);
+  }
+  /* Video-only sub-slide thumb (no image set) */
+  .sub-slide-thumb.video-thumb {
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    background: rgba(52,152,219,0.15);
+    border: 1px solid rgba(52,152,219,0.3);
+  }
+  /* Small inline badge next to a slide title that has BOTH image + video */
+  .sub-slide-video-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    font-size: 10px;
+    background: rgba(52,152,219,0.20);
+    border: 1px solid rgba(52,152,219,0.4);
+    border-radius: 8px;
+    color: #ecf0f1;
+    vertical-align: 1px;
+  }
+  /* Video preview in the form (taller than image preview to fit
+     16:9 / vertical clips) */
+  .sub-slide-video-preview {
+    width: 100%;
+    aspect-ratio: 16/9;
+    max-height: 240px;
+    background: rgba(0,0,0,0.25);
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 8px;
+  }
+  .sub-slide-video-preview video {
+    width: 100%; height: 100%;
+    object-fit: contain;
+    background: #000;
+  }
+  .sub-slide-video-preview .empty {
+    color: #95a5a6; font-style: italic; font-size: 13px;
   }
   .sub-slide-info { display: grid; gap: 1px; min-width: 0; }
   .sub-slide-info strong {

@@ -90,7 +90,7 @@ Deno.serve(async (req) => {
     const { data: inserted, error } = await supabase
       .from('agenda_slides')
       .insert({ agenda_item_id, title, body: body_text, image_url, display_order })
-      .select('id, agenda_item_id, title, body, image_url, display_order, created_at')
+      .select('id, agenda_item_id, title, body, image_url, video_url, display_order, created_at')
       .single();
     if (error) return errResp(500, error.message);
     return ok({ slide: inserted });
@@ -118,6 +118,7 @@ Deno.serve(async (req) => {
     }
     if ('body' in slide) patch.body = slide.body ? String(slide.body).trim() : null;
     if ('image_url' in slide) patch.image_url = slide.image_url ? String(slide.image_url).trim() : null;
+    if ('video_url' in slide) patch.video_url = slide.video_url ? String(slide.video_url).trim() : null;
     if ('display_order' in slide) {
       const n = Number(slide.display_order);
       patch.display_order = Number.isFinite(n) ? Math.floor(n) : 0;
@@ -125,7 +126,7 @@ Deno.serve(async (req) => {
     if (Object.keys(patch).length === 0) return errResp(400, 'no fields to update');
     const { data: upd, error } = await supabase
       .from('agenda_slides').update(patch).eq('id', id)
-      .select('id, agenda_item_id, title, body, image_url, display_order, created_at')
+      .select('id, agenda_item_id, title, body, image_url, video_url, display_order, created_at')
       .single();
     if (error) return errResp(500, error.message);
     return ok({ slide: upd });

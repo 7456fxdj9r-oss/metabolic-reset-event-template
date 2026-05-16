@@ -44,6 +44,7 @@ import Base from '../layouts/Base.astro';
     title: string;
     body: string | null;
     image_url: string | null;
+    video_url: string | null;
     display_order: number;
   };
   type Slide =
@@ -226,17 +227,38 @@ import Base from '../layouts/Base.astro';
                 <h2 class="multi-topic">${escapeHtml(it.segment)}</h2>
               </div>`;
           } else if (slide.kind === 'content') {
-            // Sub-slide: optional title + optional body + optional image.
-            // When an image is present, the image is the hero — title and
-            // body stack below it (no overlay). Text-only slides center
-            // their title + body.
+            // Sub-slide: optional title + optional body + optional image
+            // + optional video. Video, when present, wins as the hero;
+            // the image becomes the poster + fallback (browser shows the
+            // <img> if the video can't be played). Text-only slides
+            // center their title + body.
             const s = slide.slide;
             const hasImage = !!s.image_url;
+            const hasVideo = !!s.video_url;
             const hasBody = !!s.body;
             const hasTitle = !!(s.title && s.title.trim());
             const titleHtml = hasTitle ? `<h2 class="content-title">${escapeHtml(s.title)}</h2>` : '';
             const bodyHtml = hasBody ? `<p class="content-body">${escapeHtml(s.body!)}</p>` : '';
-            if (hasImage) {
+            if (hasVideo) {
+              // <video> with poster (image_url, if any) + <source> + an
+              // inner <img> fallback that browsers display when the
+              // video element can't render the source (unsupported
+              // codec, decode error). The presenter clicks the native
+              // play button; deck navigation pauses any active video.
+              const posterAttr = hasImage ? ` poster="${escapeHtml(s.image_url!)}"` : '';
+              const fallbackImg = hasImage
+                ? `<img src="${escapeHtml(s.image_url!)}" alt="" />`
+                : '<p style="color:#fff;padding:20px;">Video unavailable on this browser.</p>';
+              body = `
+                <div class="slide content-slide layout-stacked">
+                  <video class="content-image content-video" controls preload="metadata" playsinline${posterAttr}>
+                    <source src="${escapeHtml(s.video_url!)}" />
+                    ${fallbackImg}
+                  </video>
+                  ${titleHtml}
+                  ${bodyHtml}
+                </div>`;
+            } else if (hasImage) {
               body = `
                 <div class="slide content-slide layout-stacked">
                   <img class="content-image" src="${escapeHtml(s.image_url!)}" alt="" />
@@ -489,6 +511,12 @@ import Base from '../layouts/Base.astro';
   /* When no text follows the image, let it claim more vertical room. */
   .content-slide.layout-stacked .content-image:last-child {
     max-height: 88vh;
+  }
+  /* Video sub-slide on the deck. Same dimensions as .content-image so
+     the layout doesn't jump between image / video slides. */
+  .content-slide.layout-stacked .content-video {
+    background: #000;
+    /* Preserve native browser controls — presenter clicks Play. */
   }
   .content-slide.layout-stacked .content-title {
     font-size: clamp(26px, 4.8vh, 48px);

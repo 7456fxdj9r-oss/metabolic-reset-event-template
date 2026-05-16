@@ -86,6 +86,7 @@ import Base from '../layouts/Base.astro';
           title: string;
           body: string | null;
           image_url: string | null;
+          video_url: string | null;
           display_order: number;
         };
         const [speakers, agenda, transformations, subSlidesRes] = await Promise.all([
@@ -237,7 +238,14 @@ import Base from '../layouts/Base.astro';
             const ss = slide.slide;
             const thumb = ss.image_url
               ? `<img class="preview-photo" src="${escapeHtml(ss.image_url)}" alt="" />`
-              : '<div class="preview-photo empty">💡</div>';
+              : (ss.video_url
+                  ? '<div class="preview-photo empty video-tile">📹</div>'
+                  : '<div class="preview-photo empty">💡</div>');
+            // Small video badge overlaid on the image when both exist —
+            // master sees at a glance which sub-slides have a clip.
+            const videoBadge = (ss.video_url && ss.image_url)
+              ? ' <span class="video-badge">📹 video</span>'
+              : '';
             // Title optional. Fall back to body snippet or "(image-only)"
             // so the preview always has a heading line.
             const titleText = ss.title?.trim();
@@ -252,7 +260,7 @@ import Base from '../layouts/Base.astro';
                 ${thumb}
                 <div class="preview-meta">
                   <p class="preview-time">Sub-slide · under ${escapeHtml(slide.parent.segment.slice(0, 40))}${slide.parent.segment.length > 40 ? '…' : ''}</p>
-                  <p class="preview-name">${heading}</p>
+                  <p class="preview-name">${heading}${videoBadge}</p>
                   ${showBodySnippet ? `<p class="preview-topic">${escapeHtml(ss.body!.slice(0, 80))}${ss.body!.length > 80 ? '…' : ''}</p>` : ''}
                 </div>
               </div>`;
@@ -540,6 +548,25 @@ import Base from '../layouts/Base.astro';
     display: flex; align-items: center; justify-content: center;
     font-size: 28px; color: rgba(255,255,255,0.30);
     border: 1px dashed rgba(255,255,255,0.15);
+  }
+  /* Sub-slide that has a video but no image — distinct blue tile. */
+  .preview-photo.video-tile {
+    color: #3498db;
+    background: rgba(52,152,219,0.10);
+    border: 1px solid rgba(52,152,219,0.30);
+  }
+  /* Inline "📹 video" badge appended to the sub-slide name in the
+     presenter console when the slide has both an image and a video. */
+  .video-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    font-size: 10px;
+    background: rgba(52,152,219,0.20);
+    border: 1px solid rgba(52,152,219,0.40);
+    border-radius: 8px;
+    color: #ecf0f1;
+    vertical-align: 1px;
   }
   /* Multi-speaker preview: row of small avatars + "+N more" badge */
   .preview-avatars {

@@ -26,17 +26,29 @@ const MAX_BYTES = 5 * 1024 * 1024;
 // often exceed 5MB. Gated below so other kinds don't accidentally
 // upgrade past the image cap.
 const MAX_BYTES_PDF = 15 * 1024 * 1024;
+// Videos (sub-slide testimonial clips only). 50MB ≈ 60s at 1080p
+// H.264 with reasonable bitrate. Larger than that should be a
+// separate signed-URL upload flow; this fits comfortably through the
+// edge function base64 path.
+const MAX_BYTES_VIDEO = 50 * 1024 * 1024;
 const ALLOWED_EXTS: Record<string, string> = {
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
   png: 'image/png',
   webp: 'image/webp',
   pdf: 'application/pdf',
+  mp4: 'video/mp4',
+  webm: 'video/webm',
+  mov: 'video/quicktime',
 };
 // PDFs only make sense for sub-slides (a flyer presenter shows mid-
 // agenda). Other photo kinds (avatars, hero banners, prize shots)
 // expect a real image.
 const PDF_ALLOWED_KINDS = new Set(['agenda_slide']);
+// Videos are even more restricted — only the dedicated video kind for
+// sub-slides. They never apply to avatars, hero banners, or prizes.
+const VIDEO_EXTS = new Set(['mp4', 'webm', 'mov']);
+const VIDEO_ALLOWED_KINDS = new Set(['agenda_slide_video']);
 
 // Map of kind → which column to patch on the event row. Only used for
 // event-row writes; the 'prize_item' kind targets raffle_prizes instead
@@ -46,7 +58,7 @@ const KIND_COLUMN: Record<string, string> = {
   organizer: 'organizer_photo_url',
   coaching: 'coaching_image_url',
 };
-const VALID_KINDS = ['prize', 'prize_item', 'organizer', 'agenda_slide', 'coaching', 'coach'];
+const VALID_KINDS = ['prize', 'prize_item', 'organizer', 'agenda_slide', 'agenda_slide_video', 'coaching', 'coach'];
 
 Deno.serve(async (req) => {
   const preflight = handleOptions(req);
@@ -66,19 +78,33 @@ Deno.serve(async (req) => {
   const prize_id = kind === 'prize_item' ? String(body.prize_id || '').trim() : '';
   if (kind === 'prize_item' && !prize_id) return errResp(400, 'prize_id required when kind=prize_item');
   // For sub-slide uploads, slide_id targets which agenda_slides row to patch.
-  const slide_id = kind === 'agenda_slide' ? String(body.slide_id || '').trim() : '';
-  if (kind === 'agenda_slide' && !slide_id) return errResp(400, 'slide_id required when kind=agenda_slide');
+  // Both 'agenda_slide' (image_url) and 'agenda_slide_video' (video_url)
+  // need the same slide_id.
+  const slide_id = (kind === 'agenda_slide' || kind === 'agenda_slide_video')
+    ? String(body.slide_id || '').trim() : '';
+  if ((kind === 'agenda_slide' || kind === 'agenda_slide_video') && !slide_id) {
+    return errResp(400, 'slide_id required when kind=agenda_slide(_video)');
+  }
   // For coach uploads, coach_id targets which coaches row to patch.
   const coach_id = kind === 'coach' ? String(body.coach_id || '').trim() : '';
   if (kind === 'coach' && !coach_id) return errResp(400, 'coach_id required when kind=coach');
 
   const ext = (filename.split('.').pop() || 'jpg').toLowerCase();
   const contentType = ALLOWED_EXTS[ext];
-  if (!contentType) return errResp(400, 'unsupported file type (jpg, png, webp, pdf only)');
+  if (!contentType) return errResp(400, 'unsupported file type (jpg, png, webp, pdf, mp4, webm, mov)');
   // PDFs are restricted to sub-slides; a coach headshot PDF doesn't
   // render as a circle avatar.
   if (ext === 'pdf' && !PDF_ALLOWED_KINDS.has(kind)) {
     return errResp(400, `PDFs are only supported for kind=${[...PDF_ALLOWED_KINDS].join(', ')}`);
+  }
+  // Videos are even more restricted — only the dedicated video kind.
+  if (VIDEO_EXTS.has(ext) && !VIDEO_ALLOWED_KINDS.has(kind)) {
+    return errResp(400, `Videos are only supported for kind=${[...VIDEO_ALLOWED_KINDS].join(', ')}`);
+  }
+  // And the video kind requires a video extension (don't smuggle a JPG
+  // into the video column).
+  if (kind === 'agenda_slide_video' && !VIDEO_EXTS.has(ext)) {
+    return errResp(400, 'agenda_slide_video requires mp4, webm, or mov');
   }
 
   let bytes: Uint8Array;
@@ -90,7 +116,9 @@ Deno.serve(async (req) => {
   } catch {
     return errResp(400, 'invalid base64 data');
   }
-  const cap = ext === 'pdf' ? MAX_BYTES_PDF : MAX_BYTES;
+  const cap = VIDEO_EXTS.has(ext) ? MAX_BYTES_VIDEO
+    : ext === 'pdf' ? MAX_BYTES_PDF
+    : MAX_BYTES;
   if (bytes.byteLength > cap) {
     const capMb = Math.round(cap / 1024 / 1024);
     return errResp(413, `file too large (${capMb}MB max)`);
@@ -118,7 +146,7 @@ Deno.serve(async (req) => {
       .eq('id', prize_id).eq('event_id', ev.id).maybeSingle();
     if (!prize) return errResp(404, 'prize not found in this event');
   }
-  if (kind === 'agenda_slide') {
+  if (kind === 'agenda_slide' || kind === 'agenda_slide_video') {
     // Lateral join to confirm the sub-slide's parent agenda item belongs
     // to this event.
     const { data: slide } = await supabase
@@ -139,6 +167,7 @@ Deno.serve(async (req) => {
 
   const idSegment = kind === 'prize_item' ? `prize_item-${prize_id}`
     : kind === 'agenda_slide' ? `agenda_slide-${slide_id}`
+    : kind === 'agenda_slide_video' ? `agenda_slide_video-${slide_id}`
     : kind === 'coach' ? `coach-${coach_id}`
     : kind;
   const path = `${ev.slug}/${idSegment}-${Date.now()}.${ext}`;
@@ -157,6 +186,10 @@ Deno.serve(async (req) => {
   } else if (kind === 'agenda_slide') {
     const { error: updErr } = await supabase
       .from('agenda_slides').update({ image_url: publicUrl }).eq('id', slide_id);
+    if (updErr) return errResp(500, updErr.message);
+  } else if (kind === 'agenda_slide_video') {
+    const { error: updErr } = await supabase
+      .from('agenda_slides').update({ video_url: publicUrl }).eq('id', slide_id);
     if (updErr) return errResp(500, updErr.message);
   } else if (kind === 'coach') {
     const { error: updErr } = await supabase
