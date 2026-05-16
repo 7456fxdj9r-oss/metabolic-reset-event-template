@@ -24,6 +24,8 @@ import Base from '../layouts/Base.astro';
   import { createClient } from '@supabase/supabase-js';
   import { escapeHtml } from '../lib/html.js';
   import { parseVideoEmbed } from '../lib/embed-url.ts';
+  import { eventUrl } from '../lib/urls.js';
+  import QRCode from 'qrcode';
 
   type Speaker = {
     id: string; name: string;
@@ -49,7 +51,7 @@ import Base from '../layouts/Base.astro';
     display_order: number;
   };
   type Slide =
-    | { kind: 'cover'; eventName: string; dateText: string; location: string | null }
+    | { kind: 'cover'; eventName: string; dateText: string; location: string | null; hubQrUrl: string }
     | { kind: 'speaker'; item: AgendaItem; speaker: Speaker }
     | { kind: 'multi'; item: AgendaItem; speakers: Speaker[] }
     | { kind: 'section'; item: AgendaItem }
@@ -154,12 +156,20 @@ import Base from '../layouts/Base.astro';
         // primary slide (speaker / multi / section) followed by any
         // sub-slides attached to that item in display_order. Flat list
         // so the existing index-based navigation just works.
+        // Hub QR for the cover slide: full-origin URL to the audience
+        // hub (/event/<slug>). Attendees scan from their seats to pull
+        // up the event app — raffle, transformations, speakers, etc.
+        // all live one tap inside.
+        const hubQrUrl =
+          window.location.origin + eventUrl(import.meta.env.BASE_URL, slug!);
+
         const slides: Slide[] = [
           {
             kind: 'cover',
             eventName: event.name,
             dateText: fmtEventDate(event.event_date),
             location: event.host_line || null,
+            hubQrUrl,
           },
         ];
         for (const it of agenda) {
@@ -194,6 +204,10 @@ import Base from '../layouts/Base.astro';
                 <h1 class="cover-title">${escapeHtml(slide.eventName)}</h1>
                 ${slide.dateText ? `<p class="cover-date">${escapeHtml(slide.dateText)}</p>` : ''}
                 ${showLocation ? `<p class="cover-loc">📍 ${escapeHtml(slide.location)}</p>` : ''}
+                <div class="cover-qr-block">
+                  <canvas class="cover-qr" id="cover-qr" data-href="${escapeHtml(slide.hubQrUrl)}"></canvas>
+                  <p class="cover-qr-caption">📱 Scan to open the audience app</p>
+                </div>
                 <p class="cover-cta">Starting soon…</p>
               </div>`;
           } else if (slide.kind === 'speaker') {
@@ -302,6 +316,16 @@ import Base from '../layouts/Base.astro';
           root.innerHTML = `
             <div class="accent-stripe"></div>
             ${body}`;
+          // After the slide is in the DOM, draw any cover-slide QR
+          // onto its canvas. White-on-dark to match the deck theme.
+          const qrCanvas = document.getElementById('cover-qr') as HTMLCanvasElement | null;
+          const qrHref = qrCanvas?.getAttribute('data-href');
+          if (qrCanvas && qrHref) {
+            QRCode.toCanvas(qrCanvas, qrHref, {
+              width: 320, margin: 1,
+              color: { dark: '#ffffff', light: '#1a252f' },
+            }).catch(() => { /* QR is decorative; failure shouldn't break the slide */ });
+          }
         }
 
         function setIndex(i: number): void {
@@ -493,10 +517,32 @@ import Base from '../layouts/Base.astro';
     color: #95a5a6;
   }
   .cover-cta {
-    margin-top: 40px;
+    margin-top: 24px;
     font-size: clamp(16px, 2.4vh, 24px);
     color: var(--accent);
     letter-spacing: 4px; text-transform: uppercase; font-weight: 700;
+  }
+  /* Cover-slide QR — big and centered so attendees can scan from the
+     back of the room. White-on-dark matches the rest of the deck. */
+  .cover-qr-block {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 10px;
+    margin-top: 18px;
+  }
+  .cover-qr {
+    /* Override .cover-qr canvas inline width that QRCode.toCanvas
+       writes — clamp visually to a size legible from across a room. */
+    width: clamp(180px, 28vh, 320px) !important;
+    height: clamp(180px, 28vh, 320px) !important;
+    border-radius: 10px;
+    padding: 8px;
+    background: #1a252f;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+  }
+  .cover-qr-caption {
+    font-size: clamp(14px, 1.8vh, 18px);
+    color: #ecf0f1; font-weight: 700;
+    letter-spacing: 1px; text-transform: uppercase;
   }
 
   /* Speaker slide: photo left, text right on landscape; stacked on narrow */
