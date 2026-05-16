@@ -329,7 +329,67 @@ import Base from '../layouts/Base.astro';
           } else if (ev.key === 'End') {
             ev.preventDefault();
             setIndex(slides.length - 1);
+          } else if (ev.key === 'f' || ev.key === 'F') {
+            // Toggle browser fullscreen. ESC always exits (browser
+            // default). Vimeo iframes still get their own fullscreen
+            // button inside the player; this is the deck-level
+            // fullscreen that hides the address bar + tabs.
+            ev.preventDefault();
+            toggleFullscreen();
           }
+        });
+
+        // Floating fullscreen button — corner of the deck so the
+        // presenter can tap into fullscreen on the projector laptop
+        // before walking on stage. Hidden during fullscreen, surfaced
+        // again on mouse move (so it's reachable but never sits over
+        // the slide).
+        const fsBtn = document.createElement('button');
+        fsBtn.type = 'button';
+        fsBtn.id = 'deck-fullscreen-btn';
+        fsBtn.title = 'Fullscreen (F)';
+        fsBtn.setAttribute('aria-label', 'Toggle fullscreen');
+        fsBtn.innerHTML = '⛶';
+        fsBtn.addEventListener('click', toggleFullscreen);
+        document.body.appendChild(fsBtn);
+
+        function isFullscreen(): boolean {
+          // deno-lint-ignore no-explicit-any
+          const d = document as any;
+          return !!(document.fullscreenElement || d.webkitFullscreenElement);
+        }
+        function toggleFullscreen(): void {
+          if (isFullscreen()) {
+            // deno-lint-ignore no-explicit-any
+            const d = document as any;
+            if (document.exitFullscreen) document.exitFullscreen();
+            else if (d.webkitExitFullscreen) d.webkitExitFullscreen();
+          } else {
+            // deno-lint-ignore no-explicit-any
+            const el = document.documentElement as any;
+            if (el.requestFullscreen) el.requestFullscreen();
+            else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+          }
+        }
+        function updateFsBtn(): void {
+          fsBtn.innerHTML = isFullscreen() ? '⤓' : '⛶';
+          fsBtn.title = isFullscreen() ? 'Exit fullscreen (F / ESC)' : 'Fullscreen (F)';
+          document.body.classList.toggle('is-fullscreen', isFullscreen());
+        }
+        document.addEventListener('fullscreenchange', updateFsBtn);
+        document.addEventListener('webkitfullscreenchange', updateFsBtn);
+
+        // In fullscreen mode, idle-hide the button after 2s of no
+        // mouse movement so it doesn't sit over the slide on the
+        // projector. Mouse movement re-shows it.
+        let idleTimer: number | null = null;
+        document.addEventListener('mousemove', () => {
+          if (!isFullscreen()) return;
+          document.body.classList.remove('deck-idle');
+          if (idleTimer) clearTimeout(idleTimer);
+          idleTimer = window.setTimeout(() => {
+            document.body.classList.add('deck-idle');
+          }, 2000);
         });
 
         // Realtime: listen for advance events from deck-console.
@@ -361,6 +421,36 @@ import Base from '../layouts/Base.astro';
     overflow: hidden;
   }
   html, body { height: 100%; }
+
+  /* Floating fullscreen toggle in the bottom-right corner. Visible
+     by default so the presenter sees it when they first load the
+     deck on the projector laptop. Auto-fades in fullscreen mode
+     after 2s of no mouse movement (deck-idle body class). */
+  #deck-fullscreen-btn {
+    position: fixed;
+    bottom: max(14px, env(safe-area-inset-bottom, 14px));
+    right: max(14px, env(safe-area-inset-right, 14px));
+    width: 48px; height: 48px;
+    border-radius: 24px;
+    background: rgba(26,37,47,0.85);
+    color: #ecf0f1;
+    border: 1px solid rgba(255,255,255,0.20);
+    font-size: 22px; line-height: 1;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+    transition: opacity 0.4s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #deck-fullscreen-btn:hover {
+    background: rgba(255,255,255,0.12);
+  }
+  body.is-fullscreen.deck-idle #deck-fullscreen-btn {
+    opacity: 0;
+    pointer-events: none;
+  }
+
   main.deck {
     width: 100vw; height: 100vh;
     display: flex; align-items: center; justify-content: center;
