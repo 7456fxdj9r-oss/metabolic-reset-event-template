@@ -3935,25 +3935,31 @@ import Base from '../layouts/Base.astro';
               </div>
               ${slide ? `
               <div class="photo-slot sub-slide-video-slot" data-sub-slide-video-slot>
-                <span class="slot-label">Video <span class="opt">(optional, .mp4 up to 50MB — plays on the projector deck)</span></span>
+                <span class="slot-label">Video <span class="opt">(optional — Vimeo or YouTube recommended, or upload a clip up to 50MB)</span></span>
+                <label class="vimeo-url-row">
+                  <span class="vimeo-url-label">Vimeo or YouTube URL</span>
+                  <input type="url" name="video_url" value="${escapeHtml(v.video_url || '')}" placeholder="https://vimeo.com/123456789" />
+                  <span class="opt vimeo-url-hint">Pasted? Click <strong>Save changes</strong> at the bottom to save the link.</span>
+                </label>
                 <div class="photo-preview sub-slide-video-preview">
                   ${v.video_url
                     ? `<video src="${escapeHtml(v.video_url)}" controls preload="metadata" playsinline></video>`
                     : '<div class="empty">No video</div>'}
                 </div>
+                <div class="vimeo-url-divider"><span>or upload a file</span></div>
                 <div class="photo-actions">
                   <label class="upload-btn">
                     <input type="file" accept=".mp4,.webm,.mov,video/mp4,video/webm,video/quicktime" data-sub-slide-video-slot hidden />
-                    <span class="upload-label">${v.video_url ? 'Replace video' : 'Upload video'}</span>
+                    <span class="upload-label">${v.video_url ? 'Replace video' : 'Upload video file'}</span>
                   </label>
                   ${v.video_url
                     ? '<button type="button" class="upload-btn" data-remove-sub-slide-video>Remove video</button>'
                     : ''}
                 </div>
                 <span class="upload-status" data-sub-slide-video-slot></span>
-                <span class="recrop-hint">Tip: use .mp4 (H.264). iPhone .mov clips often use HEVC and won't play on every projector laptop — export as MP4 first. The image above shows as a fallback if the video can't be played.</span>
+                <span class="recrop-hint">Vimeo/YouTube is the safer choice — no codec issues, no size limit, works on every projector laptop. Uploaded files use .mp4 (H.264) only; iPhone .mov is often HEVC and won't play reliably. The image above is the poster + fallback.</span>
               </div>
-              ` : '<p class="opt" style="font-size:11px;color:#95a5a6;margin-top:4px;">Save the slide first, then a video upload section will appear here.</p>'}
+              ` : '<p class="opt" style="font-size:11px;color:#95a5a6;margin-top:4px;">Save the slide first, then a video link or upload section will appear here.</p>'}
               <div class="row">
                 <button type="submit">${slide ? 'Save changes' : 'Create'}</button>
                 <button type="button" class="cancel-sub-slide">Cancel</button>
@@ -4561,8 +4567,22 @@ import Base from '../layouts/Base.astro';
             title,
             body: body || null,
           };
-          if (editing) slide.id = editing.id;
-          else slide.agenda_item_id = parentId;
+          if (editing) {
+            slide.id = editing.id;
+            // Only send video_url in edit mode (the URL input only
+            // renders in the form once the slide exists). Empty string
+            // → null clears the link; null preserves the existing
+            // upload-set URL.
+            const videoUrlRaw = String(fd.get('video_url') || '').trim();
+            // Compare against the current saved value so we only touch
+            // the column when the user actually changed it — avoids
+            // clobbering a file uploaded via the slot below.
+            if (videoUrlRaw !== (editing.video_url || '')) {
+              slide.video_url = videoUrlRaw || null;
+            }
+          } else {
+            slide.agenda_item_id = parentId;
+          }
           try {
             const res = await callFunction('manage-agenda-slides', {
               slug, edit_token: key,
@@ -6001,6 +6021,53 @@ import Base from '../layouts/Base.astro';
     color: #ecf0f1;
     vertical-align: 1px;
   }
+  /* Vimeo / YouTube URL row inside the sub-slide video slot */
+  .vimeo-url-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 10px;
+  }
+  .vimeo-url-row input[type="url"] {
+    padding: 10px 12px;
+    background: rgba(0,0,0,0.30);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px;
+    color: #ecf0f1;
+    font-size: 14px;
+    font-family: inherit;
+  }
+  .vimeo-url-row input[type="url"]:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .vimeo-url-label {
+    font-size: 12px; font-weight: 600;
+    color: #ecf0f1;
+  }
+  .vimeo-url-hint {
+    font-size: 11px;
+    color: #95a5a6;
+    font-style: italic;
+  }
+  /* Visual "or" divider between the URL field and the file uploader */
+  .vimeo-url-divider {
+    display: flex; align-items: center;
+    gap: 8px;
+    margin: 12px 0 8px;
+    font-size: 11px;
+    color: #95a5a6;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+  }
+  .vimeo-url-divider::before,
+  .vimeo-url-divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: rgba(255,255,255,0.10);
+  }
+
   /* Video preview in the form (taller than image preview to fit
      16:9 / vertical clips) */
   .sub-slide-video-preview {

@@ -23,6 +23,7 @@ import Base from '../layouts/Base.astro';
   import { fetchEventBySlug, fetchSpeakers, fetchAgendaItems, callFunction, getConfig } from '../lib/supabase.js';
   import { createClient } from '@supabase/supabase-js';
   import { escapeHtml } from '../lib/html.js';
+  import { parseVideoEmbed } from '../lib/embed-url.ts';
 
   type Speaker = {
     id: string; name: string;
@@ -240,24 +241,41 @@ import Base from '../layouts/Base.astro';
             const titleHtml = hasTitle ? `<h2 class="content-title">${escapeHtml(s.title)}</h2>` : '';
             const bodyHtml = hasBody ? `<p class="content-body">${escapeHtml(s.body!)}</p>` : '';
             if (hasVideo) {
-              // <video> with poster (image_url, if any) + <source> + an
-              // inner <img> fallback that browsers display when the
-              // video element can't render the source (unsupported
-              // codec, decode error). The presenter clicks the native
-              // play button; deck navigation pauses any active video.
-              const posterAttr = hasImage ? ` poster="${escapeHtml(s.image_url!)}"` : '';
-              const fallbackImg = hasImage
-                ? `<img src="${escapeHtml(s.image_url!)}" alt="" />`
-                : '<p style="color:#fff;padding:20px;">Video unavailable on this browser.</p>';
-              body = `
-                <div class="slide content-slide layout-stacked">
-                  <video class="content-image content-video" controls preload="metadata" playsinline${posterAttr}>
-                    <source src="${escapeHtml(s.video_url!)}" />
-                    ${fallbackImg}
-                  </video>
-                  ${titleHtml}
-                  ${bodyHtml}
-                </div>`;
+              // Three shapes for the video, depending on URL:
+              //   1. Vimeo / YouTube → <iframe> with their player. Handles
+              //      its own poster, ads, playback controls. Most
+              //      reliable across projector laptops.
+              //   2. Raw video file (Supabase Storage etc.) → <video>
+              //      with poster + <source> + inner <img> fallback that
+              //      the browser renders if the codec fails.
+              const embed = parseVideoEmbed(s.video_url);
+              if (embed && embed.type === 'iframe') {
+                body = `
+                  <div class="slide content-slide layout-stacked">
+                    <iframe class="content-image content-embed"
+                            src="${escapeHtml(embed.src)}"
+                            allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+                            allowfullscreen
+                            referrerpolicy="strict-origin-when-cross-origin"
+                            frameborder="0"></iframe>
+                    ${titleHtml}
+                    ${bodyHtml}
+                  </div>`;
+              } else {
+                const posterAttr = hasImage ? ` poster="${escapeHtml(s.image_url!)}"` : '';
+                const fallbackImg = hasImage
+                  ? `<img src="${escapeHtml(s.image_url!)}" alt="" />`
+                  : '<p style="color:#fff;padding:20px;">Video unavailable on this browser.</p>';
+                body = `
+                  <div class="slide content-slide layout-stacked">
+                    <video class="content-image content-video" controls preload="metadata" playsinline${posterAttr}>
+                      <source src="${escapeHtml(s.video_url!)}" />
+                      ${fallbackImg}
+                    </video>
+                    ${titleHtml}
+                    ${bodyHtml}
+                  </div>`;
+              }
             } else if (hasImage) {
               body = `
                 <div class="slide content-slide layout-stacked">
@@ -517,6 +535,21 @@ import Base from '../layouts/Base.astro';
   .content-slide.layout-stacked .content-video {
     background: #000;
     /* Preserve native browser controls — presenter clicks Play. */
+  }
+  /* Vimeo / YouTube iframe embed. Size mirrors .content-image so the
+     layout stays consistent. 16:9 aspect locks the proportions even
+     when the source video is different; the player letterboxes
+     gracefully. */
+  .content-slide.layout-stacked .content-embed {
+    width: 92vw;
+    aspect-ratio: 16 / 9;
+    max-height: 72vh;
+    border-radius: 16px;
+    background: #000;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+  }
+  .content-slide.layout-stacked .content-embed:last-child {
+    max-height: 88vh;
   }
   .content-slide.layout-stacked .content-title {
     font-size: clamp(26px, 4.8vh, 48px);
