@@ -7,13 +7,16 @@
   position: fixed; inset: 0;
   background: rgba(0,0,0,0.92);
   z-index: 60;
+  /* Universal vertical centering that also handles overflow: standard
+     flex centering on the parent, plus margin-block: auto on the card
+     (defined below). When the card is shorter than the viewport, the
+     auto margins push it to center. When the card overflows, the
+     auto margins collapse to 0 and the card sits at the top of the
+     scroll area. Works on every browser back to flexbox-era — no
+     `safe center` keyword which some Android Chrome builds drop. */
   display: flex;
-  /* `safe center` falls back to flex-start when the child is taller
-     than the container, so a long transformation card (photos +
-     chart + takeaway) never gets its top clipped off-screen. The
-     overlay scrolls vertically; the card flows naturally inside. */
-  align-items: safe center;
-  justify-content: safe center;
+  align-items: center;
+  justify-content: center;
   padding: 18px 14px;
   padding-top: max(18px, env(safe-area-inset-top, 18px));
   padding-bottom: max(18px, env(safe-area-inset-bottom, 18px));
@@ -29,6 +32,10 @@
 .audience-card {
   width: 100%; max-width: 480px;
   background: #1a252f;
+  /* Accent border, with a hard-coded RGBA fallback for older browsers
+     that don't support color-mix() yet. The fallback paints first;
+     supporting browsers re-paint with the accent-tinted color-mix. */
+  border: 1px solid rgba(243,156,18,0.35);
   border: 1px solid color-mix(in srgb, var(--accent, #f39c12) 35%, transparent);
   border-radius: 14px;
   /* Top padding includes the close button's footprint so the eyebrow
@@ -37,9 +44,13 @@
   text-align: center;
   position: relative;
   box-shadow: 0 20px 60px rgba(0,0,0,0.7);
-  /* Block centering when the card is shorter than the viewport: flex
-     parent uses `safe center` which only kicks in when the card fits.
-     Otherwise overflow scrolls the overlay; card flows from the top. */
+  /* margin-block: auto + flex parent align-items: center is the
+     overflow-safe centering pattern. When the card fits the viewport,
+     auto vertical margins distribute equally → centered. When the
+     card is taller than the viewport, the auto margins collapse to 0
+     and the card sits at the top of the scroll area. The overlay's
+     overflow-y: auto handles the scroll. */
+  margin-block: auto;
 }
 .audience-close {
   /* Fixed to the viewport corner so the user can dismiss the popup at
