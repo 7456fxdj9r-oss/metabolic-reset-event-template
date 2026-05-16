@@ -50,7 +50,7 @@ Deno.serve(async (req) => {
     // this event. Cleaner than a two-query approach.
     let q = supabase
       .from('agenda_slides')
-      .select('id, agenda_item_id, title, body, image_url, display_order, created_at, agenda_items!inner(event_id)')
+      .select('id, agenda_item_id, title, body, image_url, video_url, display_order, created_at, agenda_items!inner(event_id)')
       .eq('agenda_items.event_id', event_id)
       .order('display_order', { ascending: true })
       .order('created_at', { ascending: true });
